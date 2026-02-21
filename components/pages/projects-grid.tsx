@@ -8,89 +8,89 @@ const mockProjects = [
     id: "1",
     name: "MiniMax",
     logo: "M",
-    description: "通用人工智能科技公司，专注于大模型研发",
-    tags: ["AI", "B轮"],
-    status: "尽调中",
+    description: "\u901A\u7528\u4EBA\u5DE5\u667A\u80FD\u79D1\u6280\u516C\u53F8\uFF0C\u4E13\u6CE8\u4E8E\u5927\u6A21\u578B\u7814\u53D1",
+    tags: ["AI", "B\u8F6E"],
+    status: "\u5C3D\u8C03\u4E2D",
     statusColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    valuation: "10亿 USD",
-    round: "B轮",
+    valuation: "10\u4EBF USD",
+    round: "B\u8F6E",
   },
   {
     id: "2",
-    name: "月之暗面",
-    logo: "月",
-    description: "新一代AI搜索与对话平台",
-    tags: ["AI", "A轮"],
-    status: "已投资",
+    name: "\u6708\u4E4B\u6697\u9762",
+    logo: "\u6708",
+    description: "\u65B0\u4E00\u4EE3AI\u641C\u7D22\u4E0E\u5BF9\u8BDD\u5E73\u53F0",
+    tags: ["AI", "A\u8F6E"],
+    status: "\u5DF2\u6295\u8D44",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
-    valuation: "25亿 USD",
-    round: "A轮",
+    valuation: "25\u4EBF USD",
+    round: "A\u8F6E",
   },
   {
     id: "3",
-    name: "智谱AI",
-    logo: "智",
-    description: "认知大模型技术与应用开发",
-    tags: ["AI", "C轮"],
-    status: "评估中",
+    name: "\u667A\u8C31AI",
+    logo: "\u667A",
+    description: "\u8BA4\u77E5\u5927\u6A21\u578B\u6280\u672F\u4E0E\u5E94\u7528\u5F00\u53D1",
+    tags: ["AI", "C\u8F6E"],
+    status: "\u8BC4\u4F30\u4E2D",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
-    valuation: "30亿 USD",
-    round: "C轮",
+    valuation: "30\u4EBF USD",
+    round: "C\u8F6E",
   },
   {
     id: "4",
-    name: "百川智能",
-    logo: "百",
-    description: "大语言模型研发与应用",
-    tags: ["AI", "B轮"],
-    status: "已投资",
+    name: "\u767E\u5DDD\u667A\u80FD",
+    logo: "\u767E",
+    description: "\u5927\u8BED\u8A00\u6A21\u578B\u7814\u53D1\u4E0E\u5E94\u7528",
+    tags: ["AI", "B\u8F6E"],
+    status: "\u5DF2\u6295\u8D44",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
-    valuation: "12亿 USD",
-    round: "B轮",
+    valuation: "12\u4EBF USD",
+    round: "B\u8F6E",
   },
   {
     id: "5",
-    name: "零一万物",
-    logo: "零",
-    description: "通用AI助理与多模态模型",
-    tags: ["AI", "A轮"],
-    status: "尽调中",
+    name: "\u96F6\u4E00\u4E07\u7269",
+    logo: "\u96F6",
+    description: "\u901A\u7528AI\u52A9\u7406\u4E0E\u591A\u6A21\u6001\u6A21\u578B",
+    tags: ["AI", "A\u8F6E"],
+    status: "\u5C3D\u8C03\u4E2D",
     statusColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    valuation: "8亿 USD",
-    round: "A轮",
+    valuation: "8\u4EBF USD",
+    round: "A\u8F6E",
   },
   {
     id: "6",
-    name: "阶跃星辰",
-    logo: "阶",
-    description: "多模态大模型与智能体平台",
+    name: "\u9636\u8DC3\u661F\u8FB0",
+    logo: "\u9636",
+    description: "\u591A\u6A21\u6001\u5927\u6A21\u578B\u4E0E\u667A\u80FD\u4F53\u5E73\u53F0",
     tags: ["AI", "Pre-A"],
-    status: "评估中",
+    status: "\u8BC4\u4F30\u4E2D",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
-    valuation: "5亿 USD",
+    valuation: "5\u4EBF USD",
     round: "Pre-A",
   },
   {
     id: "7",
-    name: "深势科技",
-    logo: "深",
-    description: "AI for Science，分子模拟与药物设计",
-    tags: ["AI+科学", "B轮"],
-    status: "已投资",
+    name: "\u6DF1\u52BF\u79D1\u6280",
+    logo: "\u6DF1",
+    description: "AI for Science\uFF0C\u5206\u5B50\u6A21\u62DF\u4E0E\u836F\u7269\u8BBE\u8BA1",
+    tags: ["AI+\u79D1\u5B66", "B\u8F6E"],
+    status: "\u5DF2\u6295\u8D44",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
-    valuation: "15亿 USD",
-    round: "B轮",
+    valuation: "15\u4EBF USD",
+    round: "B\u8F6E",
   },
   {
     id: "8",
-    name: "衔远科技",
-    logo: "衔",
-    description: "AI驱动的电商与消费品创新",
-    tags: ["AI+消费", "A轮"],
-    status: "评估中",
+    name: "\u886C\u8FDC\u79D1\u6280",
+    logo: "\u886C",
+    description: "AI\u9A71\u52A8\u7684\u7535\u5546\u4E0E\u6D88\u8D39\u54C1\u521B\u65B0",
+    tags: ["AI+\u6D88\u8D39", "A\u8F6E"],
+    status: "\u8BC4\u4F30\u4E2D",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
-    valuation: "3亿 USD",
-    round: "A轮",
+    valuation: "3\u4EBF USD",
+    round: "A\u8F6E",
   },
 ]
 
@@ -109,9 +109,11 @@ export function ProjectsGrid({ onSelectProject }: ProjectsGridProps) {
               <FolderKanban className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[#111827]">项目列表</h1>
+              <h1 className="text-2xl font-bold text-[#111827]">
+                {"\u9879\u76EE\u5217\u8868"}
+              </h1>
               <p className="text-sm text-[#6B7280]">
-                共 {mockProjects.length} 个投资项目
+                {"\u5171 "}{mockProjects.length}{" \u4E2A\u6295\u8D44\u9879\u76EE"}
               </p>
             </div>
           </div>
@@ -120,13 +122,13 @@ export function ProjectsGrid({ onSelectProject }: ProjectsGridProps) {
               <Search className="h-4 w-4 text-[#9CA3AF]" />
               <input
                 type="text"
-                placeholder="搜索项目..."
+                placeholder={"\u641C\u7D22\u9879\u76EE..."}
                 className="w-48 bg-transparent text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF]"
               />
             </div>
             <button className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
               <Plus className="h-4 w-4" />
-              新建项目
+              {"\u65B0\u5EFA\u9879\u76EE"}
             </button>
           </div>
         </div>
