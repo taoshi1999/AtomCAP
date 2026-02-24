@@ -32,6 +32,7 @@ interface HypothesisNode {
   id: string
   label: string
   fullName?: string
+  tag?: "required" | "recommended" | "optional"
   children?: HypothesisNode[]
 }
 
@@ -44,8 +45,7 @@ interface StrategyHypothesisDetail {
   id: string
   title: string
   category: string
-  priority: "high" | "medium" | "low"
-  status: "recommended" | "applied" | "optional"
+  tag: "required" | "recommended" | "optional"
   description: string
   rationale: string
   verificationMethod: string
@@ -79,11 +79,13 @@ const hypothesisTree: HypothesisNode[] = [
             id: "sh1",
             label: "GPU\u67B6\u6784",
             fullName: "\u6838\u5FC3\u6280\u672F\u56E2\u961F\u5177\u5907GPU\u67B6\u6784\u8BBE\u8BA1\u80FD\u529B",
+            tag: "required",
           },
           {
             id: "sh4",
             label: "\u6280\u672F\u8FED\u4EE3",
             fullName: "\u5177\u5907\u53EF\u6301\u7EED\u7684\u6280\u672F\u8FED\u4EE3\u80FD\u529B",
+            tag: "recommended",
           },
         ],
       },
@@ -101,6 +103,7 @@ const hypothesisTree: HypothesisNode[] = [
             id: "sh2",
             label: "TAM\u8D85100\u4EBF",
             fullName: "\u76EE\u6807\u5E02\u573ATAM\u8D85\u8FC7100\u4EBF\u7F8E\u5143",
+            tag: "required",
           },
         ],
       },
@@ -118,6 +121,7 @@ const hypothesisTree: HypothesisNode[] = [
             id: "sh3",
             label: "\u6807\u6746\u5BA2\u6237",
             fullName: "\u4EA7\u54C1\u5DF2\u83B7\u5F97\u6807\u6746\u5BA2\u6237\u9A8C\u8BC1",
+            tag: "recommended",
           },
         ],
       },
@@ -135,6 +139,7 @@ const hypothesisTree: HypothesisNode[] = [
             id: "sh5",
             label: "\u76C8\u4E8F\u5E73\u8861",
             fullName: "\u5355\u4F4D\u7ECF\u6D4E\u6A21\u578B\u53EF\u572824\u4E2A\u6708\u5185\u76C8\u4E8F\u5E73\u8861",
+            tag: "optional",
           },
         ],
       },
@@ -152,6 +157,7 @@ const hypothesisTree: HypothesisNode[] = [
             id: "sh6",
             label: "\u591A\u5143\u5316\u5E03\u5C40",
             fullName: "\u4F9B\u5E94\u94FE\u5177\u6709\u591A\u5143\u5316\u5E03\u5C40",
+            tag: "optional",
           },
         ],
       },
@@ -167,8 +173,7 @@ const detailsMap: Record<string, StrategyHypothesisDetail> = {
     id: "sh1",
     title: "\u6838\u5FC3\u6280\u672F\u56E2\u961F\u5177\u5907GPU\u67B6\u6784\u8BBE\u8BA1\u80FD\u529B",
     category: "\u56E2\u961F\u80FD\u529B",
-    priority: "high",
-    status: "recommended",
+    tag: "required",
     description:
       "\u6295\u8D44\u6807\u7684\u7684\u6838\u5FC3\u6280\u672F\u56E2\u961F\u5E94\u5177\u5907\u81EA\u7814GPU/AI\u82AF\u7247\u67B6\u6784\u7684\u80FD\u529B\uFF0C\u5305\u62EC\u5FAE\u67B6\u6784\u8BBE\u8BA1\u3001\u7F16\u8BD1\u5668\u4F18\u5316\u3001\u9A71\u52A8\u5F00\u53D1\u7B49\u5173\u952E\u6280\u672F\u73AF\u8282\u3002",
     rationale:
@@ -186,8 +191,7 @@ const detailsMap: Record<string, StrategyHypothesisDetail> = {
     id: "sh2",
     title: "\u76EE\u6807\u5E02\u573ATAM\u8D85\u8FC7100\u4EBF\u7F8E\u5143",
     category: "\u5E02\u573A\u673A\u4F1A",
-    priority: "high",
-    status: "recommended",
+    tag: "required",
     description:
       "\u76EE\u6807\u5E02\u573A\u7684\u603B\u53EF\u53CA\u5E02\u573A\u89C4\u6A21\uFF08TAM\uFF09\u5E94\u5728100\u4EBF\u7F8E\u5143\u4EE5\u4E0A\uFF0C\u5E76\u4FDD\u6301\u5E74\u574720%\u4EE5\u4E0A\u7684\u589E\u957F\u7387\uFF0C\u786E\u4FDD\u8DB3\u591F\u7684\u6210\u957F\u7A7A\u95F4\u3002",
     rationale:
@@ -204,8 +208,7 @@ const detailsMap: Record<string, StrategyHypothesisDetail> = {
     id: "sh3",
     title: "\u4EA7\u54C1\u5DF2\u83B7\u5F97\u6807\u6746\u5BA2\u6237\u9A8C\u8BC1",
     category: "\u5546\u4E1A\u9A8C\u8BC1",
-    priority: "high",
-    status: "applied",
+    tag: "recommended",
     description:
       "\u6295\u8D44\u6807\u7684\u7684\u4EA7\u54C1\u6216\u670D\u52A1\u5E94\u5DF2\u83B7\u5F97\u81F3\u5C112-3\u4E2A\u884C\u4E1A\u6807\u6746\u5BA2\u6237\u7684\u5B9E\u9645\u4F7F\u7528\u9A8C\u8BC1\uFF0C\u8BC1\u660E\u4EA7\u54C1\u7684\u5E02\u573A\u53EF\u884C\u6027\u3002",
     rationale:
@@ -220,8 +223,7 @@ const detailsMap: Record<string, StrategyHypothesisDetail> = {
     id: "sh4",
     title: "\u5177\u5907\u53EF\u6301\u7EED\u7684\u6280\u672F\u8FED\u4EE3\u80FD\u529B",
     category: "\u56E2\u961F\u80FD\u529B",
-    priority: "medium",
-    status: "recommended",
+    tag: "recommended",
     description:
       "\u4F01\u4E1A\u5E94\u5C55\u793A\u51FA\u6301\u7EED\u7684\u6280\u672F\u8FED\u4EE3\u548C\u521B\u65B0\u80FD\u529B\uFF0C\u5305\u62EC\u660E\u786E\u7684\u6280\u672F\u8DEF\u7EBF\u56FE\u3001\u5B9A\u671F\u7684\u4EA7\u54C1\u66F4\u65B0\u8282\u594F\u548C\u6280\u672F\u9884\u7814\u6295\u5165\u3002",
     rationale:
@@ -238,8 +240,7 @@ const detailsMap: Record<string, StrategyHypothesisDetail> = {
     id: "sh5",
     title: "\u5355\u4F4D\u7ECF\u6D4E\u6A21\u578B\u53EF\u572824\u4E2A\u6708\u5185\u76C8\u4E8F\u5E73\u8861",
     category: "\u8D22\u52A1\u6A21\u578B",
-    priority: "medium",
-    status: "optional",
+    tag: "optional",
     description:
       "\u6295\u8D44\u6807\u7684\u7684\u5355\u4F4D\u7ECF\u6D4E\u6A21\u578B\u5E94\u80FD\u572824\u4E2A\u6708\u5185\u5B9E\u73B0\u76C8\u4E8F\u5E73\u8861\uFF0C\u6BDB\u5229\u7387\u76EE\u6807\u5E94\u4E0D\u4F4E\u4E8E60%\u3002",
     rationale:
@@ -254,8 +255,7 @@ const detailsMap: Record<string, StrategyHypothesisDetail> = {
     id: "sh6",
     title: "\u4F9B\u5E94\u94FE\u5177\u6709\u591A\u5143\u5316\u5E03\u5C40",
     category: "\u8FD0\u8425\u98CE\u9669",
-    priority: "low",
-    status: "optional",
+    tag: "optional",
     description:
       "\u4F01\u4E1A\u5E94\u5177\u5907\u591A\u5143\u5316\u7684\u4F9B\u5E94\u94FE\u5E03\u5C40\uFF0C\u907F\u514D\u5BF9\u5355\u4E00\u4F9B\u5E94\u5546\u7684\u8FC7\u5EA6\u4F9D\u8D56\u3002",
     rationale:
@@ -343,6 +343,11 @@ function TreeNode({
           <span className="w-3.5 shrink-0" />
         )}
         <span className={cn(isLeaf ? "line-clamp-2" : "truncate")}>{displayLabel}</span>
+        {isLeaf && node.tag && (
+          <Badge className={cn("text-[10px] px-1.5 py-0 h-4 shrink-0 ml-auto", tagConfig[node.tag].badgeCls)}>
+            {tagConfig[node.tag].label}
+          </Badge>
+        )}
       </button>
       {hasChildren && expanded && (
         <div>
@@ -399,16 +404,10 @@ function CommentSection({ comments }: { comments: { author: string; content: str
 /* ------------------------------------------------------------------ */
 /*  Status / Priority configs                                          */
 /* ------------------------------------------------------------------ */
-const statusConfig: Record<string, { label: string; cls: string }> = {
-  recommended: { label: "\u63A8\u8350", cls: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-50" },
-  applied: { label: "\u5DF2\u5E94\u7528", cls: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50" },
-  optional: { label: "\u53EF\u9009", cls: "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-50" },
-}
-
-const priorityConfig: Record<string, { label: string; cls: string }> = {
-  high: { label: "\u9AD8", cls: "bg-rose-50 text-rose-700 border-rose-200" },
-  medium: { label: "\u4E2D", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  low: { label: "\u4F4E", cls: "bg-gray-50 text-gray-600 border-gray-200" },
+const tagConfig: Record<string, { label: string; badgeCls: string }> = {
+  required: { label: "\u5FC5\u8981", badgeCls: "bg-red-50 text-red-700 border-red-200 hover:bg-red-50" },
+  recommended: { label: "\u63A8\u8350", badgeCls: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-50" },
+  optional: { label: "\u53EF\u9009", badgeCls: "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-50" },
 }
 
 /* ------------------------------------------------------------------ */
@@ -434,11 +433,8 @@ function DetailPanel({ detail }: { detail: StrategyHypothesisDetail }) {
             <Badge className="bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-50 text-xs">
               {detail.category}
             </Badge>
-            <Badge className={cn("text-xs", statusConfig[detail.status]?.cls)}>
-              {statusConfig[detail.status]?.label}
-            </Badge>
-            <Badge className={cn("text-xs", priorityConfig[detail.priority]?.cls)}>
-              {"\u4F18\u5148\u7EA7: "}{priorityConfig[detail.priority]?.label}
+            <Badge className={cn("text-xs", tagConfig[detail.tag]?.badgeCls)}>
+              {tagConfig[detail.tag]?.label}
             </Badge>
           </div>
           {detail.creator && detail.creator.name && (
@@ -487,17 +483,7 @@ function DetailPanel({ detail }: { detail: StrategyHypothesisDetail }) {
           <CommentSection comments={detail.comments} />
         </div>
 
-        {/* Action Bar */}
-        <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
-          <div className="flex items-center justify-end gap-3">
-            <button className="flex items-center gap-2 rounded-lg border border-[#D1D5DB] bg-white px-4 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]">
-              {"\u6807\u8BB0\u4E3A\u53EF\u9009"}
-            </button>
-            <button className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
-              {"\u5E94\u7528\u5230\u9879\u76EE"}
-            </button>
-          </div>
-        </div>
+
       </div>
     </ScrollArea>
   )
