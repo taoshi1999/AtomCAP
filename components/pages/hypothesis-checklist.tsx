@@ -13,6 +13,8 @@ import {
   PanelRightOpen,
   Send,
   Plus,
+  Link2,
+  FileCheck,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -95,6 +97,13 @@ interface Verification {
   comments: { author: string; content: string; time: string }[]
 }
 
+interface LinkedTerm {
+  id: string
+  title: string
+  termId: string
+  status: "approved" | "pending" | "rejected"
+}
+
 interface HypothesisDetail {
   id: string
   title: string
@@ -107,6 +116,7 @@ interface HypothesisDetail {
   riskPoints: RiskPoint[]
   committeeDecision: CommitteeDecision
   verification: Verification
+  linkedTerms: LinkedTerm[]
 }
 
 /* ------------------------------------------------------------------ */
@@ -354,6 +364,10 @@ const detailsMap: Record<string, HypothesisDetail> = {
       createdAt: "2024-07-15",
       comments: [],
     },
+    linkedTerms: [
+      { id: "board-seat", title: "\u6295\u8D44\u65B9\u6709\u6743\u59D4\u6D3E\u4E00\u540D\u8463\u4E8B\u8FDB\u5165\u516C\u53F8\u8463\u4E8B\u4F1A", termId: "TM-2024-001", status: "approved" },
+      { id: "observer-right", title: "\u6295\u8D44\u65B9\u6709\u6743\u59D4\u6D3E\u4E00\u540D\u89C2\u5BDF\u5458\u5217\u5E2D\u8463\u4E8B\u4F1A\u4F1A\u8BAE", termId: "TM-2024-002", status: "approved" },
+    ],
   },
   "biz-exp": {
     id: "biz-exp",
@@ -399,6 +413,7 @@ const detailsMap: Record<string, HypothesisDetail> = {
       createdAt: "",
       comments: [],
     },
+    linkedTerms: [],
   },
   "data-moat": {
     id: "data-moat",
@@ -464,6 +479,9 @@ const detailsMap: Record<string, HypothesisDetail> = {
       createdAt: "",
       comments: [],
     },
+    linkedTerms: [
+      { id: "weighted-avg", title: "\u540E\u7EED\u4F4E\u4EF7\u878D\u8D44\u65F6\u6295\u8D44\u65B9\u4EAB\u6709\u52A0\u6743\u5E73\u5747\u53CD\u7A00\u91CA\u8C03\u6574\u6743", termId: "TM-2024-005", status: "pending" },
+    ],
   },
 }
 
@@ -865,6 +883,44 @@ function DetailPanel({ detail }: { detail: HypothesisDetail }) {
             comments={detail.verification.comments}
           />
         </div>
+
+        {/* Cross-referenced Terms */}
+        {detail.linkedTerms && detail.linkedTerms.length > 0 && (
+          <div>
+            <h3 className="text-base font-semibold text-[#111827] mb-4 flex items-center gap-2">
+              <span className="inline-block h-5 w-1 rounded-full bg-[#6366F1]" />
+              {"\u8BE5\u5047\u8BBE\u6240\u652F\u6301\u7684\u6761\u6B3E"}
+            </h3>
+            <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+              <div className="divide-y divide-[#E5E7EB]">
+                {detail.linkedTerms.map((term) => {
+                  const termStatusColors: Record<string, string> = {
+                    approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+                    pending: "bg-gray-50 text-gray-600 border-gray-200",
+                    rejected: "bg-red-50 text-red-700 border-red-200",
+                  }
+                  const termStatusLabels: Record<string, string> = {
+                    approved: "\u901A\u8FC7",
+                    pending: "\u5F85\u5BA1\u8BAE",
+                    rejected: "\u5426\u51B3",
+                  }
+                  return (
+                    <div key={term.id} className="flex items-center gap-3 px-5 py-4 hover:bg-[#F9FAFB] transition-colors cursor-pointer">
+                      <FileCheck className="h-4 w-4 text-[#6366F1] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#111827] truncate">{term.title}</p>
+                        <p className="text-xs text-[#9CA3AF] mt-0.5">{"ID: "}{term.termId}</p>
+                      </div>
+                      <Badge className={cn("text-xs shrink-0", termStatusColors[term.status])}>
+                        {termStatusLabels[term.status]}
+                      </Badge>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ScrollArea>
   )
