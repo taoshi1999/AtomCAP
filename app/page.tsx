@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { AppTopbar, type TopNavKey } from "@/components/app-topbar"
 import { ProjectsGrid } from "@/components/pages/projects-grid"
-import { StrategiesGrid } from "@/components/pages/strategies-grid"
+import { StrategiesGrid, type Strategy, initialStrategies } from "@/components/pages/strategies-grid"
 import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { Login } from "@/components/pages/login"
@@ -17,6 +17,7 @@ type ViewState =
 
 export default function Page() {
   const [view, setView] = useState<ViewState>({ type: "login" })
+  const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
 
   const activeNav: TopNavKey | null =
     view.type === "projects" || view.type === "project-detail"
@@ -57,7 +58,11 @@ export default function Page() {
           <ProjectsGrid onSelectProject={handleSelectProject} />
         )}
         {view.type === "strategies" && (
-          <StrategiesGrid onSelectStrategy={handleSelectStrategy} />
+          <StrategiesGrid 
+            strategies={strategies}
+            onStrategiesChange={setStrategies}
+            onSelectStrategy={handleSelectStrategy} 
+          />
         )}
         {view.type === "project-detail" && (
           <ProjectDetail projectId={view.projectId} />

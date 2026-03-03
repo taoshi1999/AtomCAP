@@ -31,7 +31,7 @@ const availableIcons = [
   { icon: Briefcase, bg: "bg-indigo-100 text-indigo-600", name: "Briefcase" },
 ]
 
-interface Strategy {
+export interface Strategy {
   id: string
   name: string
   type: string
@@ -44,7 +44,7 @@ interface Strategy {
   returnRate: string
 }
 
-const initialStrategies: Strategy[] = [
+export const initialStrategies: Strategy[] = [
   {
     id: "1",
     name: "AI\u57FA\u7840\u8BBE\u65BD",
@@ -120,11 +120,12 @@ const initialStrategies: Strategy[] = [
 ]
 
 interface StrategiesGridProps {
+  strategies: Strategy[]
+  onStrategiesChange: (strategies: Strategy[]) => void
   onSelectStrategy?: (strategyId: string) => void
 }
 
-export function StrategiesGrid({ onSelectStrategy }: StrategiesGridProps) {
-  const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
+export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrategy }: StrategiesGridProps) {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   
@@ -159,7 +160,7 @@ export function StrategiesGrid({ onSelectStrategy }: StrategiesGridProps) {
       returnRate: "+0%",
     }
 
-    setStrategies([newStrategy, ...strategies])
+    onStrategiesChange([newStrategy, ...strategies])
     setIsCreateOpen(false)
     resetForm()
   }
