@@ -532,9 +532,6 @@ export function StrategyTerms({ isNewStrategy = false }: StrategyTermsProps) {
             <FileText className="h-8 w-8 text-[#2563EB]" />
           </div>
           <h3 className="text-lg font-semibold text-[#111827] mb-2">{"\u6682\u65E0\u6761\u6B3E\u6E05\u5355"}</h3>
-          <p className="text-sm text-[#6B7280] mb-6 leading-relaxed">
-            {"\u8FD9\u662F\u4E00\u4E2A\u65B0\u521B\u5EFA\u7684\u7B56\u7565\uFF0C\u8FD8\u6CA1\u6709\u6DFB\u52A0\u4EFB\u4F55\u6761\u6B3E\u3002\u70B9\u51FB\u4E0B\u65B9\u6309\u94AE\u5F00\u59CB\u521B\u5EFA\u60A8\u7684\u7B2C\u4E00\u4E2A\u6295\u8D44\u6761\u6B3E\u3002"}
-          </p>
           <button className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
             <Plus className="h-4 w-4" />
             {"\u521B\u5EFA\u7B2C\u4E00\u4E2A\u6761\u6B3E"}
@@ -543,7 +540,7 @@ export function StrategyTerms({ isNewStrategy = false }: StrategyTermsProps) {
       </div>
     )
   }
-  
+
   return (
     <div className="flex h-full">
       {/* Middle Panel: Term Tree */}
