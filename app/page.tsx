@@ -104,7 +104,10 @@ export default function Page() {
           <ProjectDetail projectId={view.projectId} />
         )}
         {view.type === "strategy-detail" && (
-          <StrategyDetail strategyId={view.strategyId} />
+          <StrategyDetail 
+            strategyId={view.strategyId} 
+            strategy={strategies.find((s) => s.id === view.strategyId)}
+          />
         )}
       </main>
     </div>

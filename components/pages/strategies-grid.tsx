@@ -53,6 +53,7 @@ export interface Strategy {
   totalInvest: string
   returnRate: string
   owner: { id: string; name: string; initials: string }
+  createdAt: string
 }
 
 export interface PendingStrategy {
@@ -78,6 +79,7 @@ export const initialStrategies: Strategy[] = [
     totalInvest: "8.5\u4EBF",
     returnRate: "+32%",
     owner: { id: "zhangwei", name: "\u5F20\u4F1F", initials: "\u5F20\u4F1F" },
+    createdAt: "2023-06-15",
   },
   {
     id: "2",
@@ -91,6 +93,7 @@ export const initialStrategies: Strategy[] = [
     totalInvest: "5.2\u4EBF",
     returnRate: "+18%",
     owner: { id: "lisi", name: "\u674E\u56DB", initials: "\u674E\u56DB" },
+    createdAt: "2023-07-20",
   },
   {
     id: "3",
@@ -104,6 +107,7 @@ export const initialStrategies: Strategy[] = [
     totalInvest: "12\u4EBF",
     returnRate: "+25%",
     owner: { id: "wangfang", name: "\u738B\u82B3", initials: "\u738B\u82B3" },
+    createdAt: "2023-03-10",
   },
   {
     id: "4",
@@ -117,6 +121,7 @@ export const initialStrategies: Strategy[] = [
     totalInvest: "4.8\u4EBF",
     returnRate: "+12%",
     owner: { id: "zhaoqiang", name: "\u8D75\u5F3A", initials: "\u8D75\u5F3A" },
+    createdAt: "2023-09-05",
   },
   {
     id: "5",
@@ -130,6 +135,7 @@ export const initialStrategies: Strategy[] = [
     totalInvest: "18\u4EBF",
     returnRate: "+28%",
     owner: { id: "lisi", name: "\u674E\u56DB", initials: "\u674E\u56DB" },
+    createdAt: "2023-05-18",
   },
   {
     id: "6",
@@ -143,6 +149,7 @@ export const initialStrategies: Strategy[] = [
     totalInvest: "6.3\u4EBF",
     returnRate: "+22%",
     owner: { id: "chenzong", name: "\u9648\u603B", initials: "\u9648\u603B" },
+    createdAt: "2023-08-25",
   },
 ]
 
@@ -188,6 +195,7 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
       totalInvest: "0",
       returnRate: "+0%",
       owner,
+      createdAt: new Date().toISOString().split("T")[0],
     }
 
     const pendingRequest: PendingStrategy = {

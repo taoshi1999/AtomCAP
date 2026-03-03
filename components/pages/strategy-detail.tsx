@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 import { StrategyOverview } from "@/components/pages/strategy-overview"
 import { StrategyHypotheses } from "@/components/pages/strategy-hypotheses"
 import { StrategyTerms } from "@/components/pages/strategy-terms"
+import { type Strategy } from "@/components/pages/strategies-grid"
 
 type SubPageKey = "overview" | "hypotheses" | "terms"
 
@@ -35,12 +36,12 @@ const subPageComponents: Record<SubPageKey, React.ComponentType> = {
 
 interface StrategyDetailProps {
   strategyId: string
+  strategy?: Strategy
 }
 
-export function StrategyDetail({ strategyId }: StrategyDetailProps) {
+export function StrategyDetail({ strategyId, strategy }: StrategyDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
-  const ActiveComponent = subPageComponents[activeSubPage]
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -99,7 +100,13 @@ export function StrategyDetail({ strategyId }: StrategyDetailProps) {
 
       {/* Main Content */}
       <div className="flex-1 overflow-hidden">
-        <ActiveComponent />
+        {activeSubPage === "overview" ? (
+          <StrategyOverview strategy={strategy} />
+        ) : activeSubPage === "hypotheses" ? (
+          <StrategyHypotheses />
+        ) : (
+          <StrategyTerms />
+        )}
       </div>
     </div>
   )
