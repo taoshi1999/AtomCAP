@@ -18,6 +18,7 @@ import { TermSheet } from "@/components/pages/term-sheet"
 import { Workflow } from "@/components/pages/workflow"
 import { DataAnalytics } from "@/components/pages/data-analytics"
 import { ProjectMaterials } from "@/components/pages/project-materials"
+import { type Project } from "@/components/pages/projects-grid"
 
 type SubPageKey =
   | "overview"
@@ -53,9 +54,10 @@ const subPageComponents: Record<SubPageKey, React.ComponentType> = {
 
 interface ProjectDetailProps {
   projectId: string
+  project?: Project
 }
 
-export function ProjectDetail({ projectId }: ProjectDetailProps) {
+export function ProjectDetail({ projectId, project }: ProjectDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
   const [currentPhase, setCurrentPhase] = useState<string>("")
@@ -136,6 +138,12 @@ export function ProjectDetail({ projectId }: ProjectDetailProps) {
       <div className="flex-1 overflow-hidden">
         {activeSubPage === "workflow" ? (
           <Workflow onSelectPhase={setCurrentPhase} />
+        ) : activeSubPage === "hypotheses" ? (
+          <HypothesisChecklist isNewProject={projectId.startsWith("new-project-")} project={project} />
+        ) : activeSubPage === "terms" ? (
+          <TermSheet isNewProject={projectId.startsWith("new-project-")} project={project} />
+        ) : activeSubPage === "overview" ? (
+          <ProjectOverview project={project} />
         ) : (
           (() => {
             const ActiveComponent = subPageComponents[activeSubPage]

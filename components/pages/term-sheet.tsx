@@ -847,9 +847,14 @@ function EmptyPlaceholder() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Main Component                                                     */
-/* ------------------------------------------------------------------ */
-export function TermSheet() {
+  /*  Main Component                                                     */
+  /* ------------------------------------------------------------------ */
+  interface TermSheetProps {
+    isNewProject?: boolean
+    project?: { strategyId?: string; strategyName?: string }
+  }
+
+  export function TermSheet({ isNewProject = false, project }: TermSheetProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [middleCollapsed, setMiddleCollapsed] = useState(false)
@@ -866,6 +871,30 @@ export function TermSheet() {
 
   function handleExpandRight() {
     setMiddleExpanded(!middleExpanded)
+  }
+
+  // For new projects without AI基础设施 strategy, show empty state
+  if (isNewProject && project?.strategyId !== "1") {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#F9FAFB]">
+        <div className="text-center max-w-md px-6">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#EFF6FF]">
+            <FileText className="h-8 w-8 text-[#2563EB]" />
+          </div>
+          <h3 className="text-lg font-semibold text-[#111827] mb-2">暂无条款清单</h3>
+          <p className="text-sm text-[#6B7280] mb-6 leading-relaxed">
+            {project?.strategyName 
+              ? `该项目基于「${project.strategyName}」策略模板创建，条款清单将从策略模板中继承。`
+              : "这是一个新创建的项目，还没有添加任何条款。点击下方按钮开始创建您的第一个投资条款。"
+            }
+          </p>
+          <button className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
+            <Plus className="h-4 w-4" />
+            创建第一个条款
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

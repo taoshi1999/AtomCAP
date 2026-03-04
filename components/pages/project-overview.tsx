@@ -88,14 +88,32 @@ const timeline = [
   },
 ]
 
-export function ProjectOverview() {
+interface ProjectOverviewProps {
+  project?: {
+    name?: string
+    description?: string
+    round?: string
+    valuation?: string
+    status?: string
+    owner?: { name: string }
+    strategyName?: string
+    createdAt?: string
+  }
+}
+
+export function ProjectOverview({ project }: ProjectOverviewProps) {
+  const isNewProject = project?.createdAt && new Date(project.createdAt).getTime() > Date.now() - 86400000 * 7
+
   return (
     <div className="h-full overflow-auto bg-[#F3F4F6]">
       <div className="mx-auto max-w-6xl px-8 py-6 space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-[#111827]">项目概览</h1>
-          <p className="mt-1 text-sm text-[#6B7280]">MiniMax - B轮投资项目仪表盘</p>
+          <p className="mt-1 text-sm text-[#6B7280]">
+            {project?.name || "MiniMax"} - {project?.round || "B轮"}投资项目仪表盘
+            {project?.strategyName && <span className="ml-2 text-[#2563EB]">({project.strategyName})</span>}
+          </p>
         </div>
 
         {/* Project Info Card */}
