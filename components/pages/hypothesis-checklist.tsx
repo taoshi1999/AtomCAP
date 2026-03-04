@@ -382,7 +382,7 @@ export function HypothesisChecklist({ isNewProject = false, project }: Hypothesi
     )
   }
 
-  // Detail view
+  // Detail view - shows hypothesis details when a row is selected
   if (showDetail && selectedDetail) {
     return (
       <div className="h-full overflow-auto bg-[#F9FAFB]">
