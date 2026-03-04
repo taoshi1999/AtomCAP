@@ -19,6 +19,7 @@ import {
   Eye,
   Trash2,
   User,
+  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -317,6 +318,72 @@ const statusConfig = {
 }
 
 /* ------------------------------------------------------------------ */
+/*  AI基础设施策略模板假设数据                                          */
+/* ------------------------------------------------------------------ */
+const aiInfrastructureHypotheses: HypothesisTableItem[] = [
+  {
+    id: "ai-h1",
+    direction: "AI基础设施",
+    category: "算力与芯片",
+    name: "国产AI芯片在推理场景下可替代英伟达方案",
+    owner: "张伟",
+    createdAt: "2024-01-10",
+    updatedAt: "2024-02-15",
+    status: "pending",
+  },
+  {
+    id: "ai-h2",
+    direction: "AI基础设施",
+    category: "算力与芯片",
+    name: "云端AI芯片市场将在3年内达到500亿美元规模",
+    owner: "李四",
+    createdAt: "2024-01-12",
+    updatedAt: "2024-02-18",
+    status: "verified",
+  },
+  {
+    id: "ai-h3",
+    direction: "AI基础设施",
+    category: "模型训练框架",
+    name: "开源大模型训练框架将成为主流技术路线",
+    owner: "王五",
+    createdAt: "2024-01-15",
+    updatedAt: "2024-02-20",
+    status: "verified",
+  },
+  {
+    id: "ai-h4",
+    direction: "AI基础设施",
+    category: "模型训练框架",
+    name: "分布式训练效率提升是大模型竞争关键",
+    owner: "张伟",
+    createdAt: "2024-01-18",
+    updatedAt: "2024-02-22",
+    status: "pending",
+  },
+  {
+    id: "ai-h5",
+    direction: "AI基础设施",
+    category: "基础软件生态",
+    name: "AI编译器将成为新的基础软件投资赛道",
+    owner: "李四",
+    createdAt: "2024-01-20",
+    updatedAt: "2024-02-25",
+    status: "risky",
+  },
+  {
+    id: "ai-h6",
+    direction: "AI基础设施",
+    category: "基础软件生态",
+    name: "MLOps平台市场需求将快速增长",
+    owner: "王五",
+    createdAt: "2024-01-22",
+    updatedAt: "2024-02-28",
+    status: "pending",
+  },
+]
+
+/* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 interface HypothesisChecklistProps {
@@ -328,9 +395,16 @@ export function HypothesisChecklist({ isNewProject = false, project }: Hypothesi
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
+  const [showTemplateBanner, setShowTemplateBanner] = useState(true)
+
+  // Select data based on project's strategy template
+  // For new projects with AI基础设施 (strategyId="1"), use AI infrastructure hypotheses
+  const sourceData = isNewProject && project?.strategyId === "1" 
+    ? aiInfrastructureHypotheses 
+    : hypothesisTableData
 
   // Filter data
-  const filteredData = hypothesisTableData.filter((item) => {
+  const filteredData = sourceData.filter((item) => {
     const query = searchQuery.toLowerCase()
     return (
       item.direction.toLowerCase().includes(query) ||
@@ -514,10 +588,16 @@ export function HypothesisChecklist({ isNewProject = false, project }: Hypothesi
     <div className="h-full overflow-auto bg-[#F9FAFB]">
       <div className="mx-auto max-w-7xl px-6 py-6">
         {/* Strategy template banner for new projects */}
-        {isNewProject && project?.strategyName && (
-          <div className="mb-4 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-[#2563EB] flex items-center justify-center">
+        {isNewProject && project?.strategyName && showTemplateBanner && (
+          <div className="mb-4 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4 relative">
+            <button
+              onClick={() => setShowTemplateBanner(false)}
+              className="absolute top-3 right-3 p-1 rounded-md text-[#3B82F6] hover:bg-[#DBEAFE] transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2 pr-8">
+              <div className="h-8 w-8 rounded-lg bg-[#2563EB] flex items-center justify-center shrink-0">
                 <ListChecks className="h-4 w-4 text-white" />
               </div>
               <div>

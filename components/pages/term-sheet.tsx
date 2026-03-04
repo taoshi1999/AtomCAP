@@ -10,6 +10,7 @@ import {
   Eye,
   Trash2,
   User,
+  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -263,6 +264,72 @@ const termDetails: Record<string, TermDetail> = {
 }
 
 /* ------------------------------------------------------------------ */
+/*  AI基础设施策略模板条款数据                                          */
+/* ------------------------------------------------------------------ */
+const aiInfrastructureTerms: TermTableItem[] = [
+  {
+    id: "ai-t1",
+    direction: "投资保护条款",
+    category: "信息权",
+    name: "投资方有权获取被投企业月度财务报告",
+    owner: "张伟",
+    createdAt: "2024-01-10",
+    updatedAt: "2024-02-15",
+    status: "approved",
+  },
+  {
+    id: "ai-t2",
+    direction: "投资保护条款",
+    category: "信息权",
+    name: "投资方有权对重大技术决策进行知情和建议",
+    owner: "李四",
+    createdAt: "2024-01-12",
+    updatedAt: "2024-02-18",
+    status: "approved",
+  },
+  {
+    id: "ai-t3",
+    direction: "投资保护条款",
+    category: "反稀释条款",
+    name: "采用完全棘轮反稀释条款保护投资方权益",
+    owner: "王五",
+    createdAt: "2024-01-15",
+    updatedAt: "2024-02-20",
+    status: "pending",
+  },
+  {
+    id: "ai-t4",
+    direction: "控制权条款",
+    category: "董事会席位",
+    name: "投资方有权委派一名董事参与公司董事会",
+    owner: "张伟",
+    createdAt: "2024-01-18",
+    updatedAt: "2024-02-22",
+    status: "approved",
+  },
+  {
+    id: "ai-t5",
+    direction: "控制权条款",
+    category: "重大事项否决权",
+    name: "对核心技术IP转让和授权享有一票否决权",
+    owner: "李四",
+    createdAt: "2024-01-20",
+    updatedAt: "2024-02-25",
+    status: "pending",
+  },
+  {
+    id: "ai-t6",
+    direction: "退出条款",
+    category: "回购条款",
+    name: "若公司未能在5年内实现IPO，投资方有权要求回购",
+    owner: "王五",
+    createdAt: "2024-01-22",
+    updatedAt: "2024-02-28",
+    status: "rejected",
+  },
+]
+
+/* ------------------------------------------------------------------ */
 /*  Status helpers                                                     */
 /* ------------------------------------------------------------------ */
 const statusConfig = {
@@ -283,9 +350,16 @@ export function TermSheet({ isNewProject = false, project }: TermSheetProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
+  const [showTemplateBanner, setShowTemplateBanner] = useState(true)
+
+  // Select data based on project's strategy template
+  // For new projects with AI基础设施 (strategyId="1"), use AI infrastructure terms
+  const sourceData = isNewProject && project?.strategyId === "1" 
+    ? aiInfrastructureTerms 
+    : termTableData
 
   // Filter data
-  const filteredData = termTableData.filter((item) => {
+  const filteredData = sourceData.filter((item) => {
     const query = searchQuery.toLowerCase()
     return (
       item.direction.toLowerCase().includes(query) ||
@@ -430,10 +504,16 @@ export function TermSheet({ isNewProject = false, project }: TermSheetProps) {
     <div className="h-full overflow-auto bg-[#F9FAFB]">
       <div className="mx-auto max-w-7xl px-6 py-6">
         {/* Strategy template banner for new projects */}
-        {isNewProject && project?.strategyName && (
-          <div className="mb-4 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-[#2563EB] flex items-center justify-center">
+        {isNewProject && project?.strategyName && showTemplateBanner && (
+          <div className="mb-4 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4 relative">
+            <button
+              onClick={() => setShowTemplateBanner(false)}
+              className="absolute top-3 right-3 p-1 rounded-md text-[#3B82F6] hover:bg-[#DBEAFE] transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2 pr-8">
+              <div className="h-8 w-8 rounded-lg bg-[#2563EB] flex items-center justify-center shrink-0">
                 <FileText className="h-4 w-4 text-white" />
               </div>
               <div>
