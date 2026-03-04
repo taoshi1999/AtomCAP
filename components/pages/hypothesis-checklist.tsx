@@ -381,15 +381,6 @@ export function HypothesisChecklist({ isNewProject = false, project }: Hypothesi
       </div>
     )
   }
-          </p>
-          <button className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
-            <Plus className="h-4 w-4" />
-            创建第一个假设
-          </button>
-        </div>
-      </div>
-    )
-  }
 
   // Detail view
   if (showDetail && selectedDetail) {
