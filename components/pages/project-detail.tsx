@@ -6,7 +6,6 @@ import {
   ListChecks,
   FileText,
   GitBranch,
-  BarChart3,
   FolderOpen,
   PanelLeftClose,
   PanelLeft,
@@ -16,7 +15,6 @@ import { HypothesisChecklist } from "@/components/pages/hypothesis-checklist"
 import { ProjectOverview } from "@/components/pages/project-overview"
 import { TermSheet } from "@/components/pages/term-sheet"
 import { Workflow } from "@/components/pages/workflow"
-import { DataAnalytics } from "@/components/pages/data-analytics"
 import { ProjectMaterials } from "@/components/pages/project-materials"
 import { type Project } from "@/components/pages/projects-grid"
 
@@ -25,7 +23,6 @@ type SubPageKey =
   | "hypotheses"
   | "terms"
   | "workflow"
-  | "analytics"
   | "materials"
 
 interface SubNavItem {
@@ -40,7 +37,6 @@ const subNavItems: SubNavItem[] = [
   { key: "terms", label: "条款清单", icon: FileText },
   { key: "materials", label: "项目材料", icon: FolderOpen },
   { key: "workflow", label: "工作流", icon: GitBranch },
-  { key: "analytics", label: "数据分析", icon: BarChart3 },
 ]
 
 const subPageComponents: Record<SubPageKey, React.ComponentType> = {
@@ -48,7 +44,6 @@ const subPageComponents: Record<SubPageKey, React.ComponentType> = {
   hypotheses: HypothesisChecklist,
   terms: TermSheet,
   workflow: Workflow,
-  analytics: DataAnalytics,
   materials: ProjectMaterials,
 }
 
@@ -60,7 +55,8 @@ interface ProjectDetailProps {
 export function ProjectDetail({ projectId, project }: ProjectDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
-  const [currentPhase, setCurrentPhase] = useState<string>("")
+  const isNewProject = projectId.startsWith("new-project-")
+  const [currentPhase, setCurrentPhase] = useState<string>(isNewProject ? "无" : "")
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -90,18 +86,18 @@ export function ProjectDetail({ projectId, project }: ProjectDetailProps) {
         </div>
 
         {/* Phase Label */}
-        {currentPhase && !collapsed && (
+        {!collapsed && (
           <div className="px-3 pb-2">
             <div className="rounded-lg bg-[#1E293B] px-3 py-2">
-              <p className="text-[10px] font-medium text-[#64748B] uppercase tracking-wider">{"\u5F53\u524D\u9636\u6BB5"}</p>
-              <p className="text-xs font-semibold text-[#E2E8F0] mt-0.5">{currentPhase}</p>
+              <p className="text-[10px] font-medium text-[#64748B] uppercase tracking-wider">当前阶段</p>
+              <p className="text-xs font-semibold text-[#E2E8F0] mt-0.5">{currentPhase || "无"}</p>
             </div>
           </div>
         )}
-        {currentPhase && collapsed && (
+        {collapsed && (
           <div className="px-2 pb-2">
-            <div className="flex items-center justify-center rounded-lg bg-[#1E293B] p-1.5" title={currentPhase}>
-              <span className="h-2 w-2 rounded-full bg-[#2563EB]" />
+            <div className="flex items-center justify-center rounded-lg bg-[#1E293B] p-1.5" title={currentPhase || "无"}>
+              <span className={cn("h-2 w-2 rounded-full", currentPhase && currentPhase !== "无" ? "bg-[#2563EB]" : "bg-[#64748B]")} />
             </div>
           </div>
         )}
@@ -137,17 +133,15 @@ export function ProjectDetail({ projectId, project }: ProjectDetailProps) {
       {/* Main Content */}
       <div className="flex-1 overflow-hidden">
         {activeSubPage === "workflow" ? (
-          <Workflow onSelectPhase={setCurrentPhase} isNewProject={projectId.startsWith("new-project-")} />
+          <Workflow onSelectPhase={setCurrentPhase} isNewProject={isNewProject} />
         ) : activeSubPage === "hypotheses" ? (
-          <HypothesisChecklist isNewProject={projectId.startsWith("new-project-")} project={project} />
+          <HypothesisChecklist isNewProject={isNewProject} project={project} />
         ) : activeSubPage === "terms" ? (
-          <TermSheet isNewProject={projectId.startsWith("new-project-")} project={project} />
+          <TermSheet isNewProject={isNewProject} project={project} />
         ) : activeSubPage === "overview" ? (
-          <ProjectOverview project={project} isNewProject={projectId.startsWith("new-project-")} />
+          <ProjectOverview project={project} isNewProject={isNewProject} />
         ) : activeSubPage === "materials" ? (
-          <ProjectMaterials isNewProject={projectId.startsWith("new-project-")} project={project} />
-        ) : activeSubPage === "analytics" ? (
-          <DataAnalytics />
+          <ProjectMaterials isNewProject={isNewProject} project={project} />
         ) : null}
       </div>
     </div>
