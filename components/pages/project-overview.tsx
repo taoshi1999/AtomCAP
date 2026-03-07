@@ -307,8 +307,8 @@ export function ProjectOverview({ project, isNewProject = false }: ProjectOvervi
               <Badge className="bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50">
                 B轮
               </Badge>
-              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50">
-                尽调中
+              <Badge className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-50">
+                设立期
               </Badge>
             </div>
           </div>
@@ -351,7 +351,7 @@ export function ProjectOverview({ project, isNewProject = false }: ProjectOvervi
               </div>
               <div>
                 <p className="text-xs text-[#6B7280]">项目状态</p>
-                <p className="text-sm font-medium text-[#111827]">尽调中</p>
+                <p className="text-sm font-medium text-[#111827]">设立期</p>
               </div>
             </div>
           </div>
