@@ -26,19 +26,17 @@ interface TermTableItem {
   owner: string
   createdAt: string
   updatedAt: string
-  status: "approved" | "pending" | "rejected"
 }
 
 interface TermDetail {
   id: string
   title: string
   description: string
-  status: "approved" | "pending" | "rejected"
   owner: string
   createdAt: string
   updatedAt: string
   keyPoints: string[]
-  relatedHypotheses: { id: string; name: string; status: string }[]
+  relatedHypotheses: { id: string; name: string }[]
 }
 
 /* ------------------------------------------------------------------ */
@@ -53,7 +51,6 @@ const termTableData: TermTableItem[] = [
     owner: "张伟",
     createdAt: "2024-01-10",
     updatedAt: "2024-02-15",
-    status: "approved",
   },
   {
     id: "t2",
@@ -63,7 +60,6 @@ const termTableData: TermTableItem[] = [
     owner: "李四",
     createdAt: "2024-01-12",
     updatedAt: "2024-02-18",
-    status: "approved",
   },
   {
     id: "t3",
@@ -73,7 +69,6 @@ const termTableData: TermTableItem[] = [
     owner: "王五",
     createdAt: "2024-01-15",
     updatedAt: "2024-02-20",
-    status: "pending",
   },
   {
     id: "t4",
@@ -83,7 +78,6 @@ const termTableData: TermTableItem[] = [
     owner: "张伟",
     createdAt: "2024-01-18",
     updatedAt: "2024-02-22",
-    status: "approved",
   },
   {
     id: "t5",
@@ -93,7 +87,6 @@ const termTableData: TermTableItem[] = [
     owner: "李四",
     createdAt: "2024-01-20",
     updatedAt: "2024-02-25",
-    status: "pending",
   },
   {
     id: "t6",
@@ -103,7 +96,6 @@ const termTableData: TermTableItem[] = [
     owner: "王五",
     createdAt: "2024-01-22",
     updatedAt: "2024-02-28",
-    status: "rejected",
   },
 ]
 
@@ -112,7 +104,6 @@ const termDetails: Record<string, TermDetail> = {
     id: "t1",
     title: "投资方有权委派一名董事进入公司董事会",
     description: "该条款规定投资方有权向公司董事会委派一名董事代表，参与公司重大决策，保护投资方的权益。",
-    status: "approved",
     owner: "张伟",
     createdAt: "2024-01-10",
     updatedAt: "2024-02-15",
@@ -123,15 +114,14 @@ const termDetails: Record<string, TermDetail> = {
       "需明确董事的任职资格和更换流程",
     ],
     relatedHypotheses: [
-      { id: "h1", name: "公司治理结构完善", status: "已验证" },
-      { id: "h2", name: "创始团队配合度高", status: "待验证" },
+      { id: "h1", name: "公司治理结构完善" },
+      { id: "h2", name: "创始团队配合度高" },
     ],
   },
   "t4": {
     id: "t4",
     title: "投资方有权优先于普通股股东获得投资金额1.5倍的回报",
     description: "在公司发生清算或出售等退出事件时，投资方有权优先于普通股股东获得相当于其投资金额1.5倍的回报。",
-    status: "approved",
     owner: "张伟",
     createdAt: "2024-01-18",
     updatedAt: "2024-02-22",
@@ -142,22 +132,13 @@ const termDetails: Record<string, TermDetail> = {
       "与反稀释条款配合使用效果更佳",
     ],
     relatedHypotheses: [
-      { id: "h3", name: "退出渠道畅通", status: "待验证" },
+      { id: "h3", name: "退出渠道畅通" },
     ],
   },
 }
 
 /* ------------------------------------------------------------------ */
-/*  Status config                                                      */
-/* ------------------------------------------------------------------ */
-const statusConfig = {
-  approved: { label: "已批准", color: "bg-[#DCFCE7] text-[#166534]" },
-  pending: { label: "待审批", color: "bg-[#FEF3C7] text-[#92400E]" },
-  rejected: { label: "已拒绝", color: "bg-[#FEE2E2] text-[#991B1B]" },
-}
-
-/* ------------------------------------------------------------------ */
-/*  Main Component                                                     */
+/*  Mock data                                                          */
 /* ------------------------------------------------------------------ */
 interface StrategyTermsProps {
   isNewStrategy?: boolean
@@ -328,11 +309,6 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
           <div className="bg-white rounded-xl border border-[#E5E7EB] p-6 mb-6">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <Badge className={cn("text-xs", statusConfig[selectedDetail.status].color)}>
-                    {statusConfig[selectedDetail.status].label}
-                  </Badge>
-                </div>
                 <h1 className="text-xl font-bold text-[#111827]">{selectedDetail.title}</h1>
               </div>
             </div>
@@ -362,7 +338,6 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
               {selectedDetail.relatedHypotheses.map((hypothesis) => (
                 <div key={hypothesis.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
                   <span className="text-sm text-[#111827]">{hypothesis.name}</span>
-                  <Badge className="text-xs bg-[#EFF6FF] text-[#2563EB]">{hypothesis.status}</Badge>
                 </div>
               ))}
             </div>
@@ -423,12 +398,7 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
                   <td className="px-4 py-3 text-sm text-[#374151]">{item.direction}</td>
                   <td className="px-4 py-3 text-sm text-[#374151]">{item.category}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-[#111827]">{item.name}</span>
-                      <Badge className={cn("text-[10px]", statusConfig[item.status].color)}>
-                        {statusConfig[item.status].label}
-                      </Badge>
-                    </div>
+                    <span className="text-sm text-[#111827]">{item.name}</span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
