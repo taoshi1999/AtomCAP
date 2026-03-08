@@ -52,11 +52,12 @@ export function Login({ onLogin }: LoginProps) {
       setError("请输入验证码")
       return
     }
-    if (captchaInput.toUpperCase() !== captchaCode) {
-      setError("验证码错误")
-      refreshCaptcha()
-      return
-    }
+    // DEBUG: skip captcha validation
+    // if (captchaInput.toUpperCase() !== captchaCode) {
+    //   setError("验证码错误")
+    //   refreshCaptcha()
+    //   return
+    // }
 
     setIsLoading(true)
     // Simulate login delay

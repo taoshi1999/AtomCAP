@@ -16,73 +16,73 @@ interface MaterialItem {
 const materials: MaterialItem[] = [
   {
     id: "m1",
-    name: "MiniMax_财务数据_2023Q4",
-    format: "XLSX",
-    size: "2.4 MB",
-    description: "2023年第四季度完整财务报表，包含收入、支出和利润明细",
+    name: "GPU_AI芯片行业全景报告_2024",
+    format: "PDF",
+    size: "6.8 MB",
+    description: "涵盖英伟达、AMD、华为昇腾等主要厂商的AI芯片市场份额、技术路线及竞争格局分析",
   },
   {
     id: "m2",
-    name: "MiniMax_商业计划书_v3",
+    name: "全球算力基础设施市场规模分析",
     format: "PDF",
-    size: "8.7 MB",
-    description: "最新版商业计划书，涵盖市场分析、竞争格局和增长策略",
+    size: "4.3 MB",
+    description: "IDC发布的全球AI算力基础设施市场规模预测，含数据中心、云算力及边缘算力细分数据",
   },
   {
     id: "m3",
-    name: "技术架构评估报告",
-    format: "PDF",
-    size: "5.1 MB",
-    description: "AI 模型架构评估报告，包含技术栈分析和可扩展性评估",
+    name: "主流AI训练框架技术对比",
+    format: "DOCX",
+    size: "2.1 MB",
+    description: "PyTorch、TensorFlow、JAX等主流训练框架的性能基准、生态成熟度及企业采用情况对比",
   },
   {
     id: "m4",
-    name: "MiniMax_团队介绍",
-    format: "PPTX",
-    size: "12.3 MB",
-    description: "核心团队成员背景介绍及组织架构图",
+    name: "云服务商GPU算力价格对比表",
+    format: "XLSX",
+    size: "0.8 MB",
+    description: "AWS、Azure、GCP、阿里云等主流云厂商A100/H100算力租赁价格及性价比横向对比",
   },
   {
     id: "m5",
-    name: "尽调法律文件汇总",
+    name: "AI基础设施投融资趋势报告_2023-2024",
     format: "PDF",
-    size: "3.8 MB",
-    description: "公司注册文件、股权结构、知识产权及合规材料汇总",
+    size: "5.6 MB",
+    description: "全球AI基础设施领域融资事件、投资机构偏好及典型案例汇总，含估值倍数参考区间",
   },
   {
     id: "m6",
-    name: "客户案例与合同样本",
-    format: "DOCX",
-    size: "1.5 MB",
-    description: "重点客户案例研究及标准合同模板",
+    name: "数据中心能耗与可持续发展白皮书",
+    format: "PDF",
+    size: "3.2 MB",
+    description: "大模型训练能耗数据、PUE标准及主要云厂商碳中和路线图，用于评估ESG合规风险",
   },
   {
     id: "m7",
-    name: "市场调研数据",
+    name: "大模型训练成本结构分析",
     format: "XLSX",
-    size: "4.2 MB",
-    description: "大模型行业市场规模、增长率和竞品对比数据",
+    size: "1.4 MB",
+    description: "主流大模型（GPT-4、Llama、文心等）训练成本拆解：算力、数据、人力占比及趋势",
   },
   {
     id: "m8",
-    name: "产品演示录屏",
-    format: "MP4",
-    size: "156 MB",
-    description: "MiniMax 核心产品功能演示视频",
+    name: "AI芯片技术路线图_GPU_TPU_NPU",
+    format: "PPTX",
+    size: "9.7 MB",
+    description: "英伟达Blackwell、谷歌TPU v5、华为昇腾910C等新一代AI芯片架构与性能演进路线图",
   },
   {
     id: "m9",
-    name: "数据安全合规报告",
+    name: "AI监管合规政策汇编",
     format: "PDF",
-    size: "2.1 MB",
-    description: "数据安全及隐私合规审计报告，包含 GDPR 和国内法规合规情况",
+    size: "2.9 MB",
+    description: "中国《生成式AI管理办法》、欧盟EU AI Act、美国AI行政令等主要市场监管政策要点摘编",
   },
   {
     id: "m10",
-    name: "MiniMax_Logo素材包",
-    format: "ZIP",
-    size: "18.5 MB",
-    description: "品牌标识素材包，包含各尺寸 Logo 和品牌规范文档",
+    name: "国内外AI基础软件生态图谱",
+    format: "PDF",
+    size: "7.1 MB",
+    description: "MLOps工具链、向量数据库、推理优化框架等AI基础软件全栈生态图谱及主要玩家分布",
   },
 ]
 
@@ -153,9 +153,9 @@ export function ProjectMaterials({ isNewProject = false, project }: ProjectMater
   return (
     <ScrollArea className="h-full">
       <div className="p-8">
-        <h1 className="text-2xl font-bold text-[#111827]">项目材料</h1>
+        <h1 className="text-2xl font-bold text-[#111827]">通用材料</h1>
         <p className="mt-1 text-sm text-[#6B7280]">
-          MiniMax - 项目相关材料与文件管理
+          {project?.name ? `${project.name} - ` : ""}行业通用材料与文件管理
         </p>
 
         <div className="mt-6 overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">

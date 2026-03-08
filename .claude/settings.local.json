@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(pnpm --version)",
+      "Bash(yarn --version)",
+      "Bash(NODE_PATH=\"C:/Workspace/AtomCAP-v1/AtomCAP/node_modules\" \"C:/Workspace/AtomCAP-v1/AtomCAP/node_modules/.bin/next\" dev --turbo --port 3001)"
+    ]
+  }
+}

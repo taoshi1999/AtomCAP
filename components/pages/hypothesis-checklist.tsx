@@ -339,7 +339,7 @@ const statusConfig = {
 const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   {
     id: "ai-h1",
-    direction: "AI基础设施",
+    direction: "技术攻关",
     category: "算力与芯片",
     name: "国产AI芯片在推理场景下可替代英伟达方案",
     owner: "张伟",
@@ -349,7 +349,7 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   },
   {
     id: "ai-h2",
-    direction: "AI基础设施",
+    direction: "技术攻关",
     category: "算力与芯片",
     name: "云端AI芯片市场将在3年内达到500亿美元规模",
     owner: "李四",
@@ -359,7 +359,7 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   },
   {
     id: "ai-h3",
-    direction: "AI基础设施",
+    direction: "技术攻关",
     category: "模型训练框架",
     name: "开源大模型训练框架将成为主流技术路线",
     owner: "王五",
@@ -369,7 +369,7 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   },
   {
     id: "ai-h4",
-    direction: "AI基础设施",
+    direction: "技术攻关",
     category: "模型训练框架",
     name: "分布式训练效率提升是大模型竞争关键",
     owner: "张伟",
@@ -379,7 +379,7 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   },
   {
     id: "ai-h5",
-    direction: "AI基础设施",
+    direction: "技术攻关",
     category: "基础软件生态",
     name: "AI编译器将成为新的基础软件投资赛道",
     owner: "李四",
@@ -389,7 +389,7 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   },
   {
     id: "ai-h6",
-    direction: "AI基础设施",
+    direction: "技术攻关",
     category: "基础软件生态",
     name: "MLOps平台市场需求将快速增长",
     owner: "王五",

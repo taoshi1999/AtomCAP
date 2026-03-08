@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "AtomCAP (Next.js)",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Workspace/AtomCAP-v1/AtomCAP/node_modules/next/dist/bin/next",
+        "dev",
+        "--turbo"
+      ],
+      "port": 3000
+    }
+  ]
+}
