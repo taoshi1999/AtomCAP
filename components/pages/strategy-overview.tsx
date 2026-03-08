@@ -28,20 +28,29 @@ const aiRecommendedHypotheses = [
   {
     id: "h1",
     title: "大模型推理成本下降假设",
+    direction: "技术攻关",
+    category: "算力与芯片",
     content: "假设未来18个月内，大模型推理成本将下降60%以上，主要驱动因素包括：模型量化技术成熟、推理芯片性能提升、以及MoE架构普及带来的计算效率提升。",
-    category: "技术趋势",
+    reason: "推理成本是当前大模型商业化的核心瓶颈，成本下降将直接扩大TAM并提升被投企业的盈利空间。建议重点关注具备推理优化技术能力的团队。",
+    relatedMaterials: ["m1", "m7"],
   },
   {
     id: "h2", 
     title: "多模态融合市场假设",
-    content: "假设多模态大模型（文本+图像+视频+音频）将在2025年成为主流，预计占据AI应用市场60%以上份额，核心驱动力来自企业对统一AI能力的需求。",
+    direction: "市场判断",
     category: "市场规模",
+    content: "假设多模态大模型（文本+图像+视频+音频）将在2025年成为主流，预计占据AI应用市场60%以上份额，核心驱动力来自企业对统一AI能力的需求。",
+    reason: "多模态能力是下一代AI产品的核心差异化点，具备多模态技术储备的公司将在产品竞争中占据优势。该假设对赛道筛选有重要指导意义。",
+    relatedMaterials: ["m2", "m10"],
   },
   {
     id: "h3",
     title: "开源模型生态竞争假设",
+    direction: "竞争格局",
+    category: "生态竞争",
     content: "假设开源大模型将持续缩小与闭源模型的性能差距，在特定垂直领域甚至实现超越，这将重塑行业竞争格局并降低企业AI部署门槛。",
-    category: "竞争格局",
+    reason: "开源生态的发展将影响大模型创业公司的竞争壁垒构建策略，需关注被投企业是否具备差异化的数据或场景优势。",
+    relatedMaterials: ["m3", "m5"],
   },
 ]
 
@@ -170,10 +179,25 @@ const investFocus = [
   { label: "MLOps工具链", weight: "低" },
 ]
 
+export interface HypothesisPrefillData {
+  title: string
+  direction: string
+  category: string
+  content: string
+  reason: string
+  relatedMaterials: string[]
+}
+
+export interface TermPrefillData {
+  title: string
+  content: string
+  category: string
+}
+
 interface StrategyOverviewProps {
   strategy?: Strategy
-  onNavigateToHypotheses?: (prefillData?: { title: string; content: string; category: string }) => void
-  onNavigateToTerms?: (prefillData?: { title: string; content: string; category: string }) => void
+  onNavigateToHypotheses?: (prefillData?: HypothesisPrefillData) => void
+  onNavigateToTerms?: (prefillData?: TermPrefillData) => void
 }
 
 export function StrategyOverview({ strategy, onNavigateToHypotheses, onNavigateToTerms }: StrategyOverviewProps) {
@@ -409,13 +433,25 @@ export function StrategyOverview({ strategy, onNavigateToHypotheses, onNavigateT
                   <div key={item.id} className="rounded-lg border border-[#E5E7EB] p-3 bg-[#F9FAFB]">
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <span className="text-xs font-medium text-[#111827]">{item.title}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
+                        {item.direction}
+                      </Badge>
                       <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] px-1.5 py-0">
                         {item.category}
                       </Badge>
                     </div>
                     <p className="text-[11px] text-[#6B7280] leading-relaxed line-clamp-2 mb-2">{item.content}</p>
                     <button
-                      onClick={() => onNavigateToHypotheses?.({ title: item.title, content: item.content, category: item.category })}
+                      onClick={() => onNavigateToHypotheses?.({ 
+                        title: item.title, 
+                        direction: item.direction,
+                        category: item.category,
+                        content: item.content, 
+                        reason: item.reason,
+                        relatedMaterials: item.relatedMaterials,
+                      })}
                       className="flex items-center gap-1 text-[11px] text-[#2563EB] font-medium hover:text-[#1D4ED8]"
                     >
                       创建此假设

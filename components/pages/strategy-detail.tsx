@@ -39,11 +39,25 @@ interface StrategyDetailProps {
 export function StrategyDetail({ strategyId, strategy }: StrategyDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
-  const [hypothesesPrefill, setHypothesesPrefill] = useState<{ title: string; content: string; category: string } | undefined>()
+  const [hypothesesPrefill, setHypothesesPrefill] = useState<{
+    title: string
+    direction: string
+    category: string
+    content: string
+    reason: string
+    relatedMaterials: string[]
+  } | undefined>()
   const [termsPrefill, setTermsPrefill] = useState<{ title: string; content: string; category: string } | undefined>()
 
   // 处理从概览页跳转到假设清单
-  const handleNavigateToHypotheses = (prefillData?: { title: string; content: string; category: string }) => {
+  const handleNavigateToHypotheses = (prefillData?: {
+    title: string
+    direction: string
+    category: string
+    content: string
+    reason: string
+    relatedMaterials: string[]
+  }) => {
     setHypothesesPrefill(prefillData)
     setActiveSubPage("hypotheses")
   }
