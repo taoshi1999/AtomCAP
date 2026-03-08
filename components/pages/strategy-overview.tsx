@@ -16,6 +16,8 @@ import {
   FileText,
   FolderOpen,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -67,21 +69,21 @@ const aiRecommendedTerms = [
 const aiRecommendedMaterials = [
   {
     id: "m1",
-    title: "模型评测报告",
-    content: "收集目标公司大模型在主流评测基准（MMLU、HumanEval、GSM8K等）上的表现数据，与GPT-4、Claude等头部模型进行横向对比分析。",
-    category: "技术评估",
+    title: "大模型行业研究报告",
+    content: "Gartner、IDC、麦肯锡等权威机构发布的生成式AI与大模型行业年度研究报告，涵盖全球市场规模预测、主要玩家格局分析、技术成熟度曲线及应用落地趋势。建议收集近两年主要报告进行横向对比，作为策略市场规模假设的数据支撑依据，并关注各机构对行业增速、渗透率的分歧与共识。",
+    category: "行业报告",
   },
   {
     id: "m2",
-    title: "算力资源规划书",
-    content: "获取目标公司未来24个月的算力需求规划，包括GPU集群规模、云服务商选择、自建机房计划、以及预计的算力成本支出明细。",
-    category: "资源规划",
+    title: "AI监管政策与合规文件",
+    content: "汇集中国《生成式人工智能服务管理暂行办法》、欧盟EU AI Act、美国AI行政令等主要市场的大模型监管政策文件，分析各地区合规要求对商业模式的影响。同时关注数据安全、著作权保护等相关法规，评估被投企业所在市场的合规风险敞口，并跟踪政策演进对行业格局的潜在重塑效应。",
+    category: "政策法规",
   },
   {
     id: "m3",
-    title: "商业化落地案例",
-    content: "收集目标公司已签约的标杆客户案例，包括合同金额、部署方式、客户反馈、续约情况等，重点关注AI能力的实际商业价值转化。",
-    category: "商业验证",
+    title: "大模型能力评测基准体系",
+    content: "梳理业界主流评测基准框架，包括综合能力类（MMLU、C-Eval）、代码生成类（HumanEval、MBPP）、数学推理类（GSM8K、MATH）及中文专项基准，附各主要模型（GPT-4、Claude、Gemini、文心、通义等）最新评测成绩对比表。该材料可作为策略层面统一的技术评估标尺，用于横向比较赛道内不同被投候选企业的模型实力。",
+    category: "技术参考",
   },
 ]
 
@@ -182,6 +184,15 @@ export function StrategyOverview({ strategy, onNavigateToHypotheses, onNavigateT
   const [termsLoading, setTermsLoading] = useState(false)
   const [materialsGenerated, setMaterialsGenerated] = useState(false)
   const [materialsLoading, setMaterialsLoading] = useState(false)
+  const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set())
+
+  const toggleMaterial = (id: string) => {
+    setExpandedMaterials(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+  }
 
   // 生成推荐假设
   const handleGenerateHypotheses = () => {
@@ -475,13 +486,13 @@ export function StrategyOverview({ strategy, onNavigateToHypotheses, onNavigateT
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
                 <FolderOpen className="h-4 w-4 text-emerald-600" />
               </div>
-              <h3 className="text-sm font-semibold text-[#111827]">推荐项目材料</h3>
+              <h3 className="text-sm font-semibold text-[#111827]">推荐通用材料</h3>
             </div>
             
             {!materialsGenerated && !materialsLoading ? (
               <div className="flex flex-col items-center justify-center py-6 text-[#9CA3AF]">
                 <Sparkles className="h-8 w-8 mb-2 text-[#D1D5DB]" />
-                <p className="text-xs text-center mb-3">AI将推荐需收集的尽调材料</p>
+                <p className="text-xs text-center mb-3">AI将推荐需收集的策略通用材料</p>
                 <button
                   onClick={handleGenerateMaterials}
                   className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-[#1D4ED8]"
@@ -500,21 +511,36 @@ export function StrategyOverview({ strategy, onNavigateToHypotheses, onNavigateT
                 <p className="text-xs text-[#6B7280] bg-emerald-50 rounded-lg p-2 border border-emerald-100">
                   大模型项目尽调建议重点收集以下材料：
                 </p>
-                {aiRecommendedMaterials.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-[#E5E7EB] p-3 bg-[#F9FAFB]">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <span className="text-xs font-medium text-[#111827]">{item.title}</span>
-                      <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] px-1.5 py-0">
-                        {item.category}
-                      </Badge>
+                {aiRecommendedMaterials.map((item) => {
+                  const isExpanded = expandedMaterials.has(item.id)
+                  return (
+                    <div key={item.id} className="rounded-lg border border-[#E5E7EB] p-3 bg-[#F9FAFB]">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <span className="text-xs font-medium text-[#111827]">{item.title}</span>
+                        <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] px-1.5 py-0 shrink-0">
+                          {item.category}
+                        </Badge>
+                      </div>
+                      <p className={`text-[11px] text-[#6B7280] leading-relaxed mb-1 ${isExpanded ? "" : "line-clamp-2"}`}>
+                        {item.content}
+                      </p>
+                      <button
+                        onClick={() => toggleMaterial(item.id)}
+                        className="flex items-center gap-0.5 text-[11px] text-[#9CA3AF] hover:text-[#6B7280] transition-colors mb-2"
+                      >
+                        {isExpanded ? (
+                          <>收起<ChevronUp className="h-3 w-3" /></>
+                        ) : (
+                          <>详情<ChevronDown className="h-3 w-3" /></>
+                        )}
+                      </button>
+                      <button className="flex items-center gap-1 text-[11px] text-[#2563EB] font-medium hover:text-[#1D4ED8]">
+                        上传此通用材料
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
                     </div>
-                    <p className="text-[11px] text-[#6B7280] leading-relaxed line-clamp-2 mb-2">{item.content}</p>
-                    <button className="flex items-center gap-1 text-[11px] text-[#2563EB] font-medium hover:text-[#1D4ED8]">
-                      上传此材料
-                      <ChevronRight className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

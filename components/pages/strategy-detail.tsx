@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ListChecks,
   FileText,
+  FolderOpen,
   PanelLeftClose,
   PanelLeft,
 } from "lucide-react"
@@ -12,9 +13,10 @@ import { cn } from "@/lib/utils"
 import { StrategyOverview } from "@/components/pages/strategy-overview"
 import { StrategyHypotheses } from "@/components/pages/strategy-hypotheses"
 import { StrategyTerms } from "@/components/pages/strategy-terms"
+import { ProjectMaterials } from "@/components/pages/project-materials"
 import { type Strategy } from "@/components/pages/strategies-grid"
 
-type SubPageKey = "overview" | "hypotheses" | "terms"
+type SubPageKey = "overview" | "hypotheses" | "terms" | "materials"
 
 interface SubNavItem {
   key: SubPageKey
@@ -26,13 +28,8 @@ const subNavItems: SubNavItem[] = [
   { key: "overview", label: "策略概览", icon: LayoutDashboard },
   { key: "hypotheses", label: "假设清单", icon: ListChecks },
   { key: "terms", label: "条款清单", icon: FileText },
+  { key: "materials", label: "通用材料", icon: FolderOpen },
 ]
-
-const subPageComponents: Record<SubPageKey, React.ComponentType> = {
-  overview: StrategyOverview,
-  hypotheses: StrategyHypotheses,
-  terms: StrategyTerms,
-}
 
 interface StrategyDetailProps {
   strategyId: string
@@ -115,22 +112,27 @@ export function StrategyDetail({ strategyId, strategy }: StrategyDetailProps) {
       {/* Main Content */}
       <div className="flex-1 overflow-hidden">
         {activeSubPage === "overview" ? (
-          <StrategyOverview 
-            strategy={strategy} 
+          <StrategyOverview
+            strategy={strategy}
             onNavigateToHypotheses={handleNavigateToHypotheses}
             onNavigateToTerms={handleNavigateToTerms}
           />
         ) : activeSubPage === "hypotheses" ? (
-          <StrategyHypotheses 
-            isNewStrategy={strategyId.startsWith("new-")} 
+          <StrategyHypotheses
+            isNewStrategy={strategyId.startsWith("new-")}
             prefillData={hypothesesPrefill}
             onPrefillUsed={() => setHypothesesPrefill(undefined)}
           />
-        ) : (
-          <StrategyTerms 
-            isNewStrategy={strategyId.startsWith("new-")} 
+        ) : activeSubPage === "terms" ? (
+          <StrategyTerms
+            isNewStrategy={strategyId.startsWith("new-")}
             prefillData={termsPrefill}
             onPrefillUsed={() => setTermsPrefill(undefined)}
+          />
+        ) : (
+          <ProjectMaterials
+            isNewProject={strategyId.startsWith("new-")}
+            project={{ name: strategy?.name }}
           />
         )}
       </div>
