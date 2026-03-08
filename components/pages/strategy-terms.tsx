@@ -26,14 +26,12 @@ interface TermTableItem {
   owner: string
   createdAt: string
   updatedAt: string
-  status: "approved" | "pending" | "rejected"
 }
 
 interface TermDetail {
   id: string
   title: string
   description: string
-  status: "approved" | "pending" | "rejected"
   owner: string
   createdAt: string
   updatedAt: string
@@ -53,7 +51,6 @@ const termTableData: TermTableItem[] = [
     owner: "张伟",
     createdAt: "2024-01-10",
     updatedAt: "2024-02-15",
-    status: "approved",
   },
   {
     id: "t2",
@@ -63,7 +60,6 @@ const termTableData: TermTableItem[] = [
     owner: "李四",
     createdAt: "2024-01-12",
     updatedAt: "2024-02-18",
-    status: "approved",
   },
   {
     id: "t3",
@@ -73,7 +69,6 @@ const termTableData: TermTableItem[] = [
     owner: "王五",
     createdAt: "2024-01-15",
     updatedAt: "2024-02-20",
-    status: "pending",
   },
   {
     id: "t4",
@@ -83,7 +78,6 @@ const termTableData: TermTableItem[] = [
     owner: "张伟",
     createdAt: "2024-01-18",
     updatedAt: "2024-02-22",
-    status: "approved",
   },
   {
     id: "t5",
@@ -93,7 +87,6 @@ const termTableData: TermTableItem[] = [
     owner: "李四",
     createdAt: "2024-01-20",
     updatedAt: "2024-02-25",
-    status: "pending",
   },
   {
     id: "t6",
@@ -103,7 +96,6 @@ const termTableData: TermTableItem[] = [
     owner: "王五",
     createdAt: "2024-01-22",
     updatedAt: "2024-02-28",
-    status: "rejected",
   },
 ]
 
@@ -112,7 +104,6 @@ const termDetails: Record<string, TermDetail> = {
     id: "t1",
     title: "投资方有权委派一名董事进入公司董事会",
     description: "该条款规定投资方有权向公司董事会委派一名董事代表，参与公司重大决策，保护投资方的权益。",
-    status: "approved",
     owner: "张伟",
     createdAt: "2024-01-10",
     updatedAt: "2024-02-15",
@@ -131,7 +122,6 @@ const termDetails: Record<string, TermDetail> = {
     id: "t4",
     title: "投资方有权优先于普通股股东获得投资金额1.5倍的回报",
     description: "在公司发生清算或出售等退出事件时，投资方有权优先于普通股股东获得相当于其投资金额1.5倍的回报。",
-    status: "approved",
     owner: "张伟",
     createdAt: "2024-01-18",
     updatedAt: "2024-02-22",
@@ -150,11 +140,11 @@ const termDetails: Record<string, TermDetail> = {
 /* ------------------------------------------------------------------ */
 /*  Status config                                                      */
 /* ------------------------------------------------------------------ */
-const statusConfig = {
-  approved: { label: "已批准", color: "bg-[#DCFCE7] text-[#166534]" },
-  pending: { label: "待审批", color: "bg-[#FEF3C7] text-[#92400E]" },
-  rejected: { label: "已拒绝", color: "bg-[#FEE2E2] text-[#991B1B]" },
-}
+// const statusConfig = {
+//   approved: { label: "已批准", color: "bg-[#DCFCE7] text-[#166534]" },
+//   pending: { label: "待审批", color: "bg-[#FEF3C7] text-[#92400E]" },
+//   rejected: { label: "已拒绝", color: "bg-[#FEE2E2] text-[#991B1B]" },
+// }
 
 /* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
@@ -301,7 +291,7 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
           <p className="text-sm text-[#6B7280] mb-6 leading-relaxed">
             这是一个新创建的策略，还没有添加任何条款。点击下方按钮开始创建您的第一个投资条款。
           </p>
-          <button 
+          <button
             onClick={() => setShowCreateForm(true)}
             className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
           >
@@ -328,11 +318,6 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
           <div className="bg-white rounded-xl border border-[#E5E7EB] p-6 mb-6">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <Badge className={cn("text-xs", statusConfig[selectedDetail.status].color)}>
-                    {statusConfig[selectedDetail.status].label}
-                  </Badge>
-                </div>
                 <h1 className="text-xl font-bold text-[#111827]">{selectedDetail.title}</h1>
               </div>
             </div>
@@ -413,8 +398,8 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
             </thead>
             <tbody>
               {filteredData.map((item, index) => (
-                <tr 
-                  key={item.id} 
+                <tr
+                  key={item.id}
                   className={cn(
                     "border-b border-[#E5E7EB] hover:bg-[#F9FAFB] transition-colors",
                     index % 2 === 1 && "bg-[#F9FAFB]"
@@ -423,12 +408,6 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
                   <td className="px-4 py-3 text-sm text-[#374151]">{item.direction}</td>
                   <td className="px-4 py-3 text-sm text-[#374151]">{item.category}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-[#111827]">{item.name}</span>
-                      <Badge className={cn("text-[10px]", statusConfig[item.status].color)}>
-                        {statusConfig[item.status].label}
-                      </Badge>
-                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -462,7 +441,7 @@ export function StrategyTerms({ isNewStrategy = false, prefillData, onPrefillUse
               ))}
             </tbody>
           </table>
-          
+
           {filteredData.length === 0 && (
             <div className="py-12 text-center">
               <FileText className="mx-auto h-12 w-12 text-[#D1D5DB]" />
