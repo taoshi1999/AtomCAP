@@ -308,9 +308,11 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
                   {strategy.name}
                 </h3>
                 {strategy.type === "赛道策略" && strategy.parentStrategyName && (
-                  <p className="text-[11px] text-[#9CA3AF] mb-1">
-                    挂靠: {strategy.parentStrategyName}
-                  </p>
+                  <div className="mb-2">
+                    <span className="inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                      挂靠主题：{strategy.parentStrategyName}
+                    </span>
+                  </div>
                 )}
                 <p className="text-xs text-[#6B7280] mb-3 leading-relaxed">
                   {strategy.description}
