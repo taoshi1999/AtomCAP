@@ -73,9 +73,31 @@ type SidebarType =
   | "ai-chat"
   | null
 
+// Full page generation view type (replaces entire workflow view)
+type FullPageView = 
+  | "hypothesis-generation"
+  | null
+
 interface ChatMessage {
   role: "user" | "assistant"
   content: string
+}
+
+// Deep thinking animation steps
+interface ThinkingStep {
+  id: string
+  label: string
+  status: "waiting" | "active" | "completed"
+}
+
+// Generated hypothesis suggestion with linked items
+interface GeneratedSuggestion {
+  id: string
+  title: string
+  content: string
+  linkedHypotheses: { id: string; name: string }[]
+  linkedTerms: { id: string; name: string }[]
+  linkedMaterials: { id: string; name: string }[]
 }
 
 const PHASES: Phase[] = [
@@ -354,6 +376,13 @@ export function Workflow({
   const [activeSidebar, setActiveSidebar] = useState<SidebarType>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState("")
+  
+  // Full page generation view state
+  const [fullPageView, setFullPageView] = useState<FullPageView>(null)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generationComplete, setGenerationComplete] = useState(false)
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([])
+  const [generatedSuggestions, setGeneratedSuggestions] = useState<GeneratedSuggestion[]>([])
 
   // Handle starting the first phase for new projects - creates pending request
   function handleStartFirstPhase() {
@@ -481,12 +510,120 @@ export function Workflow({
   }
 
   function handleOpenSidebar(type: SidebarType) {
+    // For hypothesis-suggestions, open full page view instead of sidebar
+    if (type === "hypothesis-suggestions") {
+      setFullPageView("hypothesis-generation")
+      setIsGenerating(false)
+      setGenerationComplete(false)
+      setThinkingSteps([])
+      setGeneratedSuggestions([])
+      return
+    }
+    
     setActiveSidebar(type)
     if (type === "ai-chat") {
       setChatMessages([
         { role: "assistant", content: "您好！我是您的AI智能助手，可以基于当前阶段的信息回答您的问题，帮助您生成所需的材料。请问有什么可以帮您？" }
       ])
     }
+  }
+  
+  function handleCloseFullPageView() {
+    setFullPageView(null)
+    setIsGenerating(false)
+    setGenerationComplete(false)
+    setThinkingSteps([])
+    setGeneratedSuggestions([])
+  }
+  
+  function handleStartGeneration() {
+    setIsGenerating(true)
+    setGenerationComplete(false)
+    
+    const steps: ThinkingStep[] = [
+      { id: "s1", label: "读取当前阶段假设清单...", status: "waiting" },
+      { id: "s2", label: "分析假设完整性与覆盖面...", status: "waiting" },
+      { id: "s3", label: "检索关联条款与材料...", status: "waiting" },
+      { id: "s4", label: "对比行业最佳实践...", status: "waiting" },
+      { id: "s5", label: "生成改进建议...", status: "waiting" },
+    ]
+    setThinkingSteps(steps)
+    
+    // Animate through steps
+    let currentStep = 0
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setThinkingSteps((prev) =>
+          prev.map((step, idx) => ({
+            ...step,
+            status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+          }))
+        )
+        currentStep++
+      } else {
+        clearInterval(interval)
+        // Mark all as completed and show results
+        setThinkingSteps((prev) =>
+          prev.map((step) => ({ ...step, status: "completed" }))
+        )
+        
+        // Generate mock suggestions with linked items
+        setTimeout(() => {
+          setGeneratedSuggestions([
+            {
+              id: "gs1",
+              title: "补充技术壁垒假设",
+              content: "当前假设清单缺少对核心技术壁垒的系统性论证。建议增加关于专利布局、技术团队稳定性、技术迭代能力等方面的假设，以更全面评估投资标的的技术竞争力。特别是在AI大模型领域，需要关注模型训练数据的独特性、推理效率优化能力、以及多模态扩展潜力。",
+              linkedHypotheses: [
+                { id: "h1", name: "大模型推理成本下降假设" },
+                { id: "h2", name: "技术团队核心成员稳定性假设" },
+              ],
+              linkedTerms: [
+                { id: "t1", name: "知识产权归属条款" },
+                { id: "t2", name: "核心团队锁定条款" },
+              ],
+              linkedMaterials: [
+                { id: "m1", name: "专利清单及技术白皮书" },
+                { id: "m2", name: "核心团队履历及期权安排" },
+              ],
+            },
+            {
+              id: "gs2",
+              title: "细化市场规模假设",
+              content: "现有TAM/SAM/SOM假设过于笼统，建议从地区维度（国内/海外）、行业维度（金融/医疗/制造等）、客户规模维度（大企业/SMB）进行拆分，形成更精细的市场规模假设矩阵。同时需要补充市场增速假设和份额假设。",
+              linkedHypotheses: [
+                { id: "h3", name: "多模态融合市场假设" },
+              ],
+              linkedTerms: [
+                { id: "t3", name: "市场拓展里程碑条款" },
+              ],
+              linkedMaterials: [
+                { id: "m3", name: "行业研究报告_2024Q4" },
+                { id: "m4", name: "竞品市场份额分析" },
+              ],
+            },
+            {
+              id: "gs3",
+              title: "添加商业模式可持续性假设",
+              content: "建议增加关于商业模式可持续性的假设，包括：客户获取成本(CAC)与客户生命周期价值(LTV)的比值假设、毛利率演变假设、规模效应假设等。这些假设对于评估公司长期盈利能力至关重要。",
+              linkedHypotheses: [
+                { id: "h4", name: "开源模型生态竞争假设" },
+              ],
+              linkedTerms: [
+                { id: "t4", name: "财务信息披露条款" },
+                { id: "t5", name: "反稀释保护条款" },
+              ],
+              linkedMaterials: [
+                { id: "m5", name: "财务预测模型" },
+                { id: "m6", name: "单位经济模型分析" },
+              ],
+            },
+          ])
+          setIsGenerating(false)
+          setGenerationComplete(true)
+        }, 500)
+      }
+    }, 800)
   }
 
   function handleCloseSidebar() {
@@ -516,6 +653,219 @@ export function Workflow({
 
   // Group phases for rendering group headers
   let lastGroup = ""
+
+  // Show full page generation view
+  if (fullPageView === "hypothesis-generation") {
+    return (
+      <div className="flex h-full flex-col bg-[#F9FAFB]">
+        {/* Header */}
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-8 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleCloseFullPageView}
+                className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                返回工作流
+              </button>
+              <div className="h-6 w-px bg-[#E5E7EB]" />
+              <div>
+                <h1 className="text-xl font-bold text-[#111827]">假设改进建议</h1>
+                <p className="text-sm text-[#6B7280]">{currentPhase?.fullLabel || "设立期 - 阶段1"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-4xl">
+            {!isGenerating && !generationComplete && (
+              /* Start Generation State */
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-50 ring-8 ring-amber-50/50">
+                  <Lightbulb className="h-10 w-10 text-amber-600" />
+                </div>
+                <h2 className="text-xl font-semibold text-[#111827] mb-2">AI假设改进建议生成</h2>
+                <p className="text-sm text-[#6B7280] text-center max-w-md mb-8">
+                  基于当前阶段的假设清单、条款文档和项目材料，AI将为您生成针对性的假设改进建议，帮助您完善投资决策框架。
+                </p>
+                <button
+                  onClick={handleStartGeneration}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-xl"
+                >
+                  <Brain className="h-5 w-5" />
+                  开始生成
+                </button>
+              </div>
+            )}
+            
+            {isGenerating && (
+              /* Thinking Animation */
+              <div className="py-12">
+                <div className="mb-8 text-center">
+                  <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm text-blue-700">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                    AI正在深度思考...
+                  </div>
+                </div>
+                
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
+                  <div className="space-y-4">
+                    {thinkingSteps.map((step, idx) => (
+                      <div key={step.id} className="flex items-center gap-4">
+                        {/* Step indicator */}
+                        <div className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300",
+                          step.status === "completed" ? "bg-emerald-100" :
+                          step.status === "active" ? "bg-blue-100 animate-pulse" :
+                          "bg-gray-100"
+                        )}>
+                          {step.status === "completed" ? (
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          ) : step.status === "active" ? (
+                            <div className="h-3 w-3 rounded-full bg-blue-500 animate-ping" />
+                          ) : (
+                            <span className="text-xs text-gray-400">{idx + 1}</span>
+                          )}
+                        </div>
+                        
+                        {/* Step label */}
+                        <span className={cn(
+                          "text-sm transition-colors duration-300",
+                          step.status === "completed" ? "text-emerald-700 font-medium" :
+                          step.status === "active" ? "text-blue-700 font-medium" :
+                          "text-gray-400"
+                        )}>
+                          {step.label}
+                        </span>
+                        
+                        {/* Progress indicator for active step */}
+                        {step.status === "active" && (
+                          <div className="flex-1">
+                            <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full w-1/2 bg-blue-500 animate-pulse rounded-full" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {generationComplete && (
+              /* Results */
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                    <Check className="h-5 w-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-[#111827]">生成完成</h2>
+                    <p className="text-sm text-[#6B7280]">共生成 {generatedSuggestions.length} 条改进建议</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  {generatedSuggestions.map((suggestion, idx) => (
+                    <div 
+                      key={suggestion.id} 
+                      className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm transition-all hover:shadow-md"
+                    >
+                      <div className="flex items-start gap-4 mb-4">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-sm font-semibold text-amber-700">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-base font-semibold text-[#111827] mb-2">{suggestion.title}</h3>
+                          <p className="text-sm text-[#6B7280] leading-relaxed">{suggestion.content}</p>
+                        </div>
+                      </div>
+                      
+                      {/* Linked Items */}
+                      <div className="ml-12 space-y-3 pt-4 border-t border-[#F3F4F6]">
+                        {/* Linked Hypotheses */}
+                        {suggestion.linkedHypotheses.length > 0 && (
+                          <div className="flex items-start gap-2">
+                            <div className="flex items-center gap-1.5 shrink-0 text-xs text-[#6B7280]">
+                              <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+                              <span>关联假设:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {suggestion.linkedHypotheses.map((h) => (
+                                <Badge key={h.id} className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-normal cursor-pointer hover:bg-amber-100">
+                                  {h.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Linked Terms */}
+                        {suggestion.linkedTerms.length > 0 && (
+                          <div className="flex items-start gap-2">
+                            <div className="flex items-center gap-1.5 shrink-0 text-xs text-[#6B7280]">
+                              <FileText className="h-3.5 w-3.5 text-violet-500" />
+                              <span>关联条款:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {suggestion.linkedTerms.map((t) => (
+                                <Badge key={t.id} className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] font-normal cursor-pointer hover:bg-violet-100">
+                                  {t.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Linked Materials */}
+                        {suggestion.linkedMaterials.length > 0 && (
+                          <div className="flex items-start gap-2">
+                            <div className="flex items-center gap-1.5 shrink-0 text-xs text-[#6B7280]">
+                              <FolderOpen className="h-3.5 w-3.5 text-blue-500" />
+                              <span>关联材料:</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {suggestion.linkedMaterials.map((m) => (
+                                <Badge key={m.id} className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-normal cursor-pointer hover:bg-blue-100">
+                                  {m.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="flex items-center justify-center gap-4 pt-6">
+                  <button
+                    onClick={handleStartGeneration}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+                  >
+                    <Brain className="h-4 w-4" />
+                    重新生成
+                  </button>
+                  <button
+                    onClick={handleCloseFullPageView}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Check className="h-4 w-4" />
+                    完成并返回
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Show empty state for new projects with no phases started
   if (isNewProject && projectPhases.length === 0) {
