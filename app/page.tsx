@@ -10,7 +10,7 @@ import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
 import { Login } from "@/components/pages/login"
 import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion } from "@/components/pages/workflow"
-import { type HypothesisTableItem, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
+import { type HypothesisTableItem, type HypothesisDetail, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
 import { type TermTableItem, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
 
@@ -43,6 +43,7 @@ export default function Page() {
   const [pendingMaterials, setPendingMaterials] = useState<PendingMaterial[]>([])
   // Project-level inherited data - keyed by projectId, initialized when project is approved
   const [projectHypotheses, setProjectHypotheses] = useState<Record<string, HypothesisTableItem[]>>({})
+  const [projectHypothesisDetails, setProjectHypothesisDetails] = useState<Record<string, Record<string, HypothesisDetail>>>({})
   const [projectTerms, setProjectTerms] = useState<Record<string, TermTableItem[]>>({})
   const [projectMaterialsMap, setProjectMaterialsMap] = useState<Record<string, StrategyMaterial[]>>({})
   // Pending project-level hypotheses
@@ -164,7 +165,7 @@ export default function Page() {
         [newProjectId]: [...templateTerms, ...userTerms],
       }))
 
-      // Inherit materials: template mock materials + user-approved strategy materials
+      // Inherit materials: template mock materials + user-approved strategy materials + files uploaded during project creation
       const templateMaterials: StrategyMaterial[] = getTemplateMaterialsForStrategy(sid).map((m) => ({
         ...m,
         strategyId: sid,
@@ -172,7 +173,19 @@ export default function Page() {
         owner: "张伟",
         createdAt: today,
       }))
+      const uploadedAtCreation: StrategyMaterial[] = (pending.uploadedFiles || []).map((f) => ({
+        id: `uploaded-${f.id}-${Date.now()}`,
+        strategyId: sid,
+        name: f.name,
+        format: f.format,
+        size: f.size,
+        category: "",
+        description: f.description || "",
+        owner: "张伟",
+        createdAt: today,
+      }))
       const inheritedMaterials: StrategyMaterial[] = [
+        ...uploadedAtCreation,
         ...(strategyMaterials[sid] || []),
         ...templateMaterials,
       ]
@@ -265,8 +278,9 @@ export default function Page() {
     if (pending) {
       const { projectId, hypothesis } = pending
       const today = new Date().toISOString().split("T")[0]
+      const newId = `proj-hyp-${Date.now()}`
       const newHypothesis: HypothesisTableItem = {
-        id: `proj-hyp-${Date.now()}`,
+        id: newId,
         direction: hypothesis.direction,
         category: hypothesis.category,
         name: hypothesis.name,
@@ -275,11 +289,76 @@ export default function Page() {
         updatedAt: today,
         status: "pending" as const,
       }
+      // Build a lookup map from materialId -> material info
+      const matMap = new Map((pending.materialOptions || []).map((m) => [m.id, m]))
+      const resolveMaterials = (ids: string[]) =>
+        ids
+          .map((id) => matMap.get(id))
+          .filter(Boolean)
+          .map((m) => ({ name: `${m!.name}.${m!.format.toLowerCase()}`, size: m!.size || "—", date: today }))
+
+      // Build HypothesisDetail from form data, with empty committee/verification/terms
+      const newDetail: HypothesisDetail = {
+        id: newId,
+        title: hypothesis.name,
+        qaId: `QA-${newId}`,
+        createdAt: today,
+        updatedAt: today,
+        status: "pending",
+        creator: { name: "张伟", role: "投资经理" },
+        valuePoints: hypothesis.valuePoints.map((vp) => ({
+          id: vp.id,
+          title: vp.title,
+          evidence: { description: vp.evidenceDescription, files: resolveMaterials(vp.evidenceMaterialIds) },
+          analysis: {
+            content: vp.analysisContent,
+            creator: { name: "张伟", role: "投资经理" },
+            reviewers: [],
+            createdAt: today,
+          },
+          comments: [],
+        })),
+        riskPoints: hypothesis.riskPoints.map((rp) => ({
+          id: rp.id,
+          title: rp.title,
+          evidence: { description: rp.evidenceDescription, files: resolveMaterials(rp.evidenceMaterialIds) },
+          analysis: {
+            content: rp.analysisContent,
+            creator: { name: "张伟", role: "投资经理" },
+            reviewers: [],
+            createdAt: today,
+          },
+          comments: [],
+        })),
+        committeeDecision: {
+          conclusion: "",
+          status: "pending",
+          content: "",
+          creator: { name: "", role: "" },
+          reviewers: [],
+          createdAt: "",
+          comments: [],
+        },
+        verification: {
+          conclusion: "",
+          status: "pending",
+          content: "",
+          creator: { name: "", role: "" },
+          reviewers: [],
+          createdAt: "",
+          comments: [],
+        },
+        linkedTerms: [],
+      }
       const currentHypotheses = projectHypotheses[projectId] || []
       setProjectHypotheses({
         ...projectHypotheses,
         [projectId]: [newHypothesis, ...currentHypotheses],
       })
+      setProjectHypothesisDetails((prev) => ({
+        ...prev,
+        [projectId]: { ...(prev[projectId] || {}), [newId]: newDetail },
+      }))
       setPendingProjectHypotheses(pendingProjectHypotheses.filter((p) => p.id !== id))
       // Navigate to project detail to view the new hypothesis
       setView({ type: "project-detail", projectId })
@@ -459,6 +538,7 @@ export default function Page() {
   onCreatePendingPhase={handleCreatePendingPhase}
   onCreatePendingProjectHypothesis={handleCreatePendingProjectHypothesis}
   projectHypotheses={projectHypotheses[view.projectId]}
+  projectHypothesisDetails={projectHypothesisDetails[view.projectId]}
   projectTerms={projectTerms[view.projectId]}
   projectMaterials={projectMaterialsMap[view.projectId]}
   savedGeneratedSuggestions={savedProjectSuggestions[view.projectId]}

@@ -112,7 +112,7 @@ interface LinkedTerm {
   status: "approved" | "pending" | "rejected"
 }
 
-interface HypothesisDetail {
+export interface HypothesisDetail {
   id: string
   title: string
   qaId: string
@@ -399,6 +399,12 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
   },
   {
     id: "ai-h7",
+
+
+
+
+
+
     direction: "团队能力",
     category: "创始人",
     name: "创始人具备丰富的AI产品商业化经验。",
@@ -427,13 +433,19 @@ interface HypothesisChecklistProps {
   isNewProject?: boolean
   project?: { strategyId?: string; strategyName?: string }
   inheritedHypotheses?: HypothesisTableItem[]
+  extraDetails?: Record<string, HypothesisDetail>
 }
 
-export function HypothesisChecklist({ isNewProject = false, project, inheritedHypotheses }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, project, inheritedHypotheses, extraDetails }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const [showTemplateBanner, setShowTemplateBanner] = useState(true)
+
+  // Comment input state: key = `{hypothesisId}-{pointId}`
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
+  // Extra comments added by user: key = `{hypothesisId}-{pointId}`, value = array of comment objects
+  const [extraComments, setExtraComments] = useState<Record<string, { author: string; content: string; time: string }[]>>({})
 
   // Priority: inherited (from approved project) > template > existing mock data
   const sourceData = inheritedHypotheses
@@ -453,8 +465,10 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
     )
   })
 
-  // Get detail for selected item
-  const selectedDetail = selectedId ? hypothesisDetails[selectedId] : null
+  // Get detail for selected item - check extraDetails first (for newly created hypotheses), then static mock data
+  const selectedDetail = selectedId
+    ? (extraDetails?.[selectedId] ?? hypothesisDetails[selectedId] ?? null)
+    : null
 
   // Handle view detail
   function handleViewDetail(id: string) {
@@ -472,6 +486,28 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
   function handleDelete(id: string) {
     // In real app, this would call an API
     console.log("[v0] Delete hypothesis:", id)
+  }
+
+  // Comment helpers
+  function getCommentKey(pointId: string) {
+    return `${selectedId}-${pointId}`
+  }
+
+  function handleCommentInput(pointId: string, value: string) {
+    setCommentInputs((prev) => ({ ...prev, [getCommentKey(pointId)]: value }))
+  }
+
+  function handleSendComment(pointId: string) {
+    const key = getCommentKey(pointId)
+    const text = (commentInputs[key] || "").trim()
+    if (!text) return
+    const now = new Date()
+    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+    setExtraComments((prev) => ({
+      ...prev,
+      [key]: [...(prev[key] || []), { author: "张伟", content: text, time: timeStr }],
+    }))
+    setCommentInputs((prev) => ({ ...prev, [key]: "" }))
   }
 
   // For new projects without a strategy template, show empty state
@@ -587,7 +623,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                   {/* Comments */}
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                    {vp.comments.map((c, idx) => (
+                    {[...vp.comments, ...(extraComments[getCommentKey(vp.id)] || [])].map((c, idx) => (
                       <div key={idx} className="flex items-start gap-2 mb-2">
                         <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                           <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -605,9 +641,15 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                       <input
                         type="text"
                         placeholder="添加评论..."
+                        value={commentInputs[getCommentKey(vp.id)] || ""}
+                        onChange={(e) => handleCommentInput(vp.id, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSendComment(vp.id) }}
                         className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                       />
-                      <button className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors">
+                      <button
+                        onClick={() => handleSendComment(vp.id)}
+                        className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors"
+                      >
                         <Send className="h-4 w-4" />
                       </button>
                     </div>
@@ -672,7 +714,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                   {/* Comments */}
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                    {rp.comments.map((c, idx) => (
+                    {[...rp.comments, ...(extraComments[getCommentKey(rp.id)] || [])].map((c, idx) => (
                       <div key={idx} className="flex items-start gap-2 mb-2">
                         <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                           <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -690,9 +732,15 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                       <input
                         type="text"
                         placeholder="添加评论..."
+                        value={commentInputs[getCommentKey(rp.id)] || ""}
+                        onChange={(e) => handleCommentInput(rp.id, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSendComment(rp.id) }}
                         className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                       />
-                      <button className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors">
+                      <button
+                        onClick={() => handleSendComment(rp.id)}
+                        className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors"
+                      >
                         <Send className="h-4 w-4" />
                       </button>
                     </div>
@@ -712,34 +760,42 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               <div className="border-l-4 border-[#2563EB] p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-[#111827]">投委会审议结果</h3>
-                  <Badge className="bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]">
-                    {selectedDetail.committeeDecision.conclusion}
-                  </Badge>
+                  {selectedDetail.committeeDecision.conclusion ? (
+                    <Badge className="bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]">
+                      {selectedDetail.committeeDecision.conclusion}
+                    </Badge>
+                  ) : null}
                 </div>
 
-                <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
-                  <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.committeeDecision.content}</p>
-                </div>
+                {selectedDetail.committeeDecision.content ? (
+                  <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
+                    <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.committeeDecision.content}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#9CA3AF] mb-4">暂无审议结果</p>
+                )}
 
                 {/* Creator & Reviewers */}
-                <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
-                  <div className="flex items-center gap-1">
-                    <div className="h-5 w-5 rounded-full bg-[#2563EB] flex items-center justify-center">
-                      <span className="text-[8px] text-white">{selectedDetail.committeeDecision.creator.name.slice(0, 1)}</span>
-                    </div>
-                    <span>创建: {selectedDetail.committeeDecision.creator.name}</span>
-                  </div>
-                  <span>审批:</span>
-                  {selectedDetail.committeeDecision.reviewers.map((r, idx) => (
-                    <div key={idx} className="flex items-center gap-1">
-                      <div className="h-5 w-5 rounded-full bg-[#6B7280] flex items-center justify-center">
-                        <span className="text-[8px] text-white">{r.name.slice(0, 1)}</span>
+                {selectedDetail.committeeDecision.creator?.name && (
+                  <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
+                    <div className="flex items-center gap-1">
+                      <div className="h-5 w-5 rounded-full bg-[#2563EB] flex items-center justify-center">
+                        <span className="text-[8px] text-white">{selectedDetail.committeeDecision.creator.name.slice(0, 1)}</span>
                       </div>
-                      <span>{r.name}</span>
+                      <span>创建: {selectedDetail.committeeDecision.creator.name}</span>
                     </div>
-                  ))}
-                  <span>{selectedDetail.committeeDecision.createdAt}</span>
-                </div>
+                    <span>审批:</span>
+                    {selectedDetail.committeeDecision.reviewers.map((r, idx) => (
+                      <div key={idx} className="flex items-center gap-1">
+                        <div className="h-5 w-5 rounded-full bg-[#6B7280] flex items-center justify-center">
+                          <span className="text-[8px] text-white">{r.name.slice(0, 1)}</span>
+                        </div>
+                        <span>{r.name}</span>
+                      </div>
+                    ))}
+                    <span>{selectedDetail.committeeDecision.createdAt}</span>
+                  </div>
+                )}
 
                 {/* Comments */}
                 <div>
@@ -783,34 +839,42 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               <div className="border-l-4 border-[#8B5CF6] p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-[#111827]">投后验证评估</h3>
-                  <Badge className="bg-[#F3E8FF] text-[#7C3AED] border-[#DDD6FE]">
-                    {selectedDetail.verification.conclusion}
-                  </Badge>
+                  {selectedDetail.verification.conclusion ? (
+                    <Badge className="bg-[#F3E8FF] text-[#7C3AED] border-[#DDD6FE]">
+                      {selectedDetail.verification.conclusion}
+                    </Badge>
+                  ) : null}
                 </div>
 
-                <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
-                  <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.verification.content}</p>
-                </div>
+                {selectedDetail.verification.content ? (
+                  <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
+                    <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.verification.content}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#9CA3AF] mb-4">暂无验证评估</p>
+                )}
 
                 {/* Creator & Reviewers */}
-                <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
-                  <div className="flex items-center gap-1">
-                    <div className="h-5 w-5 rounded-full bg-[#2563EB] flex items-center justify-center">
-                      <span className="text-[8px] text-white">{selectedDetail.verification.creator.name.slice(0, 1)}</span>
-                    </div>
-                    <span>创建: {selectedDetail.verification.creator.name}</span>
-                  </div>
-                  <span>审批:</span>
-                  {selectedDetail.verification.reviewers.map((r, idx) => (
-                    <div key={idx} className="flex items-center gap-1">
-                      <div className="h-5 w-5 rounded-full bg-[#6B7280] flex items-center justify-center">
-                        <span className="text-[8px] text-white">{r.name.slice(0, 1)}</span>
+                {selectedDetail.verification.creator?.name && (
+                  <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
+                    <div className="flex items-center gap-1">
+                      <div className="h-5 w-5 rounded-full bg-[#2563EB] flex items-center justify-center">
+                        <span className="text-[8px] text-white">{selectedDetail.verification.creator.name.slice(0, 1)}</span>
                       </div>
-                      <span>{r.name}</span>
+                      <span>创建: {selectedDetail.verification.creator.name}</span>
                     </div>
-                  ))}
-                  <span>{selectedDetail.verification.createdAt}</span>
-                </div>
+                    <span>审批:</span>
+                    {selectedDetail.verification.reviewers.map((r, idx) => (
+                      <div key={idx} className="flex items-center gap-1">
+                        <div className="h-5 w-5 rounded-full bg-[#6B7280] flex items-center justify-center">
+                          <span className="text-[8px] text-white">{r.name.slice(0, 1)}</span>
+                        </div>
+                        <span>{r.name}</span>
+                      </div>
+                    ))}
+                    <span>{selectedDetail.verification.createdAt}</span>
+                  </div>
+                )}
 
                 {/* Comments */}
                 <div>
@@ -837,8 +901,11 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               <h2 className="text-base font-semibold text-[#111827]">该假设所支持的条款</h2>
             </div>
             <div className="bg-white rounded-xl border border-[#E5E7EB] p-5">
-              <div className="space-y-3">
-                {selectedDetail.linkedTerms.map((term) => (
+              {selectedDetail.linkedTerms.length === 0 ? (
+                <p className="text-sm text-[#9CA3AF]">暂无关联条款</p>
+              ) : (
+                <div className="space-y-3">
+                  {selectedDetail.linkedTerms.map((term) => (
                   <div key={term.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
                     <div className="flex items-center gap-3">
                       <FileCheck className="h-4 w-4 text-[#6B7280]" />
@@ -860,6 +927,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                   </div>
                 ))}
               </div>
+              )}
             </div>
           </div>
         </div>

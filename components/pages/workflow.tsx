@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { Trash2, Upload, Link2, Pencil } from "lucide-react"
+import { Trash2, Upload, Link2, Pencil, Target, FileCheck, AlertTriangle, Shield, Handshake, CheckCircle, ClipboardCheck } from "lucide-react"
 
 /* ─── Types ──────────────────────────────────── */
 export interface PhaseLog {
@@ -85,6 +85,7 @@ type SidebarType =
 // Full page generation view type (replaces entire workflow view)
 type FullPageView =
   | "hypothesis-generation"
+  | "term-generation"
   | null
 
 interface ChatMessage {
@@ -161,6 +162,60 @@ export interface PendingProjectHypothesis {
   projectId: string
   projectName: string
   hypothesis: ProjectHypothesisFormData
+  materialOptions: { id: string; name: string; format: string; size?: string }[]
+  changeId: string
+  changeName: string
+  changeType: "create"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
+// Suggested term with pre-filled content
+export interface SuggestionTerm {
+  id: string
+  direction: string  // 条款方向 (一级类目)
+  category: string   // 条款类别 (二级类目)
+  name: string       // 条款名称
+  isExisting: boolean
+  // Pre-filled term sections
+  ourDemand: { content: string; linkedMaterialIds: string[]; linkedHypothesisIds: string[] }
+  ourBasis: { content: string; linkedMaterialIds: string[]; linkedHypothesisIds: string[] }
+  bilateralConflict: { content: string }
+  ourBottomLine: { content: string }
+  compromiseSpace: { content: string }
+}
+
+// Generated term suggestion with linked items
+export interface GeneratedTermSuggestion {
+  id: string
+  title: string
+  content: string
+  linkedHypotheses: { id: string; name: string }[]
+  linkedMaterials: { id: string; name: string }[]
+  terms: SuggestionTerm[]
+}
+
+// Project term creation form data
+export interface ProjectTermFormData {
+  direction: string
+  category: string
+  name: string
+  ourDemand: { content: string; linkedMaterialIds: string[]; linkedHypothesisIds: string[] }
+  ourBasis: { content: string; linkedMaterialIds: string[]; linkedHypothesisIds: string[] }
+  bilateralConflict: { content: string }
+  ourBottomLine: { content: string }
+  compromiseSpace: { content: string }
+}
+
+// Pending project term change request
+export interface PendingProjectTerm {
+  id: string
+  projectId: string
+  projectName: string
+  term: ProjectTermFormData
+  materialOptions: { id: string; name: string; format: string; size?: string }[]
+  hypothesisOptions: { id: string; name: string }[]
   changeId: string
   changeName: string
   changeType: "create"
@@ -392,12 +447,16 @@ interface WorkflowProps {
   onPhasesChange?: (phases: Phase[]) => void
   onCreatePendingPhase?: (pending: PendingPhase) => void
   onCreatePendingProjectHypothesis?: (pending: PendingProjectHypothesis) => void
+  onCreatePendingProjectTerm?: (pending: PendingProjectTerm) => void
   hypothesesCount?: number
   termsCount?: number
   materialsCount?: number
   // Persisted hypothesis suggestion generation state
   savedGeneratedSuggestions?: GeneratedSuggestion[]
   onSaveSuggestions?: (suggestions: GeneratedSuggestion[]) => void
+  // Persisted term suggestion generation state
+  savedGeneratedTermSuggestions?: GeneratedTermSuggestion[]
+  onSaveTermSuggestions?: (suggestions: GeneratedTermSuggestion[]) => void
 }
 
 /* ─── New Project Phase Template ─────────────── */
@@ -430,11 +489,14 @@ export function Workflow({
   onPhasesChange,
   onCreatePendingPhase,
   onCreatePendingProjectHypothesis,
+  onCreatePendingProjectTerm,
   hypothesesCount,
   termsCount,
   materialsCount,
   savedGeneratedSuggestions,
   onSaveSuggestions,
+  savedGeneratedTermSuggestions,
+  onSaveTermSuggestions,
 }: WorkflowProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -477,6 +539,25 @@ export function Workflow({
     riskPoints: [],
   })
 
+  // Term generation state
+  const [isTermGenerating, setIsTermGenerating] = useState(false)
+  const [termGenerationComplete, setTermGenerationComplete] = useState(savedGeneratedTermSuggestions ? savedGeneratedTermSuggestions.length > 0 : false)
+  const [termThinkingSteps, setTermThinkingSteps] = useState<ThinkingStep[]>([])
+  const [generatedTermSuggestions, setGeneratedTermSuggestions] = useState<GeneratedTermSuggestion[]>(savedGeneratedTermSuggestions || [])
+
+  // Term creation dialog state
+  const [showTermCreateDialog, setShowTermCreateDialog] = useState(false)
+  const [termFormData, setTermFormData] = useState<ProjectTermFormData>({
+    direction: "",
+    category: "",
+    name: "",
+    ourDemand: { content: "", linkedMaterialIds: [], linkedHypothesisIds: [] },
+    ourBasis: { content: "", linkedMaterialIds: [], linkedHypothesisIds: [] },
+    bilateralConflict: { content: "" },
+    ourBottomLine: { content: "" },
+    compromiseSpace: { content: "" },
+  })
+
   // Mock available project materials
   const availableMaterials: ProjectMaterialOption[] = [
     { id: "m1", name: "闫俊杰_CV", format: "PDF" },
@@ -487,6 +568,14 @@ export function Workflow({
     { id: "m6", name: "单位经济模型分析", format: "PDF" },
     { id: "m7", name: "尽职调查报告", format: "PDF" },
     { id: "m8", name: "商业计划书", format: "PDF" },
+  ]
+
+  // Mock available hypotheses for linking
+  const availableHypotheses = [
+    { id: "h1", name: "创始人具有扎实的人工智能学术背景" },
+    { id: "h2", name: "核心技术具备可验证的技术壁垒" },
+    { id: "h3", name: "市场规模足够支撑高速增长" },
+    { id: "h4", name: "单位经济模型健康，具备规模化盈利基础" },
   ]
 
   // Handle starting the first phase for new projects - creates pending request
@@ -631,6 +720,22 @@ export function Workflow({
       return
     }
 
+    // For term-suggestions, open full page view instead of sidebar
+    if (type === "term-suggestions") {
+      setFullPageView("term-generation")
+      setIsTermGenerating(false)
+      setTermThinkingSteps([])
+      // Restore saved suggestions if available, otherwise reset
+      if (savedGeneratedTermSuggestions && savedGeneratedTermSuggestions.length > 0) {
+        setGeneratedTermSuggestions(savedGeneratedTermSuggestions)
+        setTermGenerationComplete(true)
+      } else {
+        setGeneratedTermSuggestions([])
+        setTermGenerationComplete(false)
+      }
+      return
+    }
+
     setActiveSidebar(type)
     if (type === "ai-chat") {
       setChatMessages([
@@ -645,6 +750,11 @@ export function Workflow({
     setGenerationComplete(false)
     setThinkingSteps([])
     setGeneratedSuggestions([])
+    // Also reset term generation state
+    setIsTermGenerating(false)
+    setTermGenerationComplete(false)
+    setTermThinkingSteps([])
+    setGeneratedTermSuggestions([])
   }
 
   function handleCreateFromHypothesis(hypothesis: SuggestionHypothesis) {
@@ -748,6 +858,7 @@ export function Workflow({
       projectId,
       projectName,
       hypothesis: formData,
+      materialOptions: availableMaterials,
       changeId: `CR-PH-${Date.now().toString().slice(-6)}`,
       changeName: `创建项目假设: ${formData.name}`,
       changeType: "create",
@@ -762,6 +873,173 @@ export function Workflow({
     onCreatePendingProjectHypothesis?.(pendingHypothesis)
     handleCloseCreateDialog()
     handleCloseFullPageView()
+  }
+
+  // Term creation handlers
+  function handleCreateFromTerm(term: SuggestionTerm) {
+    setTermFormData({
+      direction: term.direction,
+      category: term.category,
+      name: term.name,
+      ourDemand: { ...term.ourDemand },
+      ourBasis: { ...term.ourBasis },
+      bilateralConflict: { ...term.bilateralConflict },
+      ourBottomLine: { ...term.ourBottomLine },
+      compromiseSpace: { ...term.compromiseSpace },
+    })
+    setShowTermCreateDialog(true)
+  }
+
+  function handleCloseTermCreateDialog() {
+    setShowTermCreateDialog(false)
+    setTermFormData({
+      direction: "",
+      category: "",
+      name: "",
+      ourDemand: { content: "", linkedMaterialIds: [], linkedHypothesisIds: [] },
+      ourBasis: { content: "", linkedMaterialIds: [], linkedHypothesisIds: [] },
+      bilateralConflict: { content: "" },
+      ourBottomLine: { content: "" },
+      compromiseSpace: { content: "" },
+    })
+  }
+
+  function handleSubmitTerm() {
+    const pendingTerm: PendingProjectTerm = {
+      id: `pending-project-term-${Date.now()}`,
+      projectId,
+      projectName,
+      term: termFormData,
+      materialOptions: availableMaterials,
+      hypothesisOptions: availableHypotheses,
+      changeId: `CR-PT-${Date.now().toString().slice(-6)}`,
+      changeName: `创建项目条款: ${termFormData.name}`,
+      changeType: "create",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    }
+    onCreatePendingProjectTerm?.(pendingTerm)
+    handleCloseTermCreateDialog()
+    handleCloseFullPageView()
+  }
+
+  function handleStartTermGeneration() {
+    setIsTermGenerating(true)
+    setTermGenerationComplete(false)
+
+    const steps: ThinkingStep[] = [
+      { id: "t1", label: "读取当前阶段条款清单...", status: "waiting" },
+      { id: "t2", label: "分析条款完整性与覆盖面...", status: "waiting" },
+      { id: "t3", label: "检索关联假设与材料...", status: "waiting" },
+      { id: "t4", label: "对比行业标准条款结构...", status: "waiting" },
+      { id: "t5", label: "生成条款建议...", status: "waiting" },
+    ]
+    setTermThinkingSteps(steps)
+
+    let currentStep = 0
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setTermThinkingSteps((prev) =>
+          prev.map((step, idx) => ({
+            ...step,
+            status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+          }))
+        )
+        currentStep++
+      } else {
+        clearInterval(interval)
+        setTermThinkingSteps((prev) => prev.map((step) => ({ ...step, status: "completed" })))
+
+        setTimeout(() => {
+          const suggestions: GeneratedTermSuggestion[] = [
+            {
+              id: "gts1",
+              title: "加强董事会席位条款",
+              content: "建议明确投资方董事会席位安排，包括委派权、参会权、信息知情权等核心权利条款。",
+              linkedHypotheses: [
+                { id: "h1", name: "创始人具有扎实的人工智能学术背景" },
+              ],
+              linkedMaterials: [
+                { id: "m7", name: "尽职调查报告" },
+              ],
+              terms: [
+                {
+                  id: "st1-1",
+                  direction: "控制权条款",
+                  category: "董事会条款",
+                  name: "投资方有权委派一名董事进入公司董事会",
+                  isExisting: false,
+                  ourDemand: { content: "投资方有权委派一名董事进入公司董事会，享有完整的表决权和知情权。", linkedMaterialIds: ["m7"], linkedHypothesisIds: ["h1"] },
+                  ourBasis: { content: "作为战略投资人，需要参与公司重大决策以保护投资人利益；创始人背景优秀，需适度介入治理。", linkedMaterialIds: ["m7"], linkedHypothesisIds: ["h1"] },
+                  bilateralConflict: { content: "创始团队希望保持董事会控制权，担心投资方过度干预日常经营。" },
+                  ourBottomLine: { content: "至少获得一个董事席位，确保重大事项的知情权和参与权。" },
+                  compromiseSpace: { content: "可接受观察员席位作为过渡，但需明确升级为正式董事的条件。" },
+                },
+              ],
+            },
+            {
+              id: "gts2",
+              title: "完善反稀释保护条款",
+              content: "建议采用加权平均反稀释条款，明确触发条件、调整机制和豁免情形。",
+              linkedHypotheses: [
+                { id: "h4", name: "单位经济模型健康，具备规模化盈利基础" },
+              ],
+              linkedMaterials: [
+                { id: "m5", name: "财务预测模型" },
+                { id: "m8", name: "商业计划书" },
+              ],
+              terms: [
+                {
+                  id: "st2-1",
+                  direction: "经济性条款",
+                  category: "反稀释条款",
+                  name: "采用加权平均反稀释保护机制",
+                  isExisting: false,
+                  ourDemand: { content: "采用广义加权平均反稀释条款，在公司低价融资时调整投资人持股比例。", linkedMaterialIds: ["m5"], linkedHypothesisIds: ["h4"] },
+                  ourBasis: { content: "保护投资人在后续融资中的权益不被不当稀释，基于财务模型显示的估值合理性。", linkedMaterialIds: ["m5", "m8"], linkedHypothesisIds: [] },
+                  bilateralConflict: { content: "创始团队倾向于窄基加权平均或设置较高的触发门槛。" },
+                  ourBottomLine: { content: "必须有反稀释保护机制，广义加权平均是最低要求。" },
+                  compromiseSpace: { content: "可接受设定合理的豁免情形，如员工期权池扩大、战略并购等。" },
+                },
+              ],
+            },
+            {
+              id: "gts3",
+              title: "建立信息权条款",
+              content: "建议明确定期财务报告、重大事项通知、现场检查权等信息权条款。",
+              linkedHypotheses: [
+                { id: "h3", name: "市场规模足够支撑高速增长" },
+              ],
+              linkedMaterials: [
+                { id: "m3", name: "行业研究报告_2024Q4" },
+              ],
+              terms: [
+                {
+                  id: "st3-1",
+                  direction: "信息权条款",
+                  category: "财务信息权",
+                  name: "投资方有权获取公司月度/季度/年度财务报告",
+                  isExisting: false,
+                  ourDemand: { content: "公司应按月提供管理报表，按季提供审计后财务报告，按年提供审计报告。", linkedMaterialIds: ["m3"], linkedHypothesisIds: ["h3"] },
+                  ourBasis: { content: "及时掌握公司经营状况，验证市场增长假设，支持投后管理决策。", linkedMaterialIds: ["m3"], linkedHypothesisIds: ["h3"] },
+                  bilateralConflict: { content: "公司担心频繁报告增加管理负担，可能泄露商业机密。" },
+                  ourBottomLine: { content: "至少季度财务报告和年度审计报告是必须的。" },
+                  compromiseSpace: { content: "月报可简化为关键KPI指标，减轻公司负担。" },
+                },
+              ],
+            },
+          ]
+          setGeneratedTermSuggestions(suggestions)
+          onSaveTermSuggestions?.(suggestions)
+          setIsTermGenerating(false)
+          setTermGenerationComplete(true)
+        }, 500)
+      }
+    }, 800)
   }
 
   function handleStartGeneration() {
@@ -803,7 +1081,7 @@ export function Workflow({
               title: "补充创始人品质假设",
               content: "当前假设清单缺少对创始人能力与品质的系统性论证与支撑。建议增加关于创始人技术水平和创始人商业经验等方面的假设，以更全面评估投资标的的成功概率。",
               linkedTerms: [
-                { id: "t1", name: "创始人股权分配细则" },
+                { id: "t1", name: "创始人股权��配细则" },
                 { id: "t2", name: "创始人权限划分" },
               ],
               linkedMaterials: [
@@ -815,21 +1093,21 @@ export function Workflow({
                   id: "sh0-1",
                   direction: "团队能力",
                   category: "创始人",
-                  name: "创始人具有扎实的人工智能学术背景。",
+                  name: "创始人具有扎实的人工智能学术背景",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp0-1", title: "创始人闫俊杰拥有博士学位，在人工智能领域具有较强学术能力。", evidenceDescription: "创始人拥有博士学位，在AI领域发表过15篇高质量学术论文。", evidenceMaterialIds: ["m1"], analysisContent: "创始人拥有博士学位，为该领域高学历人才。在人工智能领域发表过15篇高质量学术论文，其中5篇发表在顶级期刊上。曾获得国家自然科学基金青年项目资助，具备扎实的理论基础和研究能力。" },
                     { id: "vp0-2", title: "创始人的学术成功具有较高影响力。", evidenceDescription: "创始人闫俊杰在Google Scholar上的H指数为8，总引用次数超过500次，证明其研究成果具有较高的学术影响力。", evidenceMaterialIds: ["m1"], analysisContent: "创始人闫俊杰的H指数达到8，在同龄学者中处于较高水平。其研究成果被多家知名企业引用并应用于实际产品中，证明其学术研究具有很高的实用价值。" },
                   ],
                   riskPoints: [
-                    { id: "rp0-1", title: "学术能力与商业转化能力有可能脱节。", evidenceDescription: "学术背景较强但商业转化经验相对有限，需关注从学术到产业的过渡能力。", evidenceMaterialIds: ["m1"], analysisContent: "需创始人在商业化方面的经验主要集中在技术转让和专利授权领域，尚未有过完整的产品商业化经历。建议关注其团队中是否有强有力的商业运营搭档补足这一短板。" },
+                    { id: "rp0-1", title: "学术能力与商业转化能力有可能脱节", evidenceDescription: "学术背景较强但商业转化经验相对有限，需关注从学术到产业的过渡能力。", evidenceMaterialIds: ["m1"], analysisContent: "需创始人在商业化方面的经验主要集中在技术转让和专利授权领域，尚未有过完整的产品商业化经历。建议关注其团队中是否有强有力的商业运营搭档补足这一短板。" },
                   ],
                 },
                 {
                   id: "sh0-2",
                   direction: "团队能力",
                   category: "创始人",
-                  name: "创始人具备丰富的AI产品商业化经验。",
+                  name: "创始人具备丰富的AI产品商业化经验",
                   isExisting: true,
                   valuePoints: [
                     { id: "vp3", title: "迭代速度快", evidenceDescription: "产品更新周期短于行业平均", evidenceMaterialIds: ["m1", "m3"], analysisContent: "快速迭代能力体现团队执行力和技术实力。" },
@@ -842,7 +1120,7 @@ export function Workflow({
                   id: "sh0-3",
                   direction: "团队能力",
                   category: "创始人",
-                  name: "创始人具备出较强的团队凝聚力。",
+                  name: "创始人具备出较强的团队凝聚力",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp3", title: "迭代速度快", evidenceDescription: "产品更新周期短于行业平均", evidenceMaterialIds: ["m1", "m3"], analysisContent: "快速迭代能力体现团队执行力和技术实力。" },
@@ -870,7 +1148,7 @@ export function Workflow({
                   id: "sh1-1",
                   direction: "技术攻关",
                   category: "技术壁垒",
-                  name: "专利布局完善，能够形成技术壁垒。",
+                  name: "专利布局完善，能���形成技术壁垒",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp1", title: "专利布局完善，覆盖领域广。", evidenceDescription: "公司在核心技术领域拥有20+项专利", evidenceMaterialIds: ["m1"], analysisContent: "专利覆盖核心算法、模型架构和数据处理流程，形成完整的技术护城河。" },
@@ -883,7 +1161,7 @@ export function Workflow({
                   id: "sh1-2",
                   direction: "技术攻关",
                   category: "团队稳定性",
-                  name: "技术团队核心成员稳定性，人才流失少，能够长期支撑高水平研发工作。",
+                  name: "技术团队核心成员稳定性，人才流失少，能够长期支撑高水平研发工作",
                   isExisting: true,
                   valuePoints: [
                     { id: "vp2", title: "技术团队存续时间长。", evidenceDescription: "核心技术人员平均在职时间超过3年。", evidenceMaterialIds: ["m2"], analysisContent: "团队稳定性有助于技术积累和持续高水平研发。" },
@@ -896,7 +1174,7 @@ export function Workflow({
                   id: "sh1-3",
                   direction: "技术攻关",
                   category: "技术迭代",
-                  name: "技术迭代能力强，能迅速响应市场变化。",
+                  name: "技术迭代能力强，能迅速响应市场变化",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp3", title: "迭代速度快", evidenceDescription: "产品更新周期短于行业平均", evidenceMaterialIds: ["m1", "m3"], analysisContent: "快速迭代能力体现团队执行力和技术实力。" },
@@ -923,7 +1201,7 @@ export function Workflow({
                   id: "sh2-1",
                   direction: "市场判断",
                   category: "市场规模",
-                  name: "国内市场TAM规模稳步增长，发展前景好。",
+                  name: "国内市场TAM规模稳步增长，发展前景好",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp4", title: "市场增长潜力大", evidenceDescription: "AI基础设施市场年复合增长率超30%", evidenceMaterialIds: ["m3", "m4"], analysisContent: "市场处于快速增长期，先发优势明显。" },
@@ -936,7 +1214,7 @@ export function Workflow({
                   id: "sh2-2",
                   direction: "市场判断",
                   category: "市场渗透",
-                  name: "多模态大模型市场需求增长。",
+                  name: "多模态大模型市场需求增长",
                   isExisting: true,
                   valuePoints: [
                     { id: "vp5", title: "多模态需求增长", evidenceDescription: "企业对多模态AI解决方案需求上升", evidenceMaterialIds: ["m3"], analysisContent: "多模态融合是行业趋势，市场空间广阔。" },
@@ -964,7 +1242,7 @@ export function Workflow({
                   id: "sh3-1",
                   direction: "商业模式",
                   category: "盈利能力",
-                  name: "单位经济模型健康，LTV/CAC比值大于3。",
+                  name: "单位经济模型健康，LTV/CAC比值大于3",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp6", title: "单位经济模型健康", evidenceDescription: "LTV/CAC比值大于3", evidenceMaterialIds: ["m5", "m6"], analysisContent: "客户获取成本合理，具备规模化盈利基础。" },
@@ -977,7 +1255,7 @@ export function Workflow({
                   id: "sh3-2",
                   direction: "商业模式",
                   category: "成本结构",
-                  name: "毛利率稳步提升，足够支撑公司规模扩张。",
+                  name: "毛利率稳步提升，足够支撑公司规模扩张",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp7", title: "规模效应显现", evidenceDescription: "收入增长带动毛利率提升", evidenceMaterialIds: ["m5", "m6"], analysisContent: "规模扩大后边际成本下降。" },
@@ -1003,7 +1281,7 @@ export function Workflow({
                   id: "sh4-1",
                   direction: "团队能力",
                   category: "执行力",
-                  name: "团队执行力强，里程碑达成率高于80%。",
+                  name: "团队执行力强，里程碑达成率高于80%",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp8", title: "里程碑达成率高", evidenceDescription: "过往融资轮次里程碑达成率超85%", evidenceMaterialIds: ["m7"], analysisContent: "团队具备良好的目标管理和执行能力。" },
@@ -1016,7 +1294,7 @@ export function Workflow({
                   id: "sh4-2",
                   direction: "团队能力",
                   category: "组织管理",
-                  name: "组织扩张能力强，管理经验丰富。",
+                  name: "组织扩张能力强，管理经验丰富",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp9", title: "管理经验丰富", evidenceDescription: "核心管理层有大厂背景", evidenceMaterialIds: ["m7"], analysisContent: "具备大规模团队管理经验。" },
@@ -1043,10 +1321,10 @@ export function Workflow({
                   id: "sh5-1",
                   direction: "退出策略",
                   category: "退出可行性",
-                  name: "IPO退出可行性高，具备完善退出机制。",
+                  name: "IPO退出可行性高，具备完善退出机制",
                   isExisting: false,
                   valuePoints: [
-                    { id: "vp10", title: "IPO预期明确", evidenceDescription: "公司已启动上市辅导", evidenceMaterialIds: ["m8"], analysisContent: "退出路径清晰，时间节点相对确定。" },
+                    { id: "vp10", title: "IPO预期明确", evidenceDescription: "公司已��动上市辅导", evidenceMaterialIds: ["m8"], analysisContent: "退出路径清晰，时间节点相对确定。" },
                   ],
                   riskPoints: [
                     { id: "rp10", title: "市场窗口不确定", evidenceDescription: "IPO市场波动较大", evidenceMaterialIds: [], analysisContent: "需关注资本市场环境变化对上市计划的影响。" },
@@ -1056,7 +1334,7 @@ export function Workflow({
                   id: "sh5-2",
                   direction: "退出策略",
                   category: "退出可行性",
-                  name: "并购退出可行性高，具备完善退出机制。",
+                  name: "并��退出可行性高，具备完善退出机制",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp11", title: "战略价值高", evidenceDescription: "技术资产对大厂有吸引力", evidenceMaterialIds: ["m8", "m1"], analysisContent: "具备被并购的战略价值。" },
@@ -1505,7 +1783,7 @@ export function Workflow({
                                 p.id === vp.id ? { ...p, analysisContent: e.target.value } : p
                               ),
                             }))}
-                            placeholder="对该价值点进行分析论证"
+                            placeholder="对该价值点进行���析论证"
                             rows={2}
                             className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           />
@@ -1662,6 +1940,354 @@ export function Workflow({
                   disabled={!formData.name.trim() || !formData.direction.trim()}
                 >
                   创建假设
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+  }
+
+  // Show full page term generation view
+  if (fullPageView === "term-generation") {
+    return (
+      <div className="flex h-full flex-col bg-[#F9FAFB]">
+        {/* Header */}
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-8 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleCloseFullPageView}
+                className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                返回工作流
+              </button>
+              <div className="h-6 w-px bg-[#E5E7EB]" />
+              <div>
+                <h1 className="text-xl font-bold text-[#111827]">条款构建建议</h1>
+                <p className="text-sm text-[#6B7280]">{currentPhase?.fullLabel || "设立期 - 阶段1"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-4xl">
+            {!isTermGenerating && !termGenerationComplete && (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-emerald-50 ring-8 ring-emerald-50/50">
+                  <FileText className="h-10 w-10 text-emerald-600" />
+                </div>
+                <h2 className="text-xl font-semibold text-[#111827] mb-2">AI条款构建建议生成</h2>
+                <p className="text-sm text-[#6B7280] text-center max-w-md mb-8">
+                  基于当前阶段的假设清单、行业标准和项目材料，AI将为您生成针对性的条款构建建议，帮助您完善投资协议框架。
+                </p>
+                <button
+                  onClick={handleStartTermGeneration}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all hover:from-emerald-600 hover:to-teal-600 hover:shadow-xl"
+                >
+                  <Brain className="h-5 w-5" />
+                  开始生成
+                </button>
+              </div>
+            )}
+
+            {isTermGenerating && (
+              <div className="py-12">
+                <div className="mb-8 text-center">
+                  <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                    AI正在深度思考...
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
+                  <div className="space-y-4">
+                    {termThinkingSteps.map((step) => (
+                      <div key={step.id} className="flex items-center gap-4">
+                        <div className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300",
+                          step.status === "completed" ? "bg-emerald-100" :
+                          step.status === "active" ? "bg-emerald-500" : "bg-[#F3F4F6]"
+                        )}>
+                          {step.status === "completed" ? (
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          ) : step.status === "active" ? (
+                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          ) : (
+                            <div className="h-2 w-2 rounded-full bg-[#D1D5DB]" />
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-sm transition-colors",
+                          step.status === "completed" ? "text-emerald-600" :
+                          step.status === "active" ? "text-[#111827] font-medium" : "text-[#9CA3AF]"
+                        )}>
+                          {step.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {termGenerationComplete && generatedTermSuggestions.length > 0 && (
+              <div className="space-y-6">
+                <div className="text-center mb-8">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm text-emerald-700 mb-4">
+                    <Check className="h-4 w-4" />
+                    已生成 {generatedTermSuggestions.length} 条条款建议
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  {generatedTermSuggestions.map((suggestion) => (
+                    <div key={suggestion.id} className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden shadow-sm">
+                      <div className="border-l-4 border-emerald-500 p-6">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50">
+                              <FileText className="h-5 w-5 text-emerald-600" />
+                            </div>
+                            <div>
+                              <h3 className="text-base font-semibold text-[#111827] mb-1">{suggestion.title}</h3>
+                              <p className="text-sm text-[#6B7280] leading-relaxed">{suggestion.content}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Linked items */}
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {suggestion.linkedHypotheses.map((h) => (
+                            <span key={h.id} className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] text-amber-700">
+                              <Lightbulb className="h-3 w-3" />
+                              {h.name}
+                            </span>
+                          ))}
+                          {suggestion.linkedMaterials.map((m) => (
+                            <span key={m.id} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] text-blue-700">
+                              <FileText className="h-3 w-3" />
+                              {m.name}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Suggested terms */}
+                        <div className="border-t border-[#E5E7EB] pt-4 mt-4 space-y-3">
+                          <p className="text-xs font-medium text-[#6B7280] uppercase tracking-wider">建议条款</p>
+                          {suggestion.terms.map((term) => (
+                            <div key={term.id} className="flex items-center justify-between rounded-lg bg-[#F9FAFB] p-4">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-8 w-8 items-center justify-center rounded bg-emerald-100">
+                                  <FileText className="h-4 w-4 text-emerald-600" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-[#111827]">{term.name}</p>
+                                  <p className="text-xs text-[#6B7280]">{term.direction} · {term.category}</p>
+                                </div>
+                              </div>
+                              {term.isExisting ? (
+                                <button className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#374151] transition-colors hover:bg-[#F3F4F6] shrink-0">
+                                  <Pencil className="h-3 w-3" />
+                                  修改该条款
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleCreateFromTerm(term)}
+                                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-600 shrink-0"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  创建该条款
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-center gap-4 pt-6">
+                  <button
+                    onClick={handleStartTermGeneration}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+                  >
+                    <Brain className="h-4 w-4" />
+                    重新生成
+                  </button>
+                  <button
+                    onClick={handleCloseFullPageView}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Check className="h-4 w-4" />
+                    完成并返回
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Term Creation Dialog */}
+        <Dialog open={showTermCreateDialog} onOpenChange={setShowTermCreateDialog}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50">
+                  <FileText className="h-5 w-5 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-[#111827]">创建项目条款</div>
+                </div>
+              </DialogTitle>
+              <DialogDescription className="text-sm text-[#6B7280]">
+                基于AI建议创建新的项目条款，包含我方诉求、我方依据、双方冲突、我方底线和妥协空间
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6 mt-4">
+              {/* Basic Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#374151] mb-1.5">条款方向</label>
+                  <Input
+                    value={termFormData.direction}
+                    onChange={(e) => setTermFormData((prev) => ({ ...prev, direction: e.target.value }))}
+                    placeholder="如：控制权条款、经济性条款"
+                    className="h-10"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#374151] mb-1.5">条款类别</label>
+                  <Input
+                    value={termFormData.category}
+                    onChange={(e) => setTermFormData((prev) => ({ ...prev, category: e.target.value }))}
+                    placeholder="如：董事会条款、反稀释条款"
+                    className="h-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">条款名称</label>
+                <Input
+                  value={termFormData.name}
+                  onChange={(e) => setTermFormData((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="输入条款名称"
+                  className="h-10"
+                />
+              </div>
+
+              {/* Our Demand - 我方诉求 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-emerald-50/30">
+                <div className="flex items-center gap-2 mb-3">
+                  <Target className="h-4 w-4 text-emerald-600" />
+                  <span className="text-sm font-semibold text-[#111827]">我方诉求</span>
+                </div>
+                <textarea
+                  value={termFormData.ourDemand.content}
+                  onChange={(e) => setTermFormData((prev) => ({ ...prev, ourDemand: { ...prev.ourDemand, content: e.target.value } }))}
+                  placeholder="描述我方在该条款上的核心诉求..."
+                  className="w-full rounded-md border border-[#E5E7EB] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  rows={3}
+                />
+              </div>
+
+              {/* Our Basis - 我方依据 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-blue-50/30">
+                <div className="flex items-center gap-2 mb-3">
+                  <FileCheck className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-[#111827]">我方依据</span>
+                </div>
+                <textarea
+                  value={termFormData.ourBasis.content}
+                  onChange={(e) => setTermFormData((prev) => ({ ...prev, ourBasis: { ...prev.ourBasis, content: e.target.value } }))}
+                  placeholder="说明支撑我方诉求的理由和依据..."
+                  className="w-full rounded-md border border-[#E5E7EB] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  rows={3}
+                />
+              </div>
+
+              {/* Bilateral Conflict - 双方冲突 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-amber-50/30">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm font-semibold text-[#111827]">双方冲突</span>
+                </div>
+                <textarea
+                  value={termFormData.bilateralConflict.content}
+                  onChange={(e) => setTermFormData((prev) => ({ ...prev, bilateralConflict: { content: e.target.value } }))}
+                  placeholder="分析双方在该条款上的潜在冲突点..."
+                  className="w-full rounded-md border border-[#E5E7EB] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  rows={3}
+                />
+              </div>
+
+              {/* Our Bottom Line - 我方底线 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-red-50/30">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield className="h-4 w-4 text-red-600" />
+                  <span className="text-sm font-semibold text-[#111827]">我方底线</span>
+                </div>
+                <textarea
+                  value={termFormData.ourBottomLine.content}
+                  onChange={(e) => setTermFormData((prev) => ({ ...prev, ourBottomLine: { content: e.target.value } }))}
+                  placeholder="明确我方在该条款上的最低要求..."
+                  className="w-full rounded-md border border-[#E5E7EB] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                  rows={3}
+                />
+              </div>
+
+              {/* Compromise Space - 妥协空间 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-purple-50/30">
+                <div className="flex items-center gap-2 mb-3">
+                  <Handshake className="h-4 w-4 text-purple-600" />
+                  <span className="text-sm font-semibold text-[#111827]">妥协空间</span>
+                </div>
+                <textarea
+                  value={termFormData.compromiseSpace.content}
+                  onChange={(e) => setTermFormData((prev) => ({ ...prev, compromiseSpace: { content: e.target.value } }))}
+                  placeholder="描述可接受的妥协方案和替代条件..."
+                  className="w-full rounded-md border border-[#E5E7EB] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  rows={3}
+                />
+              </div>
+
+              {/* Negotiation Result & Implementation - Empty States */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border border-dashed border-[#D1D5DB] p-4 bg-[#F9FAFB]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle className="h-4 w-4 text-[#9CA3AF]" />
+                    <span className="text-sm font-medium text-[#6B7280]">谈判结果</span>
+                  </div>
+                  <p className="text-xs text-[#9CA3AF]">暂无 - 待谈判后填写</p>
+                </div>
+                <div className="rounded-lg border border-dashed border-[#D1D5DB] p-4 bg-[#F9FAFB]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ClipboardCheck className="h-4 w-4 text-[#9CA3AF]" />
+                    <span className="text-sm font-medium text-[#6B7280]">落实情况</span>
+                  </div>
+                  <p className="text-xs text-[#9CA3AF]">暂无 - 待落实后填写</p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-[#E5E7EB]">
+                <Button variant="outline" onClick={handleCloseTermCreateDialog}>
+                  取消
+                </Button>
+                <Button
+                  onClick={handleSubmitTerm}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  disabled={!termFormData.name.trim() || !termFormData.direction.trim()}
+                >
+                  创建条款
                 </Button>
               </div>
             </div>

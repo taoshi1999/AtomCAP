@@ -11,7 +11,7 @@ import {
   PanelLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { HypothesisChecklist, type HypothesisTableItem } from "@/components/pages/hypothesis-checklist"
+import { HypothesisChecklist, type HypothesisTableItem, type HypothesisDetail } from "@/components/pages/hypothesis-checklist"
 import { ProjectOverview } from "@/components/pages/project-overview"
 import { TermSheet, type TermTableItem } from "@/components/pages/term-sheet"
 import { Workflow, type Phase, type PendingPhase, type PendingProjectHypothesis, type GeneratedSuggestion } from "@/components/pages/workflow"
@@ -56,13 +56,14 @@ interface ProjectDetailProps {
   onCreatePendingPhase?: (pending: PendingPhase) => void
   onCreatePendingProjectHypothesis?: (pending: PendingProjectHypothesis) => void
   projectHypotheses?: HypothesisTableItem[]
+  projectHypothesisDetails?: Record<string, HypothesisDetail>
   projectTerms?: TermTableItem[]
   projectMaterials?: StrategyMaterial[]
   savedGeneratedSuggestions?: GeneratedSuggestion[]
   onSaveSuggestions?: (suggestions: GeneratedSuggestion[]) => void
 }
 
-export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions }: ProjectDetailProps) {
+export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions }: ProjectDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
   const isNewProject = projectId.startsWith("new-project-")
@@ -163,6 +164,7 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
             isNewProject={isNewProject}
             project={project}
             inheritedHypotheses={projectHypotheses}
+            extraDetails={projectHypothesisDetails}
           />
         ) : activeSubPage === "terms" ? (
           <TermSheet

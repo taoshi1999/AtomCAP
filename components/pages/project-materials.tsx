@@ -129,6 +129,7 @@ interface MockFile {
   format: string
   size: string
   matchCategories: string[]
+  description?: string
 }
 
 interface MockFolder {
@@ -177,7 +178,20 @@ const mockLocalFolders: MockFolder[] = [
       { id: "f15", name: "VC投资案例汇总.docx", format: "DOCX", size: "2.3 MB", matchCategories: [] },
     ],
   },
+  {
+    id: "folder-5",
+    name: "人员简历",
+    files: [
+      { id: "f16", name: "闫俊杰_CV.pdf", format: "PDF", size: "0.4 MB", matchCategories: ["人员简历"] },
+      { id: "f17", name: "张伟_CV.pdf", format: "PDF", size: "0.3 MB", matchCategories: ["人员简历"] },
+      { id: "f18", name: "李四_CV.pdf", format: "PDF", size: "0.3 MB", matchCategories: ["人员简历"] },
+    ],
+  },
 ]
+
+// Export for reuse in other components (e.g. create project dialog)
+export { mockLocalFolders }
+export type { MockFile, MockFolder }
 
 // Category → folder mapping for pre-selection
 const categoryFolderMap: Record<string, string> = {
@@ -195,7 +209,7 @@ function getMatchingFileIds(category: string): string[] {
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
-function getFormatIcon(format: string) {
+export function getFormatIcon(format: string) {
   switch (format.toUpperCase()) {
     case "PDF":
     case "DOCX":
@@ -211,7 +225,7 @@ function getFormatIcon(format: string) {
   }
 }
 
-function getFormatColor(format: string) {
+export function getFormatColor(format: string) {
   switch (format.toUpperCase()) {
     case "PDF":
       return "bg-red-50 text-red-700 border-red-200"
