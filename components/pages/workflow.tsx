@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { Trash2, Upload, Link2, Pencil, Target, FileCheck, AlertTriangle, Shield, Handshake, CheckCircle } from "lucide-react"
+import { Trash2, Upload, Link2, Pencil, Target, FileCheck, AlertTriangle, Shield, Handshake, CheckCircle, ClipboardCheck } from "lucide-react"
 
 /* ─── Types ──────────────────────────────────── */
 export interface PhaseLog {
@@ -1081,7 +1081,7 @@ export function Workflow({
               title: "补充创始人品质假设",
               content: "当前假设清单缺少对创始人能力与品质的系统性论证与支撑。建议增加关于创始人技术水平和创始人商业经验等方面的假设，以更全面评估投资标的的成功概率。",
               linkedTerms: [
-                { id: "t1", name: "创始人股权分配细则" },
+                { id: "t1", name: "创始人股权��配细则" },
                 { id: "t2", name: "创始人权限划分" },
               ],
               linkedMaterials: [
@@ -1324,7 +1324,7 @@ export function Workflow({
                   name: "IPO退出可行性高，具备完善退出机制",
                   isExisting: false,
                   valuePoints: [
-                    { id: "vp10", title: "IPO预期明确", evidenceDescription: "公司已启动上市辅导", evidenceMaterialIds: ["m8"], analysisContent: "退出路径清晰，时间节点相对确定。" },
+                    { id: "vp10", title: "IPO预期明确", evidenceDescription: "公司已��动上市辅导", evidenceMaterialIds: ["m8"], analysisContent: "退出路径清晰，时间节点相对确定。" },
                   ],
                   riskPoints: [
                     { id: "rp10", title: "市场窗口不确定", evidenceDescription: "IPO市场波动较大", evidenceMaterialIds: [], analysisContent: "需关注资本市场环境变化对上市计划的影响。" },
@@ -1334,7 +1334,7 @@ export function Workflow({
                   id: "sh5-2",
                   direction: "退出策略",
                   category: "退出可行性",
-                  name: "并购退出可行性高，具备完善退出机制",
+                  name: "并��退出可行性高，具备完善退出机制",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp11", title: "战略价值高", evidenceDescription: "技术资产对大厂有吸引力", evidenceMaterialIds: ["m8", "m1"], analysisContent: "具备被并购的战略价值。" },
