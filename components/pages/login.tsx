@@ -217,6 +217,7 @@ export function Login({ onLogin }: LoginProps) {
               src="/login-illustration.jpg"
               alt="AtomCAP 投资管理平台插图"
               fill
+              sizes="288px"
               className="object-contain rounded-2xl"
               priority
             />
