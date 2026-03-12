@@ -895,7 +895,7 @@ export function Workflow({
             {
               id: "gs3",
               title: "添加商业模式可持续性假设",
-              content: "建议增加关于商业模式可持续性的假设，包括CAC/LTV比值���设、毛利率演变假设、规模效应假设等。",
+              content: "建议增加关于商业模式可持续性的假设，包括CAC/LTV比值假设、毛利率演变假设、规模效应假设等。",
               linkedTerms: [
                 { id: "t4", name: "财务信息披露条款" },
                 { id: "t5", name: "反稀释保护条款" },
@@ -909,7 +909,7 @@ export function Workflow({
                   id: "sh3-1",
                   direction: "商业模式",
                   category: "盈利能力",
-                  name: "单位经济模型假设",
+                  name: "单位经济模型健康，LTV/CAC比值大于3。",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp6", title: "单位经济模型健康", evidenceDescription: "LTV/CAC比值大于3", evidenceMaterialIds: ["m5", "m6"], analysisContent: "客户获取成本合理，具备规模化盈利基础。" },
@@ -922,7 +922,7 @@ export function Workflow({
                   id: "sh3-2",
                   direction: "商业模式",
                   category: "成本结构",
-                  name: "毛利率演变假设",
+                  name: "毛利率稳步提升，足够支撑公司规模扩张。",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp7", title: "规模效应显现", evidenceDescription: "收入增长带动毛利率提升", evidenceMaterialIds: ["m5", "m6"], analysisContent: "规模扩大后边际成本下降。" },
@@ -947,8 +947,8 @@ export function Workflow({
                 {
                   id: "sh4-1",
                   direction: "团队能力",
-                  category: "执行力评估",
-                  name: "里程碑达成率假设",
+                  category: "执行力",
+                  name: "团队执行力强，里程碑达成率高于80%。",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp8", title: "里程碑达成率高", evidenceDescription: "过往融资轮次里程碑达成率超85%", evidenceMaterialIds: ["m7"], analysisContent: "团队具备良好的目标管理和执行能力。" },
@@ -961,7 +961,7 @@ export function Workflow({
                   id: "sh4-2",
                   direction: "团队能力",
                   category: "组织管理",
-                  name: "组织扩张能力假设",
+                  name: "组织扩张能力强，管理经验丰富。",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp9", title: "管理经验丰富", evidenceDescription: "核心管理层有大厂背景", evidenceMaterialIds: ["m7"], analysisContent: "具备大规模团队管理经验。" },
@@ -988,7 +988,7 @@ export function Workflow({
                   id: "sh5-1",
                   direction: "退出策略",
                   category: "退出可行性",
-                  name: "IPO退出可行性假设",
+                  name: "IPO退出可行性高，具备完善退出机制。",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp10", title: "IPO预期明确", evidenceDescription: "公司已启动上市辅导", evidenceMaterialIds: ["m8"], analysisContent: "退出路径清晰，时间节点相对确定。" },
@@ -1000,8 +1000,8 @@ export function Workflow({
                 {
                   id: "sh5-2",
                   direction: "退出策略",
-                  category: "并购退出",
-                  name: "并购退出场景假设",
+                  category: "退出可行性",
+                  name: "并购退出可行性高，具备完善退出机制。",
                   isExisting: false,
                   valuePoints: [
                     { id: "vp11", title: "战略价值高", evidenceDescription: "技术资产对大厂有吸引力", evidenceMaterialIds: ["m8", "m1"], analysisContent: "具备被并购的战略价值。" },
