@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { Trash2, Upload, Link2 } from "lucide-react"
+import { Trash2, Upload, Link2, Pencil } from "lucide-react"
 
 /* ─── Types ──────────────────────────────────── */
 export interface PhaseLog {
@@ -73,7 +73,7 @@ export interface PendingPhase {
   reviewers: { id: string; name: string; initials: string }[]
 }
 
-type SidebarType = 
+type SidebarType =
   | "hypothesis-suggestions"
   | "term-suggestions"
   | "material-suggestions"
@@ -83,7 +83,7 @@ type SidebarType =
   | null
 
 // Full page generation view type (replaces entire workflow view)
-type FullPageView = 
+type FullPageView =
   | "hypothesis-generation"
   | null
 
@@ -99,29 +99,39 @@ interface ThinkingStep {
   status: "waiting" | "active" | "completed"
 }
 
-// Generated hypothesis suggestion with linked items
-export interface GeneratedSuggestion {
+// Specific hypothesis within a suggestion
+export interface SuggestionHypothesis {
   id: string
-  title: string
   direction: string
   category: string
-  content: string
-  linkedHypotheses: { id: string; name: string }[]
-  linkedTerms: { id: string; name: string }[]
-  linkedMaterials: { id: string; name: string }[]
+  name: string
+  isExisting: boolean // true = modify existing, false = create new
   // Pre-filled value points and risk points for creation
   valuePoints: {
     id: string
     title: string
     evidenceDescription: string
+    evidenceMaterialIds: string[]
     analysisContent: string
   }[]
   riskPoints: {
     id: string
     title: string
     evidenceDescription: string
+    evidenceMaterialIds: string[]
     analysisContent: string
   }[]
+}
+
+// Generated hypothesis suggestion with linked items
+export interface GeneratedSuggestion {
+  id: string
+  title: string
+  content: string
+  linkedTerms: { id: string; name: string }[]
+  linkedMaterials: { id: string; name: string }[]
+  // Multiple specific hypotheses under this suggestion
+  hypotheses: SuggestionHypothesis[]
 }
 
 // Project hypothesis creation form data
@@ -280,7 +290,7 @@ const PHASES: Phase[] = [
     groupLabel: "存续期",
     name: "存续期 - 阶段4",
     fullLabel: "存续期 - 阶段4",
-    assignee: "王芳",
+    assignee: "��芳",
     assigneeAvatar: "王",
     hypothesesCount: 13,
     termsCount: 9,
@@ -430,7 +440,7 @@ export function Workflow({
 
   // Use props phases if provided, otherwise use default PHASES for existing projects
   const projectPhases = phases ?? (isNewProject ? [] : PHASES)
-  
+
   // Calculate current phase numbers from phases
   const currentSetupPhase = projectPhases.filter(p => p.groupLabel === "设立期").length
   const currentDurationPhase = projectPhases.filter(p => p.groupLabel === "存续期").length
@@ -449,14 +459,14 @@ export function Workflow({
   const [activeSidebar, setActiveSidebar] = useState<SidebarType>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState("")
-  
+
   // Full page generation view state
   const [fullPageView, setFullPageView] = useState<FullPageView>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationComplete, setGenerationComplete] = useState(savedGeneratedSuggestions ? savedGeneratedSuggestions.length > 0 : false)
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([])
   const [generatedSuggestions, setGeneratedSuggestions] = useState<GeneratedSuggestion[]>(savedGeneratedSuggestions || [])
-  
+
   // Hypothesis creation dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [formData, setFormData] = useState<ProjectHypothesisFormData>({
@@ -466,10 +476,10 @@ export function Workflow({
     valuePoints: [],
     riskPoints: [],
   })
-  
+
   // Mock available project materials
   const availableMaterials: ProjectMaterialOption[] = [
-    { id: "m1", name: "专利清单及技术白皮书", format: "PDF" },
+    { id: "m1", name: "闫俊杰_CV", format: "PDF" },
     { id: "m2", name: "核心团队履历及期权安排", format: "PDF" },
     { id: "m3", name: "行业研究报告_2024Q4", format: "PDF" },
     { id: "m4", name: "竞品市场份额分析", format: "XLSX" },
@@ -620,7 +630,7 @@ export function Workflow({
       }
       return
     }
-    
+
     setActiveSidebar(type)
     if (type === "ai-chat") {
       setChatMessages([
@@ -628,7 +638,7 @@ export function Workflow({
       ])
     }
   }
-  
+
   function handleCloseFullPageView() {
     setFullPageView(null)
     setIsGenerating(false)
@@ -636,25 +646,25 @@ export function Workflow({
     setThinkingSteps([])
     setGeneratedSuggestions([])
   }
-  
-  function handleCreateFromSuggestion(suggestion: GeneratedSuggestion) {
-    // Pre-fill form with suggestion data
+
+  function handleCreateFromHypothesis(hypothesis: SuggestionHypothesis) {
+    // Pre-fill form with hypothesis data including pre-selected materials
     setFormData({
-      direction: suggestion.direction,
-      category: suggestion.category,
-      name: suggestion.title,
-      valuePoints: suggestion.valuePoints.map((vp) => ({
+      direction: hypothesis.direction,
+      category: hypothesis.category,
+      name: hypothesis.name,
+      valuePoints: hypothesis.valuePoints.map((vp) => ({
         ...vp,
-        evidenceMaterialIds: [],
+        evidenceMaterialIds: vp.evidenceMaterialIds ?? [],
       })),
-      riskPoints: suggestion.riskPoints.map((rp) => ({
+      riskPoints: hypothesis.riskPoints.map((rp) => ({
         ...rp,
-        evidenceMaterialIds: [],
+        evidenceMaterialIds: rp.evidenceMaterialIds ?? [],
       })),
     })
     setShowCreateDialog(true)
   }
-  
+
   function handleAddValuePoint() {
     setFormData((prev) => ({
       ...prev,
@@ -670,14 +680,14 @@ export function Workflow({
       ],
     }))
   }
-  
+
   function handleRemoveValuePoint(id: string) {
     setFormData((prev) => ({
       ...prev,
       valuePoints: prev.valuePoints.filter((vp) => vp.id !== id),
     }))
   }
-  
+
   function handleAddRiskPoint() {
     setFormData((prev) => ({
       ...prev,
@@ -693,14 +703,14 @@ export function Workflow({
       ],
     }))
   }
-  
+
   function handleRemoveRiskPoint(id: string) {
     setFormData((prev) => ({
       ...prev,
       riskPoints: prev.riskPoints.filter((rp) => rp.id !== id),
     }))
   }
-  
+
   function handleToggleMaterial(pointType: "value" | "risk", pointId: string, materialId: string) {
     setFormData((prev) => {
       const key = pointType === "value" ? "valuePoints" : "riskPoints"
@@ -709,17 +719,17 @@ export function Workflow({
         [key]: prev[key].map((point) =>
           point.id === pointId
             ? {
-                ...point,
-                evidenceMaterialIds: point.evidenceMaterialIds.includes(materialId)
-                  ? point.evidenceMaterialIds.filter((id) => id !== materialId)
-                  : [...point.evidenceMaterialIds, materialId],
-              }
+              ...point,
+              evidenceMaterialIds: point.evidenceMaterialIds.includes(materialId)
+                ? point.evidenceMaterialIds.filter((id) => id !== materialId)
+                : [...point.evidenceMaterialIds, materialId],
+            }
             : point
         ),
       }
     })
   }
-  
+
   function handleCloseCreateDialog() {
     setShowCreateDialog(false)
     setFormData({
@@ -730,7 +740,7 @@ export function Workflow({
       riskPoints: [],
     })
   }
-  
+
   function handleSubmitHypothesis() {
     // Create a pending hypothesis change request
     const pendingHypothesis: PendingProjectHypothesis = {
@@ -748,16 +758,16 @@ export function Workflow({
         { id: "lisi", name: "李四", initials: "李四" },
       ],
     }
-    
+
     onCreatePendingProjectHypothesis?.(pendingHypothesis)
     handleCloseCreateDialog()
     handleCloseFullPageView()
   }
-  
+
   function handleStartGeneration() {
     setIsGenerating(true)
     setGenerationComplete(false)
-    
+
     const steps: ThinkingStep[] = [
       { id: "s1", label: "读取当前阶段假设清单...", status: "waiting" },
       { id: "s2", label: "分析假设完整性与覆盖面...", status: "waiting" },
@@ -766,7 +776,7 @@ export function Workflow({
       { id: "s5", label: "生成改进建议...", status: "waiting" },
     ]
     setThinkingSteps(steps)
-    
+
     // Animate through steps
     let currentStep = 0
     const interval = setInterval(() => {
@@ -784,45 +794,123 @@ export function Workflow({
         setThinkingSteps((prev) =>
           prev.map((step) => ({ ...step, status: "completed" }))
         )
-        
+
         // Generate mock suggestions with linked items - 5 suggestions
         setTimeout(() => {
           const suggestions: GeneratedSuggestion[] = [
             {
+              id: "gs0",
+              title: "补充创始人品质假设",
+              content: "当前假设清单缺少对创始人能力与品质的系统性论证与支撑。建议增加关于创始人技术水平和创始人商业经验等方面的假设，以更全面评估投资标的的成功概率。",
+              linkedTerms: [
+                { id: "t1", name: "创始人股权分配细则" },
+                { id: "t2", name: "创始人权限划分" },
+              ],
+              linkedMaterials: [
+                { id: "m1", name: "闫俊杰_CV" },
+                { id: "m2", name: "核心团队履历及期权安排" },
+              ],
+              hypotheses: [
+                {
+                  id: "sh0-1",
+                  direction: "团队能力",
+                  category: "创始人",
+                  name: "创始人具有扎实的人工智能学术背景。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp0-1", title: "创始人闫俊杰拥有博士学位，在人工智能领域具有较强学术能力。", evidenceDescription: "创始人拥有博士学位，在AI领域发表过15篇高质量学术论文。", evidenceMaterialIds: ["m1"], analysisContent: "创始人拥有博士学位，为该领域高学历人才。在人工智能领域发表过15篇高质量学术论文，其中5篇发表在顶级期刊上。曾获得国家自然科学基金青年项目资助，具备扎实的理论基础和研究能力。" },
+                    { id: "vp0-2", title: "创始人的学术成功具有较高影响力。", evidenceDescription: "创始人闫俊杰在Google Scholar上的H指数为8，总引用次数超过500次，证明其研究成果具有较高的学术影响力。", evidenceMaterialIds: ["m1"], analysisContent: "创始人闫俊杰的H指数达到8，在同龄学者中处于较高水平。其研究成果被多家知名企业引用并应用于实际产品中，证明其学术研究具有很高的实用价值。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp0-1", title: "学术能力与商业转化能力有可能脱节。", evidenceDescription: "学术背景较强但商业转化经验相对有限，需关注从学术到产业的过渡能力。", evidenceMaterialIds: ["m1"], analysisContent: "需创始人在商业化方面的经验主要集中在技术转让和专利授权领域，尚未有过完整的产品商业化经历。建议关注其团队中是否有强有力的商业运营搭档补足这一短板。" },
+                  ],
+                },
+                {
+                  id: "sh0-2",
+                  direction: "团队能力",
+                  category: "创始人",
+                  name: "创始人具备丰富的AI产品商业化经验。",
+                  isExisting: true,
+                  valuePoints: [
+                    { id: "vp3", title: "迭代速度快", evidenceDescription: "产品更新周期短于行业平均", evidenceMaterialIds: ["m1", "m3"], analysisContent: "快速迭代能力体现团队执行力和技术实力。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp3", title: "技术迭代风险", evidenceDescription: "AI领域技术更新速度快", evidenceMaterialIds: [], analysisContent: "需持续关注竞品技术动态，评估公司技术迭代能力。" },
+                  ],
+                },
+                {
+                  id: "sh0-3",
+                  direction: "团队能力",
+                  category: "创始人",
+                  name: "创始人具备出较强的团队凝聚力。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp3", title: "迭代速度快", evidenceDescription: "产品更新周期短于行业平均", evidenceMaterialIds: ["m1", "m3"], analysisContent: "快速迭代能力体现团队执行力和技术实力。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp3", title: "技术迭代风险", evidenceDescription: "AI领域技术更新速度快", evidenceMaterialIds: [], analysisContent: "需持续关注竞品技术动态，评估公司技术迭代能力。" },
+                  ],
+                },
+              ],
+            },
+            {
               id: "gs1",
               title: "补充技术壁垒假设",
-              direction: "技术攻关",
-              category: "技术壁垒",
               content: "当前假设清单缺少对核心技术壁垒的系统性论证。建议增加关于专利布局、技术团队稳定性、技术迭代能力等方面的假设，以更全面评估投资标的的技术竞争力。",
-              linkedHypotheses: [
-                { id: "h1", name: "大模型推理成本下降假设" },
-                { id: "h2", name: "技术团队核心成员稳定性假设" },
-              ],
               linkedTerms: [
-                { id: "t1", name: "知识产权归属条款" },
-                { id: "t2", name: "核心团队锁定条款" },
+                { id: "t1", name: "知识产权归属" },
+                { id: "t2", name: "核心团队锁定" },
               ],
               linkedMaterials: [
                 { id: "m1", name: "专利清单及技术白皮书" },
                 { id: "m2", name: "核心团队履历及期权安排" },
               ],
-              valuePoints: [
-                { id: "vp1", title: "专利布局完善", evidenceDescription: "公司在核心技术领域拥有20+项专利", analysisContent: "专利覆盖核心算法、模型架构和数据处理流程，形成完整的技术护城河。" },
-                { id: "vp2", title: "技术团队稳定", evidenceDescription: "核心技术人员平均在职时间超过3年", analysisContent: "团队稳定性有助于技术积累和持续创新。" },
-              ],
-              riskPoints: [
-                { id: "rp1", title: "技术迭代风险", evidenceDescription: "AI领域技术更新速度快", analysisContent: "需持续关注竞品技术动态，评估公司技术迭代能力。" },
+              hypotheses: [
+                {
+                  id: "sh1-1",
+                  direction: "技术攻关",
+                  category: "技术壁垒",
+                  name: "专利布局完善，能够形成技术壁垒。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp1", title: "专利布局完善，覆盖领域广。", evidenceDescription: "公司在核心技术领域拥有20+项专利", evidenceMaterialIds: ["m1"], analysisContent: "专利覆盖核心算法、模型架构和数据处理流程，形成完整的技术护城河。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp1", title: "专利维护成本较高。", evidenceDescription: "专利维护需要持续投入", evidenceMaterialIds: ["m1"], analysisContent: "需评估专利维护成本对运营的影响。" },
+                  ],
+                },
+                {
+                  id: "sh1-2",
+                  direction: "技术攻关",
+                  category: "团队稳定性",
+                  name: "技术团队核心成员稳定性，人才流失少，能够长期支撑高水平研发工作。",
+                  isExisting: true,
+                  valuePoints: [
+                    { id: "vp2", title: "技术团队存续时间长。", evidenceDescription: "核心技术人员平均在职时间超过3年。", evidenceMaterialIds: ["m2"], analysisContent: "团队稳定性有助于技术积累和持续高水平研发。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp2", title: "AI行业人才竞争激烈，存在人才流失风险。", evidenceDescription: "AI行业人才竞争激烈，友商可能以各种方式挖墙脚。", evidenceMaterialIds: ["m2"], analysisContent: "需关注核心人员激励机制和竞业限制条款。" },
+                  ],
+                },
+                {
+                  id: "sh1-3",
+                  direction: "技术攻关",
+                  category: "技术迭代",
+                  name: "技术迭代能力强，能迅速响应市场变化。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp3", title: "迭代速度快", evidenceDescription: "产品更新周期短于行业平均", evidenceMaterialIds: ["m1", "m3"], analysisContent: "快速迭代能力体现团队执行力和技术实力。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp3", title: "技术迭代风险", evidenceDescription: "AI领域技术更新速度快", evidenceMaterialIds: [], analysisContent: "需持续关注竞品技术动态，评估公司技术迭代能力。" },
+                  ],
+                },
               ],
             },
             {
               id: "gs2",
               title: "细化市场规模假设",
-              direction: "市场判断",
-              category: "市场规模",
               content: "现有TAM/SAM/SOM假设过于笼统，建议从地区维度、行业维度、客户规模维度进行拆分，形成更精细的市场规模假设矩阵。",
-              linkedHypotheses: [
-                { id: "h3", name: "多模态融合市场假设" },
-              ],
               linkedTerms: [
                 { id: "t3", name: "市场拓展里程碑条款" },
               ],
@@ -830,22 +918,39 @@ export function Workflow({
                 { id: "m3", name: "行业研究报告_2024Q4" },
                 { id: "m4", name: "竞品市场份额分析" },
               ],
-              valuePoints: [
-                { id: "vp3", title: "市场增长潜力大", evidenceDescription: "AI基础设施市场年复合增长率超30%", analysisContent: "市场处于快速增长期，先发优势明显。" },
-              ],
-              riskPoints: [
-                { id: "rp2", title: "市场竞争加剧", evidenceDescription: "行业玩家数量持续增加", analysisContent: "需评估公司差异化竞争能力。" },
+              hypotheses: [
+                {
+                  id: "sh2-1",
+                  direction: "市场判断",
+                  category: "市场规模",
+                  name: "国内市场TAM规模稳步增长，发展前景好。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp4", title: "市场增长潜力大", evidenceDescription: "AI基础设施市场年复合增长率超30%", evidenceMaterialIds: ["m3", "m4"], analysisContent: "市场处于快速增长期，先发优势明显。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp4", title: "市场竞争加剧", evidenceDescription: "行业玩家数量持续增加", evidenceMaterialIds: ["m4"], analysisContent: "需评估公司差异化竞争能力。" },
+                  ],
+                },
+                {
+                  id: "sh2-2",
+                  direction: "市场判断",
+                  category: "市场渗透",
+                  name: "多模态大模型市场需求增长。",
+                  isExisting: true,
+                  valuePoints: [
+                    { id: "vp5", title: "多模态需求增长", evidenceDescription: "企业对多模态AI解决方案需求上升", evidenceMaterialIds: ["m3"], analysisContent: "多模态融合是行业趋势，市场空间广阔。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp5", title: "技术门槛高", evidenceDescription: "多模态技术整合难度大", evidenceMaterialIds: [], analysisContent: "需评估技术实现能力和竞争格局。" },
+                  ],
+                },
               ],
             },
             {
               id: "gs3",
               title: "添加商业模式可持续性假设",
-              direction: "商业模式",
-              category: "盈利能力",
               content: "建议增加关于商业模式可持续性的假设，包括CAC/LTV比值假设、毛利率演变假设、规模效应假设等。",
-              linkedHypotheses: [
-                { id: "h4", name: "开源模型生态竞争假设" },
-              ],
               linkedTerms: [
                 { id: "t4", name: "财务信息披露条款" },
                 { id: "t5", name: "反稀释保护条款" },
@@ -854,40 +959,78 @@ export function Workflow({
                 { id: "m5", name: "财务预测模型" },
                 { id: "m6", name: "单位经济模型分析" },
               ],
-              valuePoints: [
-                { id: "vp4", title: "单位经济模型健康", evidenceDescription: "LTV/CAC比值大于3", analysisContent: "客户获取成本合理，具备规模化盈利基础。" },
-              ],
-              riskPoints: [
-                { id: "rp3", title: "毛利率承压", evidenceDescription: "算力成本占比高", analysisContent: "需关注算力成本下降对毛利率的影响。" },
+              hypotheses: [
+                {
+                  id: "sh3-1",
+                  direction: "商业模式",
+                  category: "盈利能力",
+                  name: "单位经济模型健康，LTV/CAC比值大于3。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp6", title: "单位经济模型健康", evidenceDescription: "LTV/CAC比值大于3", evidenceMaterialIds: ["m5", "m6"], analysisContent: "客户获取成本合理，具备规模化盈利基础。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp6", title: "获客成本上升", evidenceDescription: "市场竞争导致获客成本上升", evidenceMaterialIds: ["m5"], analysisContent: "需关注获客成本变化趋势。" },
+                  ],
+                },
+                {
+                  id: "sh3-2",
+                  direction: "商业模式",
+                  category: "成本结构",
+                  name: "毛利率稳步提升，足够支撑公司规模扩张。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp7", title: "规模效应显现", evidenceDescription: "收入增长带动毛利率提升", evidenceMaterialIds: ["m5", "m6"], analysisContent: "规模扩大后边际成本下降。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp7", title: "毛利率承压", evidenceDescription: "算力成本占比高", evidenceMaterialIds: ["m6"], analysisContent: "需关注算力成本下降对毛利率的影响。" },
+                  ],
+                },
               ],
             },
             {
               id: "gs4",
               title: "补充团队执行力假设",
-              direction: "团队能力",
-              category: "执行力评估",
               content: "建议增加对管理团队执行力的系统性评估假设，包括关键里程碑达成率、战略调整能力、组织扩张能力等维度。",
-              linkedHypotheses: [],
               linkedTerms: [
                 { id: "t6", name: "创始人锁定条款" },
               ],
               linkedMaterials: [
                 { id: "m7", name: "尽职调查报告" },
               ],
-              valuePoints: [
-                { id: "vp5", title: "里程碑达成率高", evidenceDescription: "过往融资轮次里程碑达成率超85%", analysisContent: "团队具备良好的目标管理和执行能力。" },
-              ],
-              riskPoints: [
-                { id: "rp4", title: "组织扩张风险", evidenceDescription: "团队规模计划快速增长", analysisContent: "需评估组织管理能力是否匹配扩张速度。" },
+              hypotheses: [
+                {
+                  id: "sh4-1",
+                  direction: "团队能力",
+                  category: "执行力",
+                  name: "团队执行力强，里程碑达成率高于80%。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp8", title: "里程碑达成率高", evidenceDescription: "过往融资轮次里程碑达成率超85%", evidenceMaterialIds: ["m7"], analysisContent: "团队具备良好的目标管理和执行能力。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp8", title: "外部环境变化", evidenceDescription: "宏观环境可能影响里程碑达成", evidenceMaterialIds: [], analysisContent: "需评估外部因素对执行的影响。" },
+                  ],
+                },
+                {
+                  id: "sh4-2",
+                  direction: "团队能力",
+                  category: "组织管理",
+                  name: "组织扩张能力强，管理经验丰富。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp9", title: "管理经验丰富", evidenceDescription: "核心管理层有大厂背景", evidenceMaterialIds: ["m7"], analysisContent: "具备大规模团队管理经验。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp9", title: "组织扩张风险", evidenceDescription: "团队规模计划快速增长", evidenceMaterialIds: ["m7"], analysisContent: "需评估组织管理能力是否匹配扩张速度。" },
+                  ],
+                },
               ],
             },
             {
               id: "gs5",
               title: "增加退出路径假设",
-              direction: "退出策略",
-              category: "退出可行性",
               content: "建议补充关于退出路径可行性的假设，包括IPO可能性评估、并购退出场景分析、回购条款触发条件等。",
-              linkedHypotheses: [],
               linkedTerms: [
                 { id: "t7", name: "回购条款" },
                 { id: "t8", name: "领售权条款" },
@@ -895,11 +1038,33 @@ export function Workflow({
               linkedMaterials: [
                 { id: "m8", name: "商业计划书" },
               ],
-              valuePoints: [
-                { id: "vp6", title: "IPO预期明确", evidenceDescription: "公司已启动上市辅导", analysisContent: "退出路径清晰，时间节点相对确定。" },
-              ],
-              riskPoints: [
-                { id: "rp5", title: "市场窗口不确定", evidenceDescription: "IPO市场波动较大", analysisContent: "需关注资本市场环境变化对上市计划的影响。" },
+              hypotheses: [
+                {
+                  id: "sh5-1",
+                  direction: "退出策略",
+                  category: "退出可行性",
+                  name: "IPO退出可行性高，具备完善退出机制。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp10", title: "IPO预期明确", evidenceDescription: "公司已启动上市辅导", evidenceMaterialIds: ["m8"], analysisContent: "退出路径清晰，时间节点相对确定。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp10", title: "市场窗口不确定", evidenceDescription: "IPO市场波动较大", evidenceMaterialIds: [], analysisContent: "需关注资本市场环境变化对上市计划的影响。" },
+                  ],
+                },
+                {
+                  id: "sh5-2",
+                  direction: "退出策略",
+                  category: "退出可行性",
+                  name: "并购退出可行性高，具备完善退出机制。",
+                  isExisting: false,
+                  valuePoints: [
+                    { id: "vp11", title: "战略价值高", evidenceDescription: "技术资产对大厂有吸引力", evidenceMaterialIds: ["m8", "m1"], analysisContent: "具备被并购的战略价值。" },
+                  ],
+                  riskPoints: [
+                    { id: "rp11", title: "估值分歧", evidenceDescription: "并购估值可能低于预期", evidenceMaterialIds: ["m8"], analysisContent: "需评估并购退出的估值合理性。" },
+                  ],
+                },
               ],
             },
           ]
@@ -923,7 +1088,7 @@ export function Workflow({
     const userMsg: ChatMessage = { role: "user", content: chatInput.trim() }
     setChatMessages((prev) => [...prev, userMsg])
     setChatInput("")
-    
+
     // Simulate AI response
     setTimeout(() => {
       const aiResponse: ChatMessage = {
@@ -963,7 +1128,7 @@ export function Workflow({
             </div>
           </div>
         </div>
-        
+
         {/* Content */}
         <div className="flex-1 overflow-auto p-8">
           <div className="mx-auto max-w-4xl">
@@ -986,7 +1151,7 @@ export function Workflow({
                 </button>
               </div>
             )}
-            
+
             {isGenerating && (
               /* Thinking Animation */
               <div className="py-12">
@@ -996,7 +1161,7 @@ export function Workflow({
                     AI正在深度思考...
                   </div>
                 </div>
-                
+
                 <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
                   <div className="space-y-4">
                     {thinkingSteps.map((step, idx) => (
@@ -1005,8 +1170,8 @@ export function Workflow({
                         <div className={cn(
                           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300",
                           step.status === "completed" ? "bg-emerald-100" :
-                          step.status === "active" ? "bg-blue-100 animate-pulse" :
-                          "bg-gray-100"
+                            step.status === "active" ? "bg-blue-100 animate-pulse" :
+                              "bg-gray-100"
                         )}>
                           {step.status === "completed" ? (
                             <Check className="h-4 w-4 text-emerald-600" />
@@ -1016,17 +1181,17 @@ export function Workflow({
                             <span className="text-xs text-gray-400">{idx + 1}</span>
                           )}
                         </div>
-                        
+
                         {/* Step label */}
                         <span className={cn(
                           "text-sm transition-colors duration-300",
                           step.status === "completed" ? "text-emerald-700 font-medium" :
-                          step.status === "active" ? "text-blue-700 font-medium" :
-                          "text-gray-400"
+                            step.status === "active" ? "text-blue-700 font-medium" :
+                              "text-gray-400"
                         )}>
                           {step.label}
                         </span>
-                        
+
                         {/* Progress indicator for active step */}
                         {step.status === "active" && (
                           <div className="flex-1">
@@ -1041,7 +1206,7 @@ export function Workflow({
                 </div>
               </div>
             )}
-            
+
             {generationComplete && (
               /* Results */
               <div className="space-y-6">
@@ -1054,11 +1219,11 @@ export function Workflow({
                     <p className="text-sm text-[#6B7280]">共生成 {generatedSuggestions.length} 条改进建议</p>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   {generatedSuggestions.map((suggestion, idx) => (
-                    <div 
-                      key={suggestion.id} 
+                    <div
+                      key={suggestion.id}
                       className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm transition-all hover:shadow-md"
                     >
                       <div className="flex items-start gap-4 mb-4">
@@ -1066,40 +1231,13 @@ export function Workflow({
                           {idx + 1}
                         </div>
                         <div className="flex-1">
-                          <div className="flex items-start justify-between gap-4 mb-2">
-                            <h3 className="text-base font-semibold text-[#111827]">{suggestion.title}</h3>
-                            <div className="flex items-center gap-2">
-                              <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px]">
-                                {suggestion.direction}
-                              </Badge>
-                              <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px]">
-                                {suggestion.category}
-                              </Badge>
-                            </div>
-                          </div>
+                          <h3 className="text-base font-semibold text-[#111827] mb-2">{suggestion.title}</h3>
                           <p className="text-sm text-[#6B7280] leading-relaxed">{suggestion.content}</p>
                         </div>
                       </div>
-                      
+
                       {/* Linked Items */}
                       <div className="ml-12 space-y-3 pt-4 border-t border-[#F3F4F6]">
-                        {/* Linked Hypotheses */}
-                        {suggestion.linkedHypotheses.length > 0 && (
-                          <div className="flex items-start gap-2">
-                            <div className="flex items-center gap-1.5 shrink-0 text-xs text-[#6B7280]">
-                              <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
-                              <span>关联假设:</span>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {suggestion.linkedHypotheses.map((h) => (
-                                <Badge key={h.id} className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-normal cursor-pointer hover:bg-amber-100">
-                                  {h.name}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        
                         {/* Linked Terms */}
                         {suggestion.linkedTerms.length > 0 && (
                           <div className="flex items-start gap-2">
@@ -1116,7 +1254,7 @@ export function Workflow({
                             </div>
                           </div>
                         )}
-                        
+
                         {/* Linked Materials */}
                         {suggestion.linkedMaterials.length > 0 && (
                           <div className="flex items-start gap-2">
@@ -1133,22 +1271,56 @@ export function Workflow({
                             </div>
                           </div>
                         )}
-                        
-                        {/* Create Hypothesis Button */}
+
+                        {/* Hypotheses List */}
                         <div className="pt-3 border-t border-[#F3F4F6]">
-                          <button
-                            onClick={() => handleCreateFromSuggestion(suggestion)}
-                            className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-600"
-                          >
-                            <Plus className="h-4 w-4" />
-                            创建该假设
-                          </button>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Lightbulb className="h-4 w-4 text-amber-500" />
+                            <span className="text-sm font-medium text-[#374151]">建议假设 ({suggestion.hypotheses.length})</span>
+                          </div>
+                          <div className="space-y-2">
+                            {suggestion.hypotheses.map((hypothesis) => (
+                              <div
+                                key={hypothesis.id}
+                                className="flex items-center justify-between gap-4 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3"
+                              >
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] shrink-0">
+                                    {hypothesis.direction}
+                                  </Badge>
+                                  <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] shrink-0">
+                                    {hypothesis.category}
+                                  </Badge>
+                                  <span className="text-sm text-[#374151] truncate">{hypothesis.name}</span>
+                                </div>
+                                {hypothesis.isExisting ? (
+                                  <button
+                                    onClick={() => {
+                                      // TODO: Implement modify existing hypothesis logic
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#374151] transition-colors hover:bg-[#F3F4F6] shrink-0"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    修改该假设
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleCreateFromHypothesis(hypothesis)}
+                                    className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-600 shrink-0"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                    创建该假设
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
-                
+
                 {/* Action Buttons */}
                 <div className="flex items-center justify-center gap-4 pt-6">
                   <button
@@ -1170,7 +1342,7 @@ export function Workflow({
             )}
           </div>
         </div>
-        
+
         {/* Hypothesis Creation Dialog */}
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -1187,7 +1359,7 @@ export function Workflow({
                 基于AI建议创建新的项目假设，包含价值点和风险点分析
               </DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-6 mt-4">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
@@ -1201,7 +1373,7 @@ export function Workflow({
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[#374151] mb-1.5">假���类别</label>
+                  <label className="block text-sm font-medium text-[#374151] mb-1.5">假设类别</label>
                   <Input
                     value={formData.category}
                     onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
@@ -1210,7 +1382,7 @@ export function Workflow({
                   />
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-[#374151] mb-1.5">假设名称</label>
                 <Input
@@ -1220,7 +1392,7 @@ export function Workflow({
                   className="h-10"
                 />
               </div>
-              
+
               {/* Value Points */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -1238,7 +1410,7 @@ export function Workflow({
                     添加价值点
                   </button>
                 </div>
-                
+
                 <div className="space-y-4">
                   {formData.valuePoints.map((vp, idx) => (
                     <div key={vp.id} className="rounded-lg border border-[#E5E7EB] p-4 bg-emerald-50/30">
@@ -1251,7 +1423,7 @@ export function Workflow({
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                      
+
                       <div className="space-y-3">
                         <Input
                           value={vp.title}
@@ -1264,7 +1436,7 @@ export function Workflow({
                           placeholder="价值点标题"
                           className="h-9 text-sm"
                         />
-                        
+
                         {/* Evidence Support */}
                         <div>
                           <div className="flex items-center gap-2 mb-2">
@@ -1283,34 +1455,42 @@ export function Workflow({
                             rows={2}
                             className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           />
-                          
-                          {/* Material Selection */}
+
+                          {/* Material Selection - checkbox list */}
                           <div className="mt-2">
                             <p className="text-xs text-[#6B7280] mb-1.5">关联项目材料：</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {availableMaterials.slice(0, 4).map((m) => (
-                                <button
+                            <div className="rounded-md border border-[#E5E7EB] divide-y divide-[#F3F4F6] max-h-[160px] overflow-y-auto">
+                              {availableMaterials.map((m) => (
+                                <label
                                   key={m.id}
-                                  onClick={() => handleToggleMaterial("value", vp.id, m.id)}
                                   className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border transition-colors",
+                                    "flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors text-xs",
                                     vp.evidenceMaterialIds.includes(m.id)
-                                      ? "bg-blue-50 text-blue-700 border-blue-200"
-                                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                      ? "bg-blue-50"
+                                      : "bg-white hover:bg-[#F9FAFB]"
                                   )}
                                 >
-                                  <FileText className="h-3 w-3" />
-                                  {m.name.slice(0, 15)}...
-                                </button>
+                                  <input
+                                    type="checkbox"
+                                    checked={vp.evidenceMaterialIds.includes(m.id)}
+                                    onChange={() => handleToggleMaterial("value", vp.id, m.id)}
+                                    className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 accent-blue-600"
+                                  />
+                                  <FileText className={cn("h-3.5 w-3.5 shrink-0", vp.evidenceMaterialIds.includes(m.id) ? "text-blue-500" : "text-[#9CA3AF]")} />
+                                  <span className={cn("flex-1 truncate", vp.evidenceMaterialIds.includes(m.id) ? "text-blue-700 font-medium" : "text-[#374151]")}>
+                                    {m.name}
+                                  </span>
+                                  <span className="text-[10px] text-[#9CA3AF] shrink-0">{m.format}</span>
+                                </label>
                               ))}
-                              <button className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50">
-                                <Upload className="h-3 w-3" />
-                                上传新材料
-                              </button>
                             </div>
+                            <button className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50">
+                              <Upload className="h-3 w-3" />
+                              上传新材料
+                            </button>
                           </div>
                         </div>
-                        
+
                         {/* Analysis */}
                         <div>
                           <div className="flex items-center gap-2 mb-2">
@@ -1333,7 +1513,7 @@ export function Workflow({
                       </div>
                     </div>
                   ))}
-                  
+
                   {formData.valuePoints.length === 0 && (
                     <div className="rounded-lg border border-dashed border-[#E5E7EB] p-6 text-center">
                       <p className="text-sm text-[#6B7280]">暂无价值点，点击上方按钮添加</p>
@@ -1341,7 +1521,7 @@ export function Workflow({
                   )}
                 </div>
               </div>
-              
+
               {/* Risk Points */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -1359,7 +1539,7 @@ export function Workflow({
                     添加风险点
                   </button>
                 </div>
-                
+
                 <div className="space-y-4">
                   {formData.riskPoints.map((rp, idx) => (
                     <div key={rp.id} className="rounded-lg border border-[#E5E7EB] p-4 bg-red-50/30">
@@ -1372,7 +1552,7 @@ export function Workflow({
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                      
+
                       <div className="space-y-3">
                         <Input
                           value={rp.title}
@@ -1385,7 +1565,7 @@ export function Workflow({
                           placeholder="风险点标题"
                           className="h-9 text-sm"
                         />
-                        
+
                         {/* Evidence Support */}
                         <div>
                           <div className="flex items-center gap-2 mb-2">
@@ -1404,34 +1584,42 @@ export function Workflow({
                             rows={2}
                             className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           />
-                          
-                          {/* Material Selection */}
+
+                          {/* Material Selection - checkbox list */}
                           <div className="mt-2">
                             <p className="text-xs text-[#6B7280] mb-1.5">关联项目材料：</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {availableMaterials.slice(0, 4).map((m) => (
-                                <button
+                            <div className="rounded-md border border-[#E5E7EB] divide-y divide-[#F3F4F6] max-h-[160px] overflow-y-auto">
+                              {availableMaterials.map((m) => (
+                                <label
                                   key={m.id}
-                                  onClick={() => handleToggleMaterial("risk", rp.id, m.id)}
                                   className={cn(
-                                    "inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border transition-colors",
+                                    "flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors text-xs",
                                     rp.evidenceMaterialIds.includes(m.id)
-                                      ? "bg-blue-50 text-blue-700 border-blue-200"
-                                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                      ? "bg-red-50"
+                                      : "bg-white hover:bg-[#F9FAFB]"
                                   )}
                                 >
-                                  <FileText className="h-3 w-3" />
-                                  {m.name.slice(0, 15)}...
-                                </button>
+                                  <input
+                                    type="checkbox"
+                                    checked={rp.evidenceMaterialIds.includes(m.id)}
+                                    onChange={() => handleToggleMaterial("risk", rp.id, m.id)}
+                                    className="h-3.5 w-3.5 rounded border-gray-300 text-red-600 accent-red-600"
+                                  />
+                                  <FileText className={cn("h-3.5 w-3.5 shrink-0", rp.evidenceMaterialIds.includes(m.id) ? "text-red-500" : "text-[#9CA3AF]")} />
+                                  <span className={cn("flex-1 truncate", rp.evidenceMaterialIds.includes(m.id) ? "text-red-700 font-medium" : "text-[#374151]")}>
+                                    {m.name}
+                                  </span>
+                                  <span className="text-[10px] text-[#9CA3AF] shrink-0">{m.format}</span>
+                                </label>
                               ))}
-                              <button className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50">
-                                <Upload className="h-3 w-3" />
-                                上传新材料
-                              </button>
                             </div>
+                            <button className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50">
+                              <Upload className="h-3 w-3" />
+                              上传新材料
+                            </button>
                           </div>
                         </div>
-                        
+
                         {/* Analysis */}
                         <div>
                           <div className="flex items-center gap-2 mb-2">
@@ -1454,7 +1642,7 @@ export function Workflow({
                       </div>
                     </div>
                   ))}
-                  
+
                   {formData.riskPoints.length === 0 && (
                     <div className="rounded-lg border border-dashed border-[#E5E7EB] p-6 text-center">
                       <p className="text-sm text-[#6B7280]">暂无风险点，点击上方按钮添加</p>
@@ -1462,13 +1650,13 @@ export function Workflow({
                   )}
                 </div>
               </div>
-              
+
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4 border-t border-[#E5E7EB]">
                 <Button variant="outline" onClick={handleCloseCreateDialog}>
                   取消
                 </Button>
-                <Button 
+                <Button
                   className="bg-[#2563EB] hover:bg-[#1D4ED8]"
                   onClick={handleSubmitHypothesis}
                   disabled={!formData.name.trim() || !formData.direction.trim()}
@@ -1495,7 +1683,7 @@ export function Workflow({
           <p className="text-sm text-[#6B7280] mb-6 leading-relaxed">
             这是一个新创建的项目，工作流尚未启动。点击下方按钮启动项目的第一个阶段。
           </p>
-          <button 
+          <button
             onClick={handleStartFirstPhase}
             className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
           >
@@ -1778,7 +1966,7 @@ export function Workflow({
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              
+
               {/* Chat Messages */}
               <ScrollArea className="flex-1 p-4">
                 <div className="space-y-4">
@@ -1886,7 +2074,7 @@ function ActionButton({ icon: Icon, label, onClick }: { icon: typeof Lightbulb; 
 
 function CompactPhaseCard({ phase }: { phase: Phase }) {
   const sc = statusConfig[phase.status]
-  
+
   return (
     <div className="w-[280px] rounded-xl border-2 border-[#2563EB] bg-blue-50/40 p-5 shadow-lg">
       {/* Header */}

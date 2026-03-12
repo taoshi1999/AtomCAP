@@ -9,7 +9,6 @@ import {
   YAxis,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
 } from "recharts"
 import {
   ChartContainer,
@@ -65,30 +64,28 @@ export function DataAnalytics() {
             }}
             className="h-[350px]"
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={valuationData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                  axisLine={{ stroke: "#E5E7EB" }}
-                />
-                <YAxis
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                  axisLine={{ stroke: "#E5E7EB" }}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar
-                  dataKey="valuation"
-                  fill="#2563EB"
-                  radius={[6, 6, 0, 0]}
-                  name="估值 (亿 USD)"
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <BarChart
+              data={valuationData}
+              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 12, fill: "#6B7280" }}
+                axisLine={{ stroke: "#E5E7EB" }}
+              />
+              <YAxis
+                tick={{ fontSize: 12, fill: "#6B7280" }}
+                axisLine={{ stroke: "#E5E7EB" }}
+              />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Bar
+                dataKey="valuation"
+                fill="#2563EB"
+                radius={[6, 6, 0, 0]}
+                name="估值 (亿 USD)"
+              />
+            </BarChart>
           </ChartContainer>
         </div>
 
@@ -113,43 +110,41 @@ export function DataAnalytics() {
             }}
             className="h-[350px]"
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={revenueData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis
-                  dataKey="quarter"
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                  axisLine={{ stroke: "#E5E7EB" }}
-                />
-                <YAxis
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                  axisLine={{ stroke: "#E5E7EB" }}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="actual"
-                  stroke="#2563EB"
-                  strokeWidth={2}
-                  dot={{ fill: "#2563EB", r: 4 }}
-                  name="实际营收"
-                  connectNulls={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="predicted"
-                  stroke="#9CA3AF"
-                  strokeWidth={2}
-                  strokeDasharray="6 3"
-                  dot={{ fill: "#9CA3AF", r: 4 }}
-                  name="预测营收"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <LineChart
+              data={revenueData}
+              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <XAxis
+                dataKey="quarter"
+                tick={{ fontSize: 12, fill: "#6B7280" }}
+                axisLine={{ stroke: "#E5E7EB" }}
+              />
+              <YAxis
+                tick={{ fontSize: 12, fill: "#6B7280" }}
+                axisLine={{ stroke: "#E5E7EB" }}
+              />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="actual"
+                stroke="#2563EB"
+                strokeWidth={2}
+                dot={{ fill: "#2563EB", r: 4 }}
+                name="实际营收"
+                connectNulls={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="predicted"
+                stroke="#9CA3AF"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+                dot={{ fill: "#9CA3AF", r: 4 }}
+                name="预测营收"
+              />
+            </LineChart>
           </ChartContainer>
         </div>
       </div>

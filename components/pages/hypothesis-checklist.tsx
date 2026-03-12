@@ -343,8 +343,8 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
     category: "算力与芯片",
     name: "国产AI芯片在推理场景下可替代英伟达方案",
     owner: "张伟",
-    createdAt: "2024-01-10",
-    updatedAt: "2024-02-15",
+    createdAt: "2026-01-10",
+    updatedAt: "2026-02-15",
     status: "pending",
   },
   {
@@ -353,9 +353,9 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
     category: "算力与芯片",
     name: "云端AI芯片市场将在3年内达到500亿美元规模",
     owner: "李四",
-    createdAt: "2024-01-12",
-    updatedAt: "2024-02-18",
-    status: "verified",
+    createdAt: "2026-01-12",
+    updatedAt: "2026-02-18",
+    status: "pending",
   },
   {
     id: "ai-h3",
@@ -363,9 +363,9 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
     category: "模型训练框架",
     name: "开源大模型训练框架将成为主流技术路线",
     owner: "王五",
-    createdAt: "2024-01-15",
-    updatedAt: "2024-02-20",
-    status: "verified",
+    createdAt: "2026-01-15",
+    updatedAt: "2026-02-20",
+    status: "pending",
   },
   {
     id: "ai-h4",
@@ -373,8 +373,8 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
     category: "模型训练框架",
     name: "分布式训练效率提升是大模型竞争关键",
     owner: "张伟",
-    createdAt: "2024-01-18",
-    updatedAt: "2024-02-22",
+    createdAt: "2026-01-18",
+    updatedAt: "2026-02-22",
     status: "pending",
   },
   {
@@ -383,9 +383,9 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
     category: "基础软件生态",
     name: "AI编译器将成为新的基础软件投资赛道",
     owner: "李四",
-    createdAt: "2024-01-20",
-    updatedAt: "2024-02-25",
-    status: "risky",
+    createdAt: "2026-01-20",
+    updatedAt: "2026-02-25",
+    status: "pending",
   },
   {
     id: "ai-h6",
@@ -393,8 +393,18 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
     category: "基础软件生态",
     name: "MLOps平台市场需求将快速增长",
     owner: "王五",
-    createdAt: "2024-01-22",
-    updatedAt: "2024-02-28",
+    createdAt: "2026-01-22",
+    updatedAt: "2026-02-28",
+    status: "pending",
+  },
+  {
+    id: "ai-h7",
+    direction: "团队能力",
+    category: "创始人",
+    name: "创始人具备丰富的AI产品商业化经验。",
+    owner: "王五",
+    createdAt: "2026-01-22",
+    updatedAt: "2026-02-28",
     status: "pending",
   },
 ]
@@ -532,7 +542,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               <div key={vp.id} className="bg-white rounded-xl border border-[#E5E7EB] mb-4 overflow-hidden">
                 <div className="border-l-4 border-[#22C55E] p-5">
                   <h3 className="font-semibold text-[#22C55E] mb-3">{vp.title}</h3>
-                  
+
                   {/* Evidence */}
                   <div className="mb-4">
                     <p className="text-xs text-[#6B7280] mb-1">论据支持</p>
@@ -617,7 +627,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               <div key={rp.id} className="bg-white rounded-xl border border-[#E5E7EB] mb-4 overflow-hidden">
                 <div className="border-l-4 border-[#EF4444] p-5">
                   <h3 className="font-semibold text-[#EF4444] mb-3">{rp.title}</h3>
-                  
+
                   {/* Evidence */}
                   <div className="mb-4">
                     <p className="text-xs text-[#6B7280] mb-1">论据支持</p>
@@ -706,7 +716,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                     {selectedDetail.committeeDecision.conclusion}
                   </Badge>
                 </div>
-                
+
                 <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
                   <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.committeeDecision.content}</p>
                 </div>
@@ -777,7 +787,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                     {selectedDetail.verification.conclusion}
                   </Badge>
                 </div>
-                
+
                 <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
                   <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.verification.content}</p>
                 </div>
@@ -839,7 +849,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                     </div>
                     <Badge className={cn(
                       "text-xs",
-                      term.status === "approved" 
+                      term.status === "approved"
                         ? "bg-[#DCFCE7] text-[#166534]"
                         : term.status === "rejected"
                           ? "bg-[#FEE2E2] text-[#991B1B]"
@@ -926,8 +936,8 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
             </thead>
             <tbody>
               {filteredData.map((item, index) => (
-                <tr 
-                  key={item.id} 
+                <tr
+                  key={item.id}
                   className={cn(
                     "border-b border-[#E5E7EB] hover:bg-[#F9FAFB] transition-colors",
                     index % 2 === 1 && "bg-[#F9FAFB]"
@@ -975,7 +985,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               ))}
             </tbody>
           </table>
-          
+
           {filteredData.length === 0 && (
             <div className="py-12 text-center">
               <ListChecks className="mx-auto h-12 w-12 text-[#D1D5DB]" />

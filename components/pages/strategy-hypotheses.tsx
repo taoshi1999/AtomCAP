@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Search,
   Lightbulb,
@@ -195,17 +195,19 @@ export function StrategyHypotheses({
   const [formReason, setFormReason] = useState("")
   const [formMaterials, setFormMaterials] = useState<string[]>([])
 
-  // 处理预填数据
-  if (prefillData && !showCreateDialog) {
-    setFormTitle(prefillData.title)
-    setFormDirection(prefillData.direction)
-    setFormCategory(prefillData.category)
-    setFormContent(prefillData.content)
-    setFormReason(prefillData.reason)
-    setFormMaterials(prefillData.relatedMaterials)
-    setShowCreateDialog(true)
-    onPrefillUsed?.()
-  }
+  // 处理预填数据 - 使用 useEffect 避免在渲染期间更新状态
+  useEffect(() => {
+    if (prefillData && !showCreateDialog) {
+      setFormTitle(prefillData.title)
+      setFormDirection(prefillData.direction)
+      setFormCategory(prefillData.category)
+      setFormContent(prefillData.content)
+      setFormReason(prefillData.reason)
+      setFormMaterials(prefillData.relatedMaterials)
+      setShowCreateDialog(true)
+      onPrefillUsed?.()
+    }
+  }, [prefillData, showCreateDialog, onPrefillUsed])
 
   // 合并初始数据和从 page.tsx 传来的持久化数据
   const allHypotheses: HypothesisTableItem[] = [
