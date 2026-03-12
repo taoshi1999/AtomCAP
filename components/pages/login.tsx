@@ -230,12 +230,12 @@ export function Login({ onLogin }: LoginProps) {
             专业投资决策，尽在掌握
           </h2>
           <p className="text-sm text-[#4B6A8A] leading-relaxed max-w-xs">
-            AtomCAP 为 PE/VC 机构提供全流程投资决策管理，驱动更智慧的投资判断
+            AtomCAP 为 PE/VC 机构提供全流程投资决策管理，AI驱动更智慧的投资判断
           </p>
 
           {/* Feature tags */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
-            {["策略管理", "假设验证", "条款构建", "AI辅助"].map((tag) => (
+            {["策略管理", "假设验证", "条款构建", "AI赋能"].map((tag) => (
               <span
                 key={tag}
                 className="rounded-full border border-[#BFDBFE] bg-white/60 px-3.5 py-1 text-xs font-medium text-[#2563EB]"
