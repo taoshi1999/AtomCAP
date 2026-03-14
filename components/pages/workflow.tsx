@@ -1466,7 +1466,7 @@ export function Workflow({
                 { id: "h4", name: "单位经济模型健康，具备规模化盈利基础" },
               ],
               linkedTerms: [
-                { id: "t2", name: "采用加权平均反稀释保护机制" },
+                { id: "t2", name: "采用加权平均反稀释保��机制" },
               ],
               materials: [
                 {
@@ -1908,7 +1908,7 @@ ${logs}
 
 如需查看具体假设列表，请前往左侧导航的"假设清单"页面。`,
         suggestedQuestions: [
-          "帮我生成本阶段的项目进展汇报文档",
+          "帮我生成本阶段的项目���展汇报文档",
           "当前阶段还缺少哪些材料？",
           "帮我总结一下当前的项目进展情况",
         ],
@@ -2061,14 +2061,15 @@ ${logs}
             try {
               const blob = await generateProjectDocxBlob()
               const url = URL.createObjectURL(blob)
+              const fileSizeKB = (blob.size / 1024).toFixed(1)
               setIsChatThinking(false)
               setChatThinkingSteps([])
               setChatMessages((prev) => [
                 ...prev,
                 {
                   role: "assistant",
-                  content: `好的！我已根据当前阶段的项目数据，为您生成了项目进展汇报文档。\n\n文档包含阶段基本信息、假设验证情况、条款谈判进度、材料收集情况、近期动态及下一步工作计划，点击下方按钮即可下载。`,
-                  downloadFile: { name: fileName, url },
+                  content: `好的！我已根据当前阶段的项目数据，为您生成了项目进展汇报文档。\n\n文档包含阶段基本信息、假设验证情况、条款谈判进度、材料收集情况、近期动态及下一步工作计划。`,
+                  downloadFile: { name: fileName, url, size: `${fileSizeKB} KB` },
                   suggestedQuestions: [
                     "帮我总结一下当前的项目进展情况",
                     "当前阶段的假设验证情况如何？",
@@ -3649,18 +3650,32 @@ ${logs}
                         </p>
                       )
                     })}
-                    {/* Download button */}
+                    {/* Download file card */}
                     {msg.downloadFile && (
-                      <a
-                        href={msg.downloadFile.url}
-                        download={msg.downloadFile.name}
-                        className="mt-3 flex items-center gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100 w-fit"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                        </svg>
-                        {msg.downloadFile.name}
-                      </a>
+                      <div className="mt-3 flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5 w-fit max-w-full">
+                        {/* Docx icon */}
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#2563EB]">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>
+                          </svg>
+                        </div>
+                        {/* File info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#111827] truncate">{msg.downloadFile.name}</p>
+                          <p className="text-xs text-[#6B7280]">{msg.downloadFile.size || "—"}</p>
+                        </div>
+                        {/* Download button */}
+                        <a
+                          href={msg.downloadFile.url}
+                          download={msg.downloadFile.name}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#2563EB] text-white transition-colors hover:bg-[#1D4ED8]"
+                          title="下载文件"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                          </svg>
+                        </a>
+                      </div>
                     )}
                   </div>
                 </div>
