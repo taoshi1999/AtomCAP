@@ -87,11 +87,15 @@ type FullPageView =
   | "hypothesis-generation"
   | "term-generation"
   | "material-generation"
+  | "ai-research-generation"
+  | "ai-chat"
   | null
 
 interface ChatMessage {
   role: "user" | "assistant"
   content: string
+  suggestedQuestions?: string[]
+  downloadFile?: { name: string; url: string }
 }
 
 // Deep thinking animation steps
@@ -267,6 +271,25 @@ export interface PendingProjectMaterial {
   initiator: { id: string; name: string; initials: string }
   initiatedAt: string
   reviewers: { id: string; name: string; initials: string }[]
+}
+
+// AI researched material (auto-generated, ready to upload)
+export interface AiResearchMaterial {
+  id: string
+  category: string      // 材料分类
+  format: string        // 格式 (PDF, XLSX, DOCX, etc.)
+  name: string          // 材料名称
+  description: string   // AI调研内容摘要
+  source: string        // 数据来源
+  isUploaded: boolean   // 是否已上传
+}
+
+// Group of AI-researched materials by topic
+export interface GeneratedAiResearchGroup {
+  id: string
+  title: string         // 调研主题标题
+  content: string       // 调研摘要
+  materials: AiResearchMaterial[]
 }
 
 // Available project materials for selection
@@ -506,6 +529,9 @@ interface WorkflowProps {
   savedGeneratedMaterialSuggestions?: GeneratedMaterialSuggestion[]
   onSaveMaterialSuggestions?: (suggestions: GeneratedMaterialSuggestion[]) => void
   onCreatePendingProjectMaterial?: (pending: PendingProjectMaterial) => void
+  // Persisted AI research generation state
+  savedGeneratedAiResearchGroups?: GeneratedAiResearchGroup[]
+  onSaveAiResearchGroups?: (groups: GeneratedAiResearchGroup[]) => void
 }
 
 /* ─── New Project Phase Template ─────────────── */
@@ -549,8 +575,11 @@ export function Workflow({
   savedGeneratedMaterialSuggestions,
   onSaveMaterialSuggestions,
   onCreatePendingProjectMaterial,
+  savedGeneratedAiResearchGroups,
+  onSaveAiResearchGroups,
 }: WorkflowProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
   // Use props phases if provided, otherwise use default PHASES for existing projects
   const projectPhases = phases ?? (isNewProject ? [] : PHASES)
@@ -573,6 +602,9 @@ export function Workflow({
   const [activeSidebar, setActiveSidebar] = useState<SidebarType>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState("")
+  const [isChatThinking, setIsChatThinking] = useState(false)
+  const [chatThinkingSteps, setChatThinkingSteps] = useState<ThinkingStep[]>([])
+  const [chatUserMessageCount, setChatUserMessageCount] = useState(0)
 
   // Full page generation view state
   const [fullPageView, setFullPageView] = useState<FullPageView>(null)
@@ -615,6 +647,13 @@ export function Workflow({
   const [materialGenerationComplete, setMaterialGenerationComplete] = useState(savedGeneratedMaterialSuggestions ? savedGeneratedMaterialSuggestions.length > 0 : false)
   const [materialThinkingSteps, setMaterialThinkingSteps] = useState<ThinkingStep[]>([])
   const [generatedMaterialSuggestions, setGeneratedMaterialSuggestions] = useState<GeneratedMaterialSuggestion[]>(savedGeneratedMaterialSuggestions || [])
+
+  // AI Research generation state
+  const [isAiResearchGenerating, setIsAiResearchGenerating] = useState(false)
+  const [aiResearchGenerationComplete, setAiResearchGenerationComplete] = useState(savedGeneratedAiResearchGroups ? savedGeneratedAiResearchGroups.length > 0 : false)
+  const [aiResearchThinkingSteps, setAiResearchThinkingSteps] = useState<ThinkingStep[]>([])
+  const [generatedAiResearchGroups, setGeneratedAiResearchGroups] = useState<GeneratedAiResearchGroup[]>(savedGeneratedAiResearchGroups || [])
+  const [uploadedAiResearchMaterialIds, setUploadedAiResearchMaterialIds] = useState<Set<string>>(new Set())
 
   // Material creation dialog state
   const [showMaterialCreateDialog, setShowMaterialCreateDialog] = useState(false)
@@ -743,6 +782,11 @@ export function Workflow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Auto-scroll chat to bottom when messages change
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [chatMessages, isChatThinking])
+
   // Scroll to selected phase card on mount
   useEffect(() => {
     if (scrollRef.current && !activeSidebar && defaultPhase) {
@@ -820,12 +864,43 @@ export function Workflow({
       return
     }
 
-    setActiveSidebar(type)
-    if (type === "ai-chat") {
-      setChatMessages([
-        { role: "assistant", content: "您好！我是您的AI智能助手，可以基于当前阶段的信息回答您的问题，帮助您生成所需的材料。请问有什么可以帮您？" }
-      ])
+    // For ai-research, open full page view instead of sidebar
+    if (type === "ai-research") {
+      setFullPageView("ai-research-generation")
+      setIsAiResearchGenerating(false)
+      setAiResearchThinkingSteps([])
+      // Restore saved groups if available, otherwise reset
+      if (savedGeneratedAiResearchGroups && savedGeneratedAiResearchGroups.length > 0) {
+        setGeneratedAiResearchGroups(savedGeneratedAiResearchGroups)
+        setAiResearchGenerationComplete(true)
+      } else {
+        setGeneratedAiResearchGroups([])
+        setAiResearchGenerationComplete(false)
+      }
+      setUploadedAiResearchMaterialIds(new Set())
+      return
     }
+
+    // For ai-chat, open full page view
+    if (type === "ai-chat") {
+      setFullPageView("ai-chat")
+      setChatMessages([
+        {
+          role: "assistant",
+          content: "您好！我是 AtomCAP AI 助手 👋\n\n我可以基于当前阶段的项目数据，帮您分析进展情况、解答疑问或给出操作建议。请问有什么可以帮您？",
+          suggestedQuestions: [
+            "帮我总结一下当前的项目进展情况",
+            "当前阶段的假设验证情况如何？",
+            "当前阶段还缺少哪些材料？",
+          ],
+        }
+      ])
+      setIsChatThinking(false)
+      setChatUserMessageCount(0)
+      return
+    }
+
+    setActiveSidebar(type)
   }
 
   function handleCloseFullPageView() {
@@ -844,6 +919,14 @@ export function Workflow({
     setMaterialGenerationComplete(false)
     setMaterialThinkingSteps([])
     setGeneratedMaterialSuggestions([])
+    // Also reset AI research state
+    setIsAiResearchGenerating(false)
+    setAiResearchGenerationComplete(false)
+    setAiResearchThinkingSteps([])
+    setGeneratedAiResearchGroups([])
+    setUploadedAiResearchMaterialIds(new Set())
+    // Also reset chat thinking state
+    setIsChatThinking(false)
   }
 
   function handleCreateFromHypothesis(hypothesis: SuggestionHypothesis) {
@@ -1170,6 +1253,146 @@ export function Workflow({
           onSaveTermSuggestions?.(suggestions)
           setIsTermGenerating(false)
           setTermGenerationComplete(true)
+        }, 500)
+      }
+    }, 800)
+  }
+
+  function handleUploadAiResearchMaterial(material: AiResearchMaterial) {
+    const pendingMaterial: PendingProjectMaterial = {
+      id: `pending-project-material-${Date.now()}`,
+      projectId,
+      projectName,
+      material: {
+        name: material.name,
+        format: material.format,
+        category: material.category,
+        description: material.description,
+        collectReason: `AI调研生成，来源：${material.source}`,
+      },
+      changeId: `CR-PM-${Date.now().toString().slice(-6)}`,
+      changeName: `上传AI调研材料: ${material.name}`,
+      changeType: "collect",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    }
+    onCreatePendingProjectMaterial?.(pendingMaterial)
+    setUploadedAiResearchMaterialIds((prev) => new Set([...prev, material.id]))
+  }
+
+  function handleStartAiResearchGeneration() {
+    setIsAiResearchGenerating(true)
+    setAiResearchGenerationComplete(false)
+
+    const steps: ThinkingStep[] = [
+      { id: "ar1", label: "检索行业公开市场数据...", status: "waiting" },
+      { id: "ar2", label: "分析目标赛道竞争格局...", status: "waiting" },
+      { id: "ar3", label: "获取相关企业工商信息...", status: "waiting" },
+      { id: "ar4", label: "汇总融资动态与估值数据...", status: "waiting" },
+      { id: "ar5", label: "生成结构化调研材料...", status: "waiting" },
+    ]
+    setAiResearchThinkingSteps(steps)
+
+    let currentStep = 0
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setAiResearchThinkingSteps((prev) =>
+          prev.map((step, idx) => ({
+            ...step,
+            status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+          }))
+        )
+        currentStep++
+      } else {
+        clearInterval(interval)
+        setAiResearchThinkingSteps((prev) => prev.map((step) => ({ ...step, status: "completed" })))
+
+        setTimeout(() => {
+          const groups: GeneratedAiResearchGroup[] = [
+            {
+              id: "arg1",
+              title: "行业市场规模与增长趋势",
+              content: "基于公开市场报告及行业数据，AI已生成该赛道的市场规模、增速及未来预测分析材料，可直接上传至项目材料库。",
+              materials: [
+                {
+                  id: "arm1-1",
+                  category: "行业报告",
+                  format: "PDF",
+                  name: "2024年AI大模型行业市场规模报告",
+                  description: "涵盖全球及中国AI大模型市场规模、CAGR预测、细分赛道分布及主要驱动因素分析",
+                  source: "IDC / 艾瑞咨询",
+                  isUploaded: false,
+                },
+                {
+                  id: "arm1-2",
+                  category: "行业报告",
+                  format: "PDF",
+                  name: "企业级AI应用市场趋势分析",
+                  description: "聚焦企业级AI应用渗透率、典型采购路径、客户决策因素及未来增长预测",
+                  source: "Gartner / 麦肯锡",
+                  isUploaded: false,
+                },
+              ],
+            },
+            {
+              id: "arg2",
+              title: "竞争格局与主要玩家分析",
+              content: "AI已检索并汇总该赛道主要竞争对手的产品矩阵、融资历程及市场定位，形成结构化竞争格局分析材料。",
+              materials: [
+                {
+                  id: "arm2-1",
+                  category: "竞品分析",
+                  format: "PDF",
+                  name: "核心竞争对手产品对比分析",
+                  description: "对标企业的产品功能矩阵、定价策略、客户覆盖及技术差异化分析",
+                  source: "公开信息 / AI综合分析",
+                  isUploaded: false,
+                },
+                {
+                  id: "arm2-2",
+                  category: "竞品分析",
+                  format: "XLSX",
+                  name: "赛道融资事件数据库",
+                  description: "近3年赛道内融资事件汇总，含轮次、金额、估值倍数及领投机构信息",
+                  source: "IT桔子 / 36氪",
+                  isUploaded: false,
+                },
+              ],
+            },
+            {
+              id: "arg3",
+              title: "目标公司背景尽调材料",
+              content: "AI已整合目标公司工商注册信息、公开报道及创始人背景，生成初步尽调摘要供团队直接使用。",
+              materials: [
+                {
+                  id: "arm3-1",
+                  category: "工商信息",
+                  format: "PDF",
+                  name: "目标公司工商登记及股权结构摘要",
+                  description: "企业注册信息、历史股权变更、对外投资关系及经营范围摘要",
+                  source: "天眼查 / 企查查",
+                  isUploaded: false,
+                },
+                {
+                  id: "arm3-2",
+                  category: "媒体报道",
+                  format: "PDF",
+                  name: "创始团队公开信息汇编",
+                  description: "创始人及核心高管的公开演讲、媒体采访、学术背景及社会关系梳理",
+                  source: "公开媒体 / AI综合整理",
+                  isUploaded: false,
+                },
+              ],
+            },
+          ]
+          setGeneratedAiResearchGroups(groups)
+          onSaveAiResearchGroups?.(groups)
+          setIsAiResearchGenerating(false)
+          setAiResearchGenerationComplete(true)
         }, 500)
       }
     }, 800)
@@ -1625,20 +1848,281 @@ export function Workflow({
     setChatInput("")
   }
 
-  function handleSendChat() {
-    if (!chatInput.trim()) return
-    const userMsg: ChatMessage = { role: "user", content: chatInput.trim() }
+  function generateAiChatResponse(userMessage: string): { content: string; suggestedQuestions: string[] } {
+    const phase = projectPhases.find((p) => p.id === selectedPhase)
+    const msg = userMessage.toLowerCase()
+    // Prefer actual counts from props (reflects real data), fall back to phase-level counts
+    const hCount = hypothesesCount ?? phase?.hypothesesCount ?? 0
+    const tCount = termsCount ?? phase?.termsCount ?? 0
+    const mCount = materialsCount ?? phase?.materialsCount ?? 0
+
+    if (
+      msg.includes("进展") || msg.includes("总结") || msg.includes("汇总") ||
+      msg.includes("情况") || msg.includes("项目") || msg.includes("阶段")
+    ) {
+      const logs = phase?.logs?.slice(0, 3)
+        .map(l => `• ${l.author} ${l.action}（${l.date}）`)
+        .join("\n") || "• 暂无近期动态"
+      const statusLabel = phase?.status === "active" ? "进行中 🟢" : phase?.status === "completed" ? "已完成 ✅" : "待启动"
+      return {
+        content: `**${projectName || "当前项目"} · ${phase?.fullLabel || ""} 进展总结**
+
+📍 **阶段状态**：${statusLabel}
+⏰ **时间区间**：${phase?.startDate || "—"} → ${phase?.endDate || "进行中"}
+👤 **负责人**：${phase?.assignee || "—"}
+
+---
+
+**📋 假设验证**
+本阶段共 ${hCount} 条假设。建议优先核查关键假设的论证材料完整性，确保每条假设均有对应佐证数据支撑。
+
+**📜 条款谈判**
+本阶段共 ${tCount} 条条款。核心条款谈判进度正常，建议重点关注反稀释保护与信息权条款的具体表述与谈判区间。
+
+**📁 材料收集**
+本阶段共收集 ${mCount} 份材料。建议补充核心团队背景材料和最新财务尽调资料以完善材料体系。
+
+**🔄 近期动态**
+${logs}
+
+---
+如需针对某项内容进行深入分析，或需要我帮助生成操作建议，请继续提问。`,
+        suggestedQuestions: [
+          "帮我生成本阶段的项目进展汇报文档",
+          "当前阶段的假设验证情况如何？",
+          "还需要补充哪些关键材料？",
+        ],
+      }
+    }
+
+    if (msg.includes("假设") || msg.includes("hypothesis")) {
+      return {
+        content: `**假设验证情况分析**
+
+当前 **${phase?.fullLabel || ""}** 阶段共有 **${hCount} 条假设**。
+
+**建议关注点：**
+• 确保每条假设均有可验证的判断标准
+• 优先验证影响投资决策的核心假设
+• 对于尚未收集到足够材料的假设，建议使用"材料收集建议"功能生成补充计划
+
+如需查看具体假设列表，请前往左侧导航的"假设清单"页面。`,
+        suggestedQuestions: [
+          "帮我生成本阶段的项目进展汇报文档",
+          "当前阶段还缺少哪些材料？",
+          "帮我总结一下当前的项目进展情况",
+        ],
+      }
+    }
+
+    if (msg.includes("材料") || msg.includes("文件") || msg.includes("document")) {
+      return {
+        content: `**材料收集情况分析**
+
+当前 **${phase?.fullLabel || ""}** 阶段共收集 **${mCount} 份材料**。
+
+**建议操作：**
+• 点击阶段卡片下的 **"材料收集建议"** 获取 AI 针对性建议
+• 点击 **"AI调研材料"** 让 AI 自动调研并生成行业报告、竞品分析等材料
+• 优先补充缺失的核心团队背景和财务尽调材料
+
+如需了解具体材料清单，请前往"项目材料"页面。`,
+        suggestedQuestions: [
+          "帮我生成本阶段的项目进展汇报文档",
+          "当前阶段的假设验证情况如何？",
+          "帮我总结一下当前的项目进展情况",
+        ],
+      }
+    }
+
+    return {
+      content: `感谢您的提问。基于当前 **${phase?.fullLabel || ""}** 阶段的数据，我为您提供以下建议：
+
+1. **完善假设论证**：当前共 ${hCount} 条假设，确保关键假设有充足的材料支撑
+2. **推进条款谈判**：当前共 ${tCount} 条条款，关注核心条款的谈判节点与底线设定
+3. **补充调研材料**：当前共 ${mCount} 份材料，利用 AI 调研功能高效收集行业及竞品信息
+
+如有更具体的问题，欢迎继续提问，我会为您提供针对性分析。`,
+      suggestedQuestions: [
+        "帮我生成本阶段的项目进展汇报文档",
+        "帮我总结一下当前的项目进展情况",
+        "当前阶段的假设验证情况如何？",
+      ],
+    }
+  }
+
+  function getDocxThinkingSteps(): ThinkingStep[] {
+    return [
+      { id: "dx1", label: "读取项目基础信息与阶段数据...", status: "waiting" },
+      { id: "dx2", label: "整理假设验证与条款谈判进度...", status: "waiting" },
+      { id: "dx3", label: "汇总材料收集情况与近期动态...", status: "waiting" },
+      { id: "dx4", label: "规划文档结构与排版样式...", status: "waiting" },
+      { id: "dx5", label: "生成 Word 文档内容...", status: "waiting" },
+      { id: "dx6", label: "文档生成完成，准备下载...", status: "waiting" },
+    ]
+  }
+
+  function getThinkingStepsForMessage(msg: string): ThinkingStep[] {
+    if (msg.includes("进展") || msg.includes("总结") || msg.includes("汇总") || msg.includes("情况") || msg.includes("项目") || msg.includes("阶段")) {
+      return [
+        { id: "cs1", label: "读取当前阶段基本信息...", status: "waiting" },
+        { id: "cs2", label: "检索假设验证状态与覆盖情况...", status: "waiting" },
+        { id: "cs3", label: "分析条款谈判进度与关键节点...", status: "waiting" },
+        { id: "cs4", label: "统计材料收集完整性...", status: "waiting" },
+        { id: "cs5", label: "汇总近期动态与操作记录...", status: "waiting" },
+        { id: "cs6", label: "生成项目进展总结报告...", status: "waiting" },
+      ]
+    }
+    if (msg.includes("假设") || msg.includes("hypothesis")) {
+      return [
+        { id: "cs1", label: "读取当前阶段假设清单...", status: "waiting" },
+        { id: "cs2", label: "分析假设验证完整性...", status: "waiting" },
+        { id: "cs3", label: "识别高优先级未验证假设...", status: "waiting" },
+        { id: "cs4", label: "生成假设分析报告...", status: "waiting" },
+      ]
+    }
+    if (msg.includes("材料") || msg.includes("文件") || msg.includes("document")) {
+      return [
+        { id: "cs1", label: "统计已收集材料清单...", status: "waiting" },
+        { id: "cs2", label: "识别缺失材料类型...", status: "waiting" },
+        { id: "cs3", label: "匹配材料与假设关联关系...", status: "waiting" },
+        { id: "cs4", label: "生成材料收集建议...", status: "waiting" },
+      ]
+    }
+    return [
+      { id: "cs1", label: "理解问题意图...", status: "waiting" },
+      { id: "cs2", label: "检索当前阶段项目数据...", status: "waiting" },
+      { id: "cs3", label: "结合投资决策逻辑分析...", status: "waiting" },
+      { id: "cs4", label: "生成针对性回复...", status: "waiting" },
+    ]
+  }
+
+  async function generateProjectDocxBlob(): Promise<Blob> {
+    const phase = projectPhases.find((p) => p.id === selectedPhase)
+    const hCount = hypothesesCount ?? phase?.hypothesesCount ?? 0
+    const tCount = termsCount ?? phase?.termsCount ?? 0
+    const mCount = materialsCount ?? phase?.materialsCount ?? 0
+    const statusLabel = phase?.status === "active" ? "进行中" : phase?.status === "completed" ? "已完成" : "待启动"
+    const logs = phase?.logs?.slice(0, 3) || []
+
+    const res = await fetch("/api/generate-report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phaseLabel: phase?.fullLabel || "设立期-阶段1",
+        projectName: projectName || "项目",
+        statusLabel,
+        startDate: phase?.startDate || "—",
+        endDate: phase?.endDate || "进行中",
+        assignee: phase?.assignee || "—",
+        hCount,
+        tCount,
+        mCount,
+        logs: logs.map(l => `${l.author} ${l.action}（${l.date}）`),
+      }),
+    })
+    if (!res.ok) throw new Error("Report generation failed")
+    return res.blob()
+  }
+
+
+  function handleSendChat(messageOverride?: string) {
+    const content = (messageOverride ?? chatInput).trim()
+    if (!content) return
+
+    const nextCount = chatUserMessageCount + 1
+    setChatUserMessageCount(nextCount)
+
+    const userMsg: ChatMessage = { role: "user", content }
     setChatMessages((prev) => [...prev, userMsg])
     setChatInput("")
+    setIsChatThinking(true)
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: ChatMessage = {
-        role: "assistant",
-        content: "谢谢您的提问。基于当前阶段的数据，我正在为您生成相关分析...\n\n根据您的需求，我建议您可以从以下几个方面进行考虑：\n1. 完善当前假设的论证支持\n2. 收集更多客户反馈数据\n3. 补充竞品分析材料\n\n如需进一步帮助，请随时告诉我。"
+    // Second user message → generate docx report
+    if (nextCount === 2) {
+      const steps = getDocxThinkingSteps()
+      setChatThinkingSteps(steps)
+      let currentStep = 0
+      const interval = setInterval(() => {
+        if (currentStep < steps.length) {
+          setChatThinkingSteps((prev) =>
+            prev.map((step, idx) => ({
+              ...step,
+              status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+            }))
+          )
+          currentStep++
+        } else {
+          clearInterval(interval)
+          setChatThinkingSteps((prev) => prev.map((s) => ({ ...s, status: "completed" })))
+          setTimeout(async () => {
+            const phase = projectPhases.find((p) => p.id === selectedPhase)
+            const fileName = `${phase?.fullLabel || "设立期-阶段1"}项目进展汇报.docx`
+            try {
+              const blob = await generateProjectDocxBlob()
+              const url = URL.createObjectURL(blob)
+              setIsChatThinking(false)
+              setChatThinkingSteps([])
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: `好的！我已根据当前阶段的项目数据，为您生成了项目进展汇报文档。\n\n文档包含阶段基本信息、假设验证情况、条款谈判进度、材料收集情况、近期动态及下一步工作计划，点击下方按钮即可下载。`,
+                  downloadFile: { name: fileName, url },
+                  suggestedQuestions: [
+                    "帮我总结一下当前的项目进展情况",
+                    "当前阶段的假设验证情况如何？",
+                    "当前阶段还缺少哪些材料？",
+                  ],
+                },
+              ])
+            } catch (err) {
+              console.error("[docx] error generating docx:", err)
+              setIsChatThinking(false)
+              setChatThinkingSteps([])
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: "抱歉，文档生成过程中出现了问题，请稍后重试。",
+                  suggestedQuestions: ["帮我重新生成项目进展汇报文档", "帮我总结一下当前的项目进展情况"],
+                },
+              ])
+            }
+          }, 400)
+        }
+      }, 700)
+      return
+    }
+
+    // First or subsequent messages → regular AI response
+    const steps = getThinkingStepsForMessage(content.toLowerCase())
+    setChatThinkingSteps(steps)
+
+    let currentStep = 0
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setChatThinkingSteps((prev) =>
+          prev.map((step, idx) => ({
+            ...step,
+            status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+          }))
+        )
+        currentStep++
+      } else {
+        clearInterval(interval)
+        setChatThinkingSteps((prev) => prev.map((s) => ({ ...s, status: "completed" })))
+        setTimeout(() => {
+          setIsChatThinking(false)
+          setChatThinkingSteps([])
+          const { content: responseContent, suggestedQuestions } = generateAiChatResponse(content)
+          setChatMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: responseContent, suggestedQuestions },
+          ])
+        }, 400)
       }
-      setChatMessages((prev) => [...prev, aiResponse])
-    }, 1000)
+    }, 700)
   }
 
   const currentPhase = projectPhases.find((p) => p.id === selectedPhase)
@@ -2904,6 +3388,380 @@ export function Workflow({
             </div>
           </DialogContent>
         </Dialog>
+      </div>
+    )
+  }
+
+  // Show full page AI research view
+  if (fullPageView === "ai-research-generation") {
+    return (
+      <div className="flex h-full flex-col bg-[#F9FAFB]">
+        {/* Header */}
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-8 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleCloseFullPageView}
+                className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                返回工作流
+              </button>
+              <div className="h-6 w-px bg-[#E5E7EB]" />
+              <div>
+                <h1 className="text-xl font-bold text-[#111827]">AI调研材料</h1>
+                <p className="text-sm text-[#6B7280]">{currentPhase?.fullLabel || "设立期 - 阶段1"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-4xl">
+            {!isAiResearchGenerating && !aiResearchGenerationComplete && (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-violet-100 to-violet-50 ring-8 ring-violet-50/50">
+                  <Brain className="h-10 w-10 text-violet-600" />
+                </div>
+                <h2 className="text-xl font-semibold text-[#111827] mb-2">AI自动调研材料生成</h2>
+                <p className="text-sm text-[#6B7280] text-center max-w-md mb-8">
+                  AI将自动检索行业报告、竞争格局、工商信息等公开数据，为您生成结构化的调研材料。生成完成后，点击"上传该材料"即可直接上传至项目材料库。
+                </p>
+                <button
+                  onClick={handleStartAiResearchGeneration}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all hover:from-violet-600 hover:to-purple-600 hover:shadow-xl"
+                >
+                  <Brain className="h-5 w-5" />
+                  开始调研
+                </button>
+              </div>
+            )}
+
+            {isAiResearchGenerating && (
+              <div className="py-12">
+                <div className="mb-8 text-center">
+                  <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-violet-50 px-4 py-2 text-sm text-violet-700">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-violet-500" />
+                    AI正在自动调研中...
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
+                  <div className="space-y-4">
+                    {aiResearchThinkingSteps.map((step) => (
+                      <div key={step.id} className="flex items-center gap-4">
+                        <div className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300",
+                          step.status === "completed" ? "bg-violet-100" :
+                          step.status === "active" ? "bg-violet-500" : "bg-[#F3F4F6]"
+                        )}>
+                          {step.status === "completed" ? (
+                            <Check className="h-4 w-4 text-violet-600" />
+                          ) : step.status === "active" ? (
+                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          ) : (
+                            <div className="h-2 w-2 rounded-full bg-[#D1D5DB]" />
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-sm transition-colors",
+                          step.status === "completed" ? "text-violet-600" :
+                          step.status === "active" ? "text-[#111827] font-medium" : "text-[#9CA3AF]"
+                        )}>
+                          {step.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {aiResearchGenerationComplete && generatedAiResearchGroups.length > 0 && (
+              <div className="space-y-6">
+                <div className="text-center mb-8">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-4 py-2 text-sm text-violet-700 mb-4">
+                    <Check className="h-4 w-4" />
+                    已调研生成 {generatedAiResearchGroups.reduce((acc, g) => acc + g.materials.length, 0)} 份材料
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {generatedAiResearchGroups.map((group, idx) => (
+                    <div
+                      key={group.id}
+                      className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm transition-all hover:shadow-md"
+                    >
+                      <div className="flex items-start gap-4 mb-4">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-sm font-semibold text-violet-700">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-base font-semibold text-[#111827] mb-2">{group.title}</h3>
+                          <p className="text-sm text-[#6B7280] leading-relaxed">{group.content}</p>
+                        </div>
+                      </div>
+
+                      {/* Materials List */}
+                      <div className="ml-12 pt-4 border-t border-[#F3F4F6]">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Brain className="h-4 w-4 text-violet-500" />
+                          <span className="text-sm font-medium text-[#374151]">AI调研材料 ({group.materials.length})</span>
+                        </div>
+                        <div className="space-y-2">
+                          {group.materials.map((material) => {
+                            const isUploaded = uploadedAiResearchMaterialIds.has(material.id)
+                            return (
+                              <div
+                                key={material.id}
+                                className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3"
+                              >
+                                <div className="flex items-center justify-between gap-4 mb-2">
+                                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    <Badge className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] shrink-0">
+                                      {material.category}
+                                    </Badge>
+                                    <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] shrink-0">
+                                      {material.format}
+                                    </Badge>
+                                    <span className="text-sm font-medium text-[#374151] truncate">{material.name}</span>
+                                  </div>
+                                  {isUploaded ? (
+                                    <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] shrink-0">
+                                      <Check className="h-3 w-3" />
+                                      已上传
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleUploadAiResearchMaterial(material)}
+                                      className="inline-flex items-center gap-1.5 rounded-md bg-violet-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-600 shrink-0"
+                                    >
+                                      <Upload className="h-3 w-3" />
+                                      上传该材料
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="flex items-start gap-1.5 mt-1">
+                                  <span className="text-xs text-[#9CA3AF] shrink-0">来源:</span>
+                                  <span className="text-xs text-[#6B7280]">{material.source}</span>
+                                </div>
+                                <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">{material.description}</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-center gap-4 pt-6">
+                  <button
+                    onClick={handleStartAiResearchGeneration}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+                  >
+                    <Brain className="h-4 w-4" />
+                    重新调研
+                  </button>
+                  <button
+                    onClick={handleCloseFullPageView}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Check className="h-4 w-4" />
+                    完成并返回
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show full page AI chat view
+  if (fullPageView === "ai-chat") {
+    return (
+      <div className="flex h-full flex-col bg-[#F9FAFB]">
+        {/* Header */}
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-8 py-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleCloseFullPageView}
+              className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+            >
+              <ArrowRight className="h-4 w-4 rotate-180" />
+              返回工作流
+            </button>
+            <div className="h-6 w-px bg-[#E5E7EB]" />
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-sm">
+                <Bot className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-[#111827]">AI 智能问答</h1>
+                <div className="flex items-center gap-1.5">
+                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <p className="text-xs text-[#6B7280]">{currentPhase?.fullLabel || "工作流助手"}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Chat Area */}
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto max-w-3xl space-y-6">
+            {/* Messages */}
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={cn("flex flex-col gap-2", msg.role === "user" ? "items-end" : "items-start")}>
+                <div className={cn("flex gap-3", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
+                  {/* Avatar */}
+                  {msg.role === "assistant" && (
+                    <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-sm mt-0.5">
+                      <Bot className="h-4 w-4 text-white" />
+                    </div>
+                  )}
+                  {msg.role === "user" && (
+                    <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-xl bg-[#2563EB] mt-0.5">
+                      <User className="h-4 w-4 text-white" />
+                    </div>
+                  )}
+                  {/* Bubble */}
+                  <div className={cn(
+                    "max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                    msg.role === "user"
+                      ? "bg-[#2563EB] text-white rounded-tr-sm"
+                      : "bg-white border border-[#E5E7EB] text-[#374151] shadow-sm rounded-tl-sm"
+                  )}>
+                    {msg.content.split("\n").map((line, j) => {
+                      // Bold **text**
+                      const parts = line.split(/(\*\*[^*]+\*\*)/g)
+                      return (
+                        <p key={j} className={j > 0 ? "mt-1" : ""}>
+                          {parts.map((part, k) =>
+                            part.startsWith("**") && part.endsWith("**")
+                              ? <strong key={k}>{part.slice(2, -2)}</strong>
+                              : <span key={k}>{part}</span>
+                          )}
+                        </p>
+                      )
+                    })}
+                    {/* Download button */}
+                    {msg.downloadFile && (
+                      <a
+                        href={msg.downloadFile.url}
+                        download={msg.downloadFile.name}
+                        className="mt-3 flex items-center gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100 w-fit"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        {msg.downloadFile.name}
+                      </a>
+                    )}
+                  </div>
+                </div>
+                {/* Suggested follow-up questions */}
+                {msg.role === "assistant" && msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && i === chatMessages.length - 1 && !isChatThinking && (
+                  <div className="pl-11 flex flex-col gap-1.5 w-full max-w-[calc(78%+2.75rem)]">
+                    <p className="text-xs text-[#9CA3AF]">💡 您可以继续问：</p>
+                    {msg.suggestedQuestions.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => handleSendChat(q)}
+                        disabled={isChatThinking}
+                        className="self-start rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-50 text-left"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Thinking animation — step-by-step deep thinking */}
+            {isChatThinking && (
+              <div className="flex gap-3">
+                <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-sm mt-0.5">
+                  <Bot className="h-4 w-4 text-white" />
+                </div>
+                <div className="bg-white border border-[#E5E7EB] rounded-2xl rounded-tl-sm px-4 py-4 shadow-sm min-w-[260px]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
+                      <div className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-bounce [animation-delay:150ms]" />
+                      <div className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-bounce [animation-delay:300ms]" />
+                    </div>
+                    <span className="text-xs font-medium text-violet-600">AI 深度思考中</span>
+                  </div>
+                  <div className="space-y-2">
+                    {chatThinkingSteps.map((step) => (
+                      <div key={step.id} className="flex items-center gap-2.5">
+                        <div className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-all duration-300",
+                          step.status === "completed" ? "bg-violet-100" :
+                          step.status === "active" ? "bg-violet-500" : "bg-[#F3F4F6]"
+                        )}>
+                          {step.status === "completed" ? (
+                            <Check className="h-3 w-3 text-violet-600" />
+                          ) : step.status === "active" ? (
+                            <div className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          ) : (
+                            <div className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" />
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-xs transition-colors",
+                          step.status === "completed" ? "text-violet-600" :
+                          step.status === "active" ? "text-[#111827] font-medium" : "text-[#C4C9D4]"
+                        )}>
+                          {step.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+            <div ref={chatEndRef} />
+          </div>
+        </div>
+
+        {/* Input Bar */}
+        <div className="shrink-0 border-t border-[#E5E7EB] bg-white px-6 py-4">
+          <div className="mx-auto max-w-3xl">
+            <div className="flex items-end gap-3 rounded-2xl border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100 transition-all">
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSendChat()
+                  }
+                }}
+                placeholder="输入您的问题，按 Enter 发送，Shift+Enter 换行..."
+                className="flex-1 resize-none bg-transparent text-sm text-[#374151] placeholder:text-[#9CA3AF] focus:outline-none min-h-[24px] max-h-[120px]"
+                rows={1}
+                disabled={isChatThinking}
+              />
+              <button
+                onClick={() => handleSendChat()}
+                disabled={!chatInput.trim() || isChatThinking}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm transition-all hover:from-violet-600 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <p className="mt-2 text-center text-xs text-[#9CA3AF]">AI 回复基于当前阶段项目数据生成，仅供参考</p>
+          </div>
+        </div>
       </div>
     )
   }

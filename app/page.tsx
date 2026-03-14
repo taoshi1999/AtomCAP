@@ -9,7 +9,7 @@ import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
 import { Login } from "@/components/pages/login"
-import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion } from "@/components/pages/workflow"
+import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup } from "@/components/pages/workflow"
 import { type HypothesisTableItem, type HypothesisDetail, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
 import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
@@ -55,6 +55,7 @@ export default function Page() {
   const [savedProjectTermSuggestions, setSavedProjectTermSuggestions] = useState<Record<string, GeneratedTermSuggestion[]>>({})
   const [pendingProjectMaterials, setPendingProjectMaterials] = useState<PendingProjectMaterial[]>([])
   const [savedProjectMaterialSuggestions, setSavedProjectMaterialSuggestions] = useState<Record<string, GeneratedMaterialSuggestion[]>>({})
+  const [savedProjectAiResearchGroups, setSavedProjectAiResearchGroups] = useState<Record<string, GeneratedAiResearchGroup[]>>({})
   // Strategy AI recommendation generated flags - keyed by strategyId, persists for the session
   const [strategyRecommendations, setStrategyRecommendations] = useState<
     Record<string, { hypothesesGenerated: boolean; termsGenerated: boolean; materialsGenerated: boolean }>
@@ -475,6 +476,13 @@ export default function Page() {
     }))
   }
 
+  function handleSaveProjectAiResearchGroups(projectId: string, groups: GeneratedAiResearchGroup[]) {
+    setSavedProjectAiResearchGroups((prev) => ({
+      ...prev,
+      [projectId]: groups,
+    }))
+  }
+
   function handleCreatePendingProjectMaterial(pending: PendingProjectMaterial) {
     setPendingProjectMaterials((prev) => [pending, ...prev])
     setView({ type: "change-requests" })
@@ -688,6 +696,8 @@ export default function Page() {
   onCreatePendingProjectMaterial={handleCreatePendingProjectMaterial}
   savedGeneratedMaterialSuggestions={savedProjectMaterialSuggestions[view.projectId]}
   onSaveMaterialSuggestions={(suggestions) => handleSaveProjectMaterialSuggestions(view.projectId, suggestions)}
+  savedGeneratedAiResearchGroups={savedProjectAiResearchGroups[view.projectId]}
+  onSaveAiResearchGroups={(groups) => handleSaveProjectAiResearchGroups(view.projectId, groups)}
   />
         )}
         {view.type === "strategy-detail" && (

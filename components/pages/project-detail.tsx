@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import { HypothesisChecklist, type HypothesisTableItem, type HypothesisDetail } from "@/components/pages/hypothesis-checklist"
 import { ProjectOverview } from "@/components/pages/project-overview"
 import { TermSheet, type TermTableItem, type TermDetail } from "@/components/pages/term-sheet"
-import { Workflow, type Phase, type PendingPhase, type PendingProjectHypothesis, type PendingProjectTerm, type GeneratedSuggestion, type GeneratedTermSuggestion, type PendingProjectMaterial, type GeneratedMaterialSuggestion } from "@/components/pages/workflow"
+import { Workflow, type Phase, type PendingPhase, type PendingProjectHypothesis, type PendingProjectTerm, type GeneratedSuggestion, type GeneratedTermSuggestion, type PendingProjectMaterial, type GeneratedMaterialSuggestion, type GeneratedAiResearchGroup } from "@/components/pages/workflow"
 import { ProjectMaterials } from "@/components/pages/project-materials"
 import { type Project } from "@/components/pages/projects-grid"
 import { type StrategyMaterial } from "@/components/pages/strategies-grid"
@@ -68,9 +68,11 @@ interface ProjectDetailProps {
   onCreatePendingProjectMaterial?: (pending: PendingProjectMaterial) => void
   savedGeneratedMaterialSuggestions?: GeneratedMaterialSuggestion[]
   onSaveMaterialSuggestions?: (suggestions: GeneratedMaterialSuggestion[]) => void
+  savedGeneratedAiResearchGroups?: GeneratedAiResearchGroup[]
+  onSaveAiResearchGroups?: (groups: GeneratedAiResearchGroup[]) => void
 }
 
-export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions, savedGeneratedTermSuggestions, onSaveTermSuggestions, onCreatePendingProjectTerm, projectTermDetails, onCreatePendingProjectMaterial, savedGeneratedMaterialSuggestions, onSaveMaterialSuggestions }: ProjectDetailProps) {
+export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions, savedGeneratedTermSuggestions, onSaveTermSuggestions, onCreatePendingProjectTerm, projectTermDetails, onCreatePendingProjectMaterial, savedGeneratedMaterialSuggestions, onSaveMaterialSuggestions, savedGeneratedAiResearchGroups, onSaveAiResearchGroups }: ProjectDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
   const isNewProject = projectId.startsWith("new-project-")
@@ -171,6 +173,8 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
             savedGeneratedMaterialSuggestions={savedGeneratedMaterialSuggestions}
             onSaveMaterialSuggestions={onSaveMaterialSuggestions}
             onCreatePendingProjectMaterial={onCreatePendingProjectMaterial}
+            savedGeneratedAiResearchGroups={savedGeneratedAiResearchGroups}
+            onSaveAiResearchGroups={onSaveAiResearchGroups}
           />
         ) : activeSubPage === "hypotheses" ? (
           <HypothesisChecklist
