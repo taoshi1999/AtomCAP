@@ -146,6 +146,22 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Template helper                                                    */
+/* ------------------------------------------------------------------ */
+/** 返回赛道策略的假设模板数据，供创建项目时继承 */
+export function getTrackStrategyHypothesisTemplate(): Array<{
+  id: string
+  direction: string
+  category: string
+  name: string
+  owner: string
+  createdAt: string
+  updatedAt: string
+}> {
+  return hypothesisTableData
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 interface HypothesisPrefillData {

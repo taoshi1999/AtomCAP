@@ -166,6 +166,22 @@ const termDetails: Record<string, TermDetail> = {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Template helper                                                    */
+/* ------------------------------------------------------------------ */
+/** 返回赛道策略的条款模板数据，供创建项目时继承 */
+export function getTrackStrategyTermTemplate(): Array<{
+  id: string
+  direction: string
+  category: string
+  name: string
+  owner: string
+  createdAt: string
+  updatedAt: string
+}> {
+  return termTableData
+}
+
+/* ------------------------------------------------------------------ */
 /*  Component props                                                    */
 /* ------------------------------------------------------------------ */
 interface StrategyTermsProps {

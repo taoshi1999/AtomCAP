@@ -13,6 +13,8 @@ import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFo
 import { type HypothesisTableItem, type HypothesisDetail, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
 import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
+import { getTrackStrategyHypothesisTemplate } from "@/components/pages/strategy-hypotheses"
+import { getTrackStrategyTermTemplate } from "@/components/pages/strategy-terms"
 
 type ViewState =
   | { type: "login" }
@@ -138,8 +140,32 @@ export default function Page() {
       // Inherit hypotheses from strategy template (all set to "待验证")
       const sid = pending.project.strategyId || ""
       const today = new Date().toISOString().split("T")[0]
-      const templateHypotheses = getTemplateHypothesesForStrategy(sid)
-      const userHypotheses: HypothesisTableItem[] = (strategyHypotheses[sid] || []).map((h, i) => ({
+
+      // Detect if strategy is a track strategy (赛道策略) to determine template data source
+      const strategy = strategies.find((s) => s.id === sid)
+      const isTrackStrategy = strategy?.type === "赛道策略"
+
+      // For track strategies, use the strategy view template data (hypotheses shown in strategy view)
+      // For strategy "1" or other theme strategies, use the existing template helper
+      const templateHypotheses: HypothesisTableItem[] = isTrackStrategy
+        ? getTrackStrategyHypothesisTemplate().map((h) => ({
+            id: `strategy-tmpl-${h.id}`,
+            direction: h.direction,
+            category: h.category,
+            name: h.name,
+            owner: h.owner,
+            createdAt: h.createdAt,
+            updatedAt: today,
+            status: "pending" as const,
+          }))
+        : getTemplateHypothesesForStrategy(sid)
+
+      // Include both approved strategy hypotheses and pending ones (not yet approved)
+      const pendingStrategyHypotheses = pendingHypotheses
+        .filter((p) => p.hypothesis.strategyId === sid)
+        .map((p) => p.hypothesis)
+      const allStrategyHypotheses = [...(strategyHypotheses[sid] || []), ...pendingStrategyHypotheses]
+      const userHypotheses: HypothesisTableItem[] = allStrategyHypotheses.map((h, i) => ({
         id: `proj-h-${Date.now()}-${i}`,
         direction: h.direction,
         category: h.category,
@@ -155,8 +181,26 @@ export default function Page() {
       }))
 
       // Inherit terms from strategy template (all set to "待审批")
-      const templateTerms = getTemplateTermsForStrategy(sid)
-      const userTerms: TermTableItem[] = (strategyTerms[sid] || []).map((t, i) => ({
+      // For track strategies, use the strategy view term data; otherwise use existing helper
+      const templateTerms: TermTableItem[] = isTrackStrategy
+        ? getTrackStrategyTermTemplate().map((t) => ({
+            id: `strategy-tmpl-${t.id}`,
+            direction: t.direction,
+            category: t.category,
+            name: t.name,
+            owner: t.owner,
+            createdAt: t.createdAt,
+            updatedAt: today,
+            status: "pending" as const,
+          }))
+        : getTemplateTermsForStrategy(sid)
+
+      // Include both approved strategy terms and pending ones (not yet approved)
+      const pendingStrategyTerms = pendingTerms
+        .filter((p) => p.term.strategyId === sid)
+        .map((p) => p.term)
+      const allStrategyTerms = [...(strategyTerms[sid] || []), ...pendingStrategyTerms]
+      const userTerms: TermTableItem[] = allStrategyTerms.map((t, i) => ({
         id: `proj-t-${Date.now()}-${i}`,
         direction: t.direction,
         category: t.category,
@@ -171,8 +215,12 @@ export default function Page() {
         [newProjectId]: [...templateTerms, ...userTerms],
       }))
 
-      // Inherit materials: template mock materials + user-approved strategy materials + files uploaded during project creation
-      const templateMaterials: StrategyMaterial[] = getTemplateMaterialsForStrategy(sid).map((m) => ({
+      // Inherit materials: template mock materials + user-approved strategy materials + pending strategy materials + files uploaded during project creation
+      // For track strategies that have no specific material template, fall back to strategy "1" materials library
+      const rawMaterialTemplate = isTrackStrategy && getTemplateMaterialsForStrategy(sid).length === 0
+        ? getTemplateMaterialsForStrategy("1")
+        : getTemplateMaterialsForStrategy(sid)
+      const templateMaterials: StrategyMaterial[] = rawMaterialTemplate.map((m) => ({
         ...m,
         strategyId: sid,
         category: "",
@@ -190,9 +238,26 @@ export default function Page() {
         owner: "张伟",
         createdAt: today,
       }))
+      // Include both approved strategy materials and pending ones (not yet approved)
+      const pendingStrategyMaterialFiles: StrategyMaterial[] = pendingMaterials
+        .filter((p) => p.strategyId === sid)
+        .flatMap((p, pi) =>
+          p.files.map((f, fi) => ({
+            id: `pending-mat-${pi}-${fi}-${Date.now()}`,
+            strategyId: sid,
+            name: f.name,
+            format: f.format,
+            size: f.size,
+            description: p.description,
+            category: p.category,
+            owner: "张伟",
+            createdAt: today,
+          }))
+        )
       const inheritedMaterials: StrategyMaterial[] = [
         ...uploadedAtCreation,
         ...(strategyMaterials[sid] || []),
+        ...pendingStrategyMaterialFiles,
         ...templateMaterials,
       ]
       setProjectMaterialsMap((prev) => ({
