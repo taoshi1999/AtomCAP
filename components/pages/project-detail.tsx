@@ -11,10 +11,10 @@ import {
   PanelLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { HypothesisChecklist, type HypothesisTableItem, type HypothesisDetail } from "@/components/pages/hypothesis-checklist"
+import { HypothesisChecklist, type HypothesisTableItem, type HypothesisDetail, type ValuePoint, type RiskPoint } from "@/components/pages/hypothesis-checklist"
 import { ProjectOverview } from "@/components/pages/project-overview"
 import { TermSheet, type TermTableItem, type TermDetail } from "@/components/pages/term-sheet"
-import { Workflow, type Phase, type PendingPhase, type PendingProjectHypothesis, type PendingProjectTerm, type GeneratedSuggestion, type GeneratedTermSuggestion, type PendingProjectMaterial, type GeneratedMaterialSuggestion, type GeneratedAiResearchGroup } from "@/components/pages/workflow"
+import { Workflow, type Phase, type PendingPhase, type PendingProjectHypothesis, type PendingProjectTerm, type GeneratedSuggestion, type GeneratedTermSuggestion, type PendingProjectMaterial, type GeneratedMaterialSuggestion, type GeneratedAiResearchGroup, type CommitteeDecisionFormData } from "@/components/pages/workflow"
 import { ProjectMaterials } from "@/components/pages/project-materials"
 import { type Project } from "@/components/pages/projects-grid"
 import { type StrategyMaterial } from "@/components/pages/strategies-grid"
@@ -70,9 +70,12 @@ interface ProjectDetailProps {
   onSaveMaterialSuggestions?: (suggestions: GeneratedMaterialSuggestion[]) => void
   savedGeneratedAiResearchGroups?: GeneratedAiResearchGroup[]
   onSaveAiResearchGroups?: (groups: GeneratedAiResearchGroup[]) => void
+  onAddValuePoint?: (hypothesisId: string, vp: ValuePoint) => void
+  onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
+  onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
 }
 
-export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions, savedGeneratedTermSuggestions, onSaveTermSuggestions, onCreatePendingProjectTerm, projectTermDetails, onCreatePendingProjectMaterial, savedGeneratedMaterialSuggestions, onSaveMaterialSuggestions, savedGeneratedAiResearchGroups, onSaveAiResearchGroups }: ProjectDetailProps) {
+export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions, savedGeneratedTermSuggestions, onSaveTermSuggestions, onCreatePendingProjectTerm, projectTermDetails, onCreatePendingProjectMaterial, savedGeneratedMaterialSuggestions, onSaveMaterialSuggestions, savedGeneratedAiResearchGroups, onSaveAiResearchGroups, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision }: ProjectDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
   const isNewProject = projectId.startsWith("new-project-")
@@ -182,6 +185,9 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
             project={project}
             inheritedHypotheses={projectHypotheses}
             extraDetails={projectHypothesisDetails}
+            onAddValuePoint={onAddValuePoint}
+            onAddRiskPoint={onAddRiskPoint}
+            onCreateCommitteeDecision={onCreateCommitteeDecision}
           />
         ) : activeSubPage === "terms" ? (
           <TermSheet

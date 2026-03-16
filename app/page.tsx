@@ -9,10 +9,12 @@ import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
 import { Login } from "@/components/pages/login"
-import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup } from "@/components/pages/workflow"
-import { type HypothesisTableItem, type HypothesisDetail, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
+import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData } from "@/components/pages/workflow"
+import { type HypothesisTableItem, type HypothesisDetail, type ValuePoint, type RiskPoint, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
 import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
+import { getTrackStrategyHypothesisTemplate } from "@/components/pages/strategy-hypotheses"
+import { getTrackStrategyTermTemplate } from "@/components/pages/strategy-terms"
 
 type ViewState =
   | { type: "login" }
@@ -48,6 +50,7 @@ export default function Page() {
   const [projectMaterialsMap, setProjectMaterialsMap] = useState<Record<string, StrategyMaterial[]>>({})
   // Pending project-level hypotheses
   const [pendingProjectHypotheses, setPendingProjectHypotheses] = useState<PendingProjectHypothesis[]>([])
+  const [pendingCommitteeDecisions, setPendingCommitteeDecisions] = useState<PendingCommitteeDecision[]>([])
   const [pendingProjectTerms, setPendingProjectTerms] = useState<PendingProjectTerm[]>([])
   const [projectTermDetails, setProjectTermDetails] = useState<Record<string, Record<string, TermDetail>>>({})
   // Saved generated hypothesis suggestions per project - keyed by projectId, persists for the session
@@ -138,8 +141,32 @@ export default function Page() {
       // Inherit hypotheses from strategy template (all set to "待验证")
       const sid = pending.project.strategyId || ""
       const today = new Date().toISOString().split("T")[0]
-      const templateHypotheses = getTemplateHypothesesForStrategy(sid)
-      const userHypotheses: HypothesisTableItem[] = (strategyHypotheses[sid] || []).map((h, i) => ({
+
+      // Detect if strategy is a track strategy (赛道策略) to determine template data source
+      const strategy = strategies.find((s) => s.id === sid)
+      const isTrackStrategy = strategy?.type === "赛道策略"
+
+      // For track strategies, use the strategy view template data (hypotheses shown in strategy view)
+      // For strategy "1" or other theme strategies, use the existing template helper
+      const templateHypotheses: HypothesisTableItem[] = isTrackStrategy
+        ? getTrackStrategyHypothesisTemplate().map((h) => ({
+            id: `strategy-tmpl-${h.id}`,
+            direction: h.direction,
+            category: h.category,
+            name: h.name,
+            owner: h.owner,
+            createdAt: h.createdAt,
+            updatedAt: today,
+            status: "pending" as const,
+          }))
+        : getTemplateHypothesesForStrategy(sid)
+
+      // Include both approved strategy hypotheses and pending ones (not yet approved)
+      const pendingStrategyHypotheses = pendingHypotheses
+        .filter((p) => p.hypothesis.strategyId === sid)
+        .map((p) => p.hypothesis)
+      const allStrategyHypotheses = [...(strategyHypotheses[sid] || []), ...pendingStrategyHypotheses]
+      const userHypotheses: HypothesisTableItem[] = allStrategyHypotheses.map((h, i) => ({
         id: `proj-h-${Date.now()}-${i}`,
         direction: h.direction,
         category: h.category,
@@ -155,8 +182,26 @@ export default function Page() {
       }))
 
       // Inherit terms from strategy template (all set to "待审批")
-      const templateTerms = getTemplateTermsForStrategy(sid)
-      const userTerms: TermTableItem[] = (strategyTerms[sid] || []).map((t, i) => ({
+      // For track strategies, use the strategy view term data; otherwise use existing helper
+      const templateTerms: TermTableItem[] = isTrackStrategy
+        ? getTrackStrategyTermTemplate().map((t) => ({
+            id: `strategy-tmpl-${t.id}`,
+            direction: t.direction,
+            category: t.category,
+            name: t.name,
+            owner: t.owner,
+            createdAt: t.createdAt,
+            updatedAt: today,
+            status: "pending" as const,
+          }))
+        : getTemplateTermsForStrategy(sid)
+
+      // Include both approved strategy terms and pending ones (not yet approved)
+      const pendingStrategyTerms = pendingTerms
+        .filter((p) => p.term.strategyId === sid)
+        .map((p) => p.term)
+      const allStrategyTerms = [...(strategyTerms[sid] || []), ...pendingStrategyTerms]
+      const userTerms: TermTableItem[] = allStrategyTerms.map((t, i) => ({
         id: `proj-t-${Date.now()}-${i}`,
         direction: t.direction,
         category: t.category,
@@ -171,8 +216,12 @@ export default function Page() {
         [newProjectId]: [...templateTerms, ...userTerms],
       }))
 
-      // Inherit materials: template mock materials + user-approved strategy materials + files uploaded during project creation
-      const templateMaterials: StrategyMaterial[] = getTemplateMaterialsForStrategy(sid).map((m) => ({
+      // Inherit materials: template mock materials + user-approved strategy materials + pending strategy materials + files uploaded during project creation
+      // For track strategies that have no specific material template, fall back to strategy "1" materials library
+      const rawMaterialTemplate = isTrackStrategy && getTemplateMaterialsForStrategy(sid).length === 0
+        ? getTemplateMaterialsForStrategy("1")
+        : getTemplateMaterialsForStrategy(sid)
+      const templateMaterials: StrategyMaterial[] = rawMaterialTemplate.map((m) => ({
         ...m,
         strategyId: sid,
         category: "",
@@ -190,9 +239,26 @@ export default function Page() {
         owner: "张伟",
         createdAt: today,
       }))
+      // Include both approved strategy materials and pending ones (not yet approved)
+      const pendingStrategyMaterialFiles: StrategyMaterial[] = pendingMaterials
+        .filter((p) => p.strategyId === sid)
+        .flatMap((p, pi) =>
+          p.files.map((f, fi) => ({
+            id: `pending-mat-${pi}-${fi}-${Date.now()}`,
+            strategyId: sid,
+            name: f.name,
+            format: f.format,
+            size: f.size,
+            description: p.description,
+            category: p.category,
+            owner: "张伟",
+            createdAt: today,
+          }))
+        )
       const inheritedMaterials: StrategyMaterial[] = [
         ...uploadedAtCreation,
         ...(strategyMaterials[sid] || []),
+        ...pendingStrategyMaterialFiles,
         ...templateMaterials,
       ]
       setProjectMaterialsMap((prev) => ({
@@ -218,10 +284,28 @@ export default function Page() {
       const { projectId, phase, changeType } = pending
       const currentPhases = projectPhases[projectId] || []
       
+      // Snapshot current project counts so completed phase cards display accurate numbers
+      const snapshotHypothesesCount =
+        (projectHypotheses[projectId]?.length ?? 0) +
+        pendingProjectHypotheses.filter((h) => h.projectId === projectId).length
+      const snapshotTermsCount =
+        (projectTerms[projectId]?.length ?? 0) +
+        pendingProjectTerms.filter((t) => t.projectId === projectId).length
+      const snapshotMaterialsCount =
+        (projectMaterialsMap[projectId]?.length ?? 0) +
+        pendingProjectMaterials.filter((m) => m.projectId === projectId).length
+
       // Mark previous active phase as completed if exists
       const updatedPhases = currentPhases.map((p) =>
-        p.status === "active" 
-          ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } 
+        p.status === "active"
+          ? {
+              ...p,
+              status: "completed" as const,
+              endDate: new Date().toISOString().split("T")[0],
+              hypothesesCount: snapshotHypothesesCount,
+              termsCount: snapshotTermsCount,
+              materialsCount: snapshotMaterialsCount,
+            }
           : p
       )
       
@@ -373,6 +457,141 @@ export default function Page() {
 
   function handleRejectProjectHypothesis(id: string) {
     setPendingProjectHypotheses(pendingProjectHypotheses.filter((p) => p.id !== id))
+  }
+
+  // Value/risk point direct addition handlers
+  function handleAddValuePoint(projectId: string, hypothesisId: string, vp: ValuePoint) {
+    setProjectHypothesisDetails((prev) => {
+      const projectDetails = prev[projectId] || {}
+      const existingDetail = projectDetails[hypothesisId]
+      if (!existingDetail) return prev
+      return {
+        ...prev,
+        [projectId]: {
+          ...projectDetails,
+          [hypothesisId]: {
+            ...existingDetail,
+            valuePoints: [...existingDetail.valuePoints, vp],
+          },
+        },
+      }
+    })
+  }
+
+  function handleAddRiskPoint(projectId: string, hypothesisId: string, rp: RiskPoint) {
+    setProjectHypothesisDetails((prev) => {
+      const projectDetails = prev[projectId] || {}
+      const existingDetail = projectDetails[hypothesisId]
+      if (!existingDetail) return prev
+      return {
+        ...prev,
+        [projectId]: {
+          ...projectDetails,
+          [hypothesisId]: {
+            ...existingDetail,
+            riskPoints: [...existingDetail.riskPoints, rp],
+          },
+        },
+      }
+    })
+  }
+
+  // Committee decision change request handlers
+  function handleCreateCommitteeDecision(projectId: string, hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) {
+    const today = new Date().toISOString().split("T")[0]
+    const project = projects.find((p) => p.id === projectId)
+    const pending: PendingCommitteeDecision = {
+      id: `cd-${Date.now()}`,
+      projectId,
+      projectName: project?.name || "",
+      hypothesisId,
+      hypothesisName,
+      decision: data,
+      changeId: `CD-${Date.now()}`,
+      changeName: `更新假设审议结果: ${hypothesisName}`,
+      changeType: "committee-decision",
+      initiator: { id: "zhangwei", name: "张伟", initials: "ZW" },
+      initiatedAt: today,
+      reviewers: [
+        { id: "wangzong", name: "王总", initials: "WZ" },
+        { id: "chenzong", name: "陈总", initials: "CZ" },
+      ],
+    }
+    setPendingCommitteeDecisions((prev) => [pending, ...prev])
+    setView({ type: "change-requests" })
+  }
+
+  function handleApproveCommitteeDecision(id: string) {
+    const pending = pendingCommitteeDecisions.find((p) => p.id === id)
+    if (pending) {
+      const { projectId, hypothesisId, decision } = pending
+      const today = new Date().toISOString().split("T")[0]
+      // Update the committeeDecision and status in projectHypothesisDetails
+      setProjectHypothesisDetails((prev) => {
+        const projectDetails = prev[projectId] || {}
+        const existingDetail = projectDetails[hypothesisId]
+        const hypothesis = (projectHypotheses[projectId] || []).find((h) => h.id === hypothesisId)
+        const newStatus = decision.conclusion === "假设成立" ? "verified" as const : "risky" as const
+        const newDecision = {
+          conclusion: decision.conclusion,
+          status: decision.conclusion === "假设成立" ? "approved" as const : "rejected" as const,
+          content: decision.content,
+          creator: { name: "张伟", role: "投资经理" },
+          reviewers: decision.reviewers,
+          createdAt: today,
+          comments: [] as { author: string; content: string; time: string }[],
+        }
+        const updatedDetail: HypothesisDetail = existingDetail
+          ? { ...existingDetail, status: newStatus, committeeDecision: newDecision }
+          : {
+              id: hypothesisId,
+              title: hypothesis?.name || "",
+              qaId: `QA-${Date.now()}`,
+              createdAt: hypothesis?.createdAt || today,
+              updatedAt: today,
+              status: newStatus,
+              creator: { name: "张伟", role: "投资经理" },
+              valuePoints: [],
+              riskPoints: [],
+              committeeDecision: newDecision,
+              verification: {
+                conclusion: "",
+                status: "pending" as const,
+                content: "",
+                creator: { name: "张伟", role: "投资经理" },
+                reviewers: [],
+                createdAt: "",
+                comments: [],
+              },
+              linkedTerms: [],
+            }
+        return {
+          ...prev,
+          [projectId]: {
+            ...projectDetails,
+            [hypothesisId]: updatedDetail,
+          },
+        }
+      })
+      // Update hypothesis status in projectHypotheses
+      setProjectHypotheses((prev) => {
+        const hypotheses = prev[projectId] || []
+        return {
+          ...prev,
+          [projectId]: hypotheses.map((h) =>
+            h.id === hypothesisId
+              ? { ...h, status: decision.conclusion === "假设成立" ? "verified" as const : "risky" as const }
+              : h
+          ),
+        }
+      })
+      setPendingCommitteeDecisions((prev) => prev.filter((p) => p.id !== id))
+      setView({ type: "project-detail", projectId })
+    }
+  }
+
+  function handleRejectCommitteeDecision(id: string) {
+    setPendingCommitteeDecisions((prev) => prev.filter((p) => p.id !== id))
   }
 
   function handleCreatePendingProjectTerm(pending: PendingProjectTerm) {
@@ -651,6 +870,7 @@ export default function Page() {
   pendingPhases={pendingPhases}
   pendingHypotheses={pendingHypotheses}
   pendingProjectHypotheses={pendingProjectHypotheses}
+  pendingCommitteeDecisions={pendingCommitteeDecisions}
   pendingTerms={pendingTerms}
   pendingMaterials={pendingMaterials}
   onApproveStrategy={handleApproveStrategy}
@@ -663,6 +883,8 @@ export default function Page() {
   onRejectHypothesis={handleRejectHypothesis}
   onApproveProjectHypothesis={handleApproveProjectHypothesis}
   onRejectProjectHypothesis={handleRejectProjectHypothesis}
+  onApproveCommitteeDecision={handleApproveCommitteeDecision}
+  onRejectCommitteeDecision={handleRejectCommitteeDecision}
   onApproveTerm={handleApproveTerm}
   onRejectTerm={handleRejectTerm}
   pendingProjectTerms={pendingProjectTerms}
@@ -698,6 +920,9 @@ export default function Page() {
   onSaveMaterialSuggestions={(suggestions) => handleSaveProjectMaterialSuggestions(view.projectId, suggestions)}
   savedGeneratedAiResearchGroups={savedProjectAiResearchGroups[view.projectId]}
   onSaveAiResearchGroups={(groups) => handleSaveProjectAiResearchGroups(view.projectId, groups)}
+  onAddValuePoint={(hypothesisId, vp) => handleAddValuePoint(view.projectId, hypothesisId, vp)}
+  onAddRiskPoint={(hypothesisId, rp) => handleAddRiskPoint(view.projectId, hypothesisId, rp)}
+  onCreateCommitteeDecision={(hypothesisId, hypothesisName, data) => handleCreateCommitteeDecision(view.projectId, hypothesisId, hypothesisName, data)}
   />
         )}
         {view.type === "strategy-detail" && (

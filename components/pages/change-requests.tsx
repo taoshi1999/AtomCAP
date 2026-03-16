@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { PendingStrategy, PendingHypothesis, PendingTerm, PendingMaterial } from "./strategies-grid"
 import type { PendingProject } from "./projects-grid"
-import type { PendingPhase, PendingProjectHypothesis, PendingProjectTerm, PendingProjectMaterial } from "./workflow"
+import type { PendingPhase, PendingProjectHypothesis, PendingProjectTerm, PendingProjectMaterial, PendingCommitteeDecision } from "./workflow"
 
 type PendingRequest =
   | { type: "strategy"; data: PendingStrategy }
@@ -22,6 +22,7 @@ type PendingRequest =
   | { type: "phase"; data: PendingPhase }
   | { type: "hypothesis"; data: PendingHypothesis }
   | { type: "project-hypothesis"; data: PendingProjectHypothesis }
+  | { type: "committee-decision"; data: PendingCommitteeDecision }
   | { type: "term"; data: PendingTerm }
   | { type: "project-term"; data: PendingProjectTerm }
   | { type: "material"; data: PendingMaterial }
@@ -33,6 +34,7 @@ interface ChangeRequestsProps {
   pendingPhases: PendingPhase[]
   pendingHypotheses: PendingHypothesis[]
   pendingProjectHypotheses: PendingProjectHypothesis[]
+  pendingCommitteeDecisions: PendingCommitteeDecision[]
   pendingTerms: PendingTerm[]
   pendingProjectTerms: PendingProjectTerm[]
   pendingMaterials: PendingMaterial[]
@@ -47,6 +49,8 @@ interface ChangeRequestsProps {
   onRejectHypothesis: (id: string) => void
   onApproveProjectHypothesis: (id: string) => void
   onRejectProjectHypothesis: (id: string) => void
+  onApproveCommitteeDecision: (id: string) => void
+  onRejectCommitteeDecision: (id: string) => void
   onApproveTerm: (id: string) => void
   onRejectTerm: (id: string) => void
   onApproveProjectTerm: (id: string) => void
@@ -63,6 +67,7 @@ export function ChangeRequests({
   pendingPhases,
   pendingHypotheses,
   pendingProjectHypotheses,
+  pendingCommitteeDecisions,
   pendingTerms,
   pendingProjectTerms,
   pendingMaterials,
@@ -77,6 +82,8 @@ export function ChangeRequests({
   onRejectHypothesis,
   onApproveProjectHypothesis,
   onRejectProjectHypothesis,
+  onApproveCommitteeDecision,
+  onRejectCommitteeDecision,
   onApproveTerm,
   onRejectTerm,
   onApproveProjectTerm,
@@ -98,6 +105,7 @@ export function ChangeRequests({
     ...pendingPhases.map((p) => ({ type: "phase" as const, data: p })),
     ...pendingHypotheses.map((h) => ({ type: "hypothesis" as const, data: h })),
     ...pendingProjectHypotheses.map((h) => ({ type: "project-hypothesis" as const, data: h })),
+    ...pendingCommitteeDecisions.map((c) => ({ type: "committee-decision" as const, data: c })),
     ...pendingTerms.map((t) => ({ type: "term" as const, data: t })),
     ...pendingProjectTerms.map((t) => ({ type: "project-term" as const, data: t })),
     ...pendingMaterials.map((m) => ({ type: "material" as const, data: m })),
@@ -108,7 +116,10 @@ export function ChangeRequests({
     const matchesSearch =
       r.data.changeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.data.changeId.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesType = filterType === "all" || r.type === filterType
+    const matchesType =
+      filterType === "all" ||
+      r.type === filterType ||
+      (filterType === "hypothesis" && (r.type === "project-hypothesis" || r.type === "committee-decision"))
     return matchesSearch && matchesType
   })
 
@@ -116,7 +127,7 @@ export function ChangeRequests({
   const strategyCount = pendingStrategies.length
   const projectCount = pendingProjects.length
   const phaseCount = pendingPhases.length
-  const hypothesisCount = pendingHypotheses.length
+  const hypothesisCount = pendingHypotheses.length + pendingProjectHypotheses.length + pendingCommitteeDecisions.length
   const projectHypothesisCount = pendingProjectHypotheses.length
   const termCount = pendingTerms.length + pendingProjectTerms.length
   const materialCount = pendingMaterials.length + pendingProjectMaterials.length
@@ -137,6 +148,8 @@ export function ChangeRequests({
       onApproveHypothesis(request.data.id)
     } else if (request.type === "project-hypothesis") {
       onApproveProjectHypothesis(request.data.id)
+    } else if (request.type === "committee-decision") {
+      onApproveCommitteeDecision(request.data.id)
     } else if (request.type === "term") {
       onApproveTerm(request.data.id)
     } else if (request.type === "project-term") {
@@ -159,6 +172,8 @@ export function ChangeRequests({
       onRejectHypothesis(request.data.id)
     } else if (request.type === "project-hypothesis") {
       onRejectProjectHypothesis(request.data.id)
+    } else if (request.type === "committee-decision") {
+      onRejectCommitteeDecision(request.data.id)
     } else if (request.type === "term") {
       onRejectTerm(request.data.id)
     } else if (request.type === "project-term") {
@@ -363,7 +378,7 @@ export function ChangeRequests({
   ? "bg-blue-50 text-blue-700 border-blue-200"
   : request.type === "project"
   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-  : request.type === "hypothesis" || request.type === "project-hypothesis"
+  : request.type === "hypothesis" || request.type === "project-hypothesis" || request.type === "committee-decision"
   ? "bg-amber-50 text-amber-700 border-amber-200"
   : request.type === "term" || request.type === "project-term"
   ? "bg-violet-50 text-violet-700 border-violet-200"
@@ -377,6 +392,7 @@ export function ChangeRequests({
   : request.type === "project" ? "项目"
   : request.type === "hypothesis" ? "假设"
   : request.type === "project-hypothesis" ? "项目假设"
+  : request.type === "committee-decision" ? "审议结果"
   : request.type === "term" ? "条款"
   : request.type === "project-term" ? "项目条款"
   : request.type === "material" ? "材料"
@@ -403,6 +419,8 @@ export function ChangeRequests({
   ? `假设方向: ${(request.data as PendingHypothesis).hypothesis.direction}`
   : request.type === "project-hypothesis"
   ? `项目: ${(request.data as PendingProjectHypothesis).projectName} / 方向: ${(request.data as PendingProjectHypothesis).hypothesis.direction}`
+  : request.type === "committee-decision"
+  ? `项目: ${(request.data as PendingCommitteeDecision).projectName} / 假设: ${(request.data as PendingCommitteeDecision).hypothesisName}`
   : request.type === "term"
   ? `条款方向: ${(request.data as PendingTerm).term.direction}`
   : request.type === "project-term"
@@ -499,7 +517,7 @@ export function ChangeRequests({
                       ? "bg-blue-50 text-blue-700 border-blue-200"
                       : selectedRequest.type === "project"
                         ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : selectedRequest.type === "hypothesis" || selectedRequest.type === "project-hypothesis"
+                        : selectedRequest.type === "hypothesis" || selectedRequest.type === "project-hypothesis" || selectedRequest.type === "committee-decision"
                           ? "bg-amber-50 text-amber-700 border-amber-200"
                           : selectedRequest.type === "term" || selectedRequest.type === "project-term"
                             ? "bg-violet-50 text-violet-700 border-violet-200"
@@ -513,6 +531,7 @@ export function ChangeRequests({
                       : selectedRequest.type === "project" ? "项目"
                       : selectedRequest.type === "hypothesis" ? "假设"
                       : selectedRequest.type === "project-hypothesis" ? "项目假设"
+                      : selectedRequest.type === "committee-decision" ? "审议结果"
                       : selectedRequest.type === "term" ? "条款"
                       : selectedRequest.type === "project-term" ? "项目条款"
                       : selectedRequest.type === "material" ? "材料"
@@ -585,6 +604,37 @@ export function ChangeRequests({
                       <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-xs">
                         {(selectedRequest.data as PendingHypothesis).hypothesis.category}
                       </Badge>
+                    </div>
+                  </>
+                ) : selectedRequest.type === "committee-decision" ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">所属项目</span>
+                      <span className="text-sm font-medium text-[#111827]">
+                        {(selectedRequest.data as PendingCommitteeDecision).projectName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">相关假设</span>
+                      <span className="text-sm font-medium text-[#111827] text-right max-w-[240px] leading-snug">
+                        {(selectedRequest.data as PendingCommitteeDecision).hypothesisName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">审议结果</span>
+                      <Badge className={
+                        (selectedRequest.data as PendingCommitteeDecision).decision.conclusion === "假设成立"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-xs"
+                          : "bg-red-50 text-red-700 border-red-200 text-xs"
+                      }>
+                        {(selectedRequest.data as PendingCommitteeDecision).decision.conclusion === "假设成立" ? "成立" : "不成立"}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-sm text-[#6B7280] mb-1">审议内容</p>
+                      <p className="text-sm bg-[#F9FAFB] rounded-lg p-2.5 text-[#374151]">
+                        {(selectedRequest.data as PendingCommitteeDecision).decision.content}
+                      </p>
                     </div>
                   </>
                 ) : selectedRequest.type === "term" ? (

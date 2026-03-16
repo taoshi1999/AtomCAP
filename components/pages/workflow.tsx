@@ -176,6 +176,29 @@ export interface PendingProjectHypothesis {
   reviewers: { id: string; name: string; initials: string }[]
 }
 
+// Committee decision form data
+export interface CommitteeDecisionFormData {
+  content: string
+  conclusion: "假设成立" | "假设不成立"
+  reviewers: { name: string; role: string }[]
+}
+
+// Pending committee decision change request
+export interface PendingCommitteeDecision {
+  id: string
+  projectId: string
+  projectName: string
+  hypothesisId: string
+  hypothesisName: string
+  decision: CommitteeDecisionFormData
+  changeId: string
+  changeName: string
+  changeType: "committee-decision"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
 // Suggested term with pre-filled content
 export interface SuggestionTerm {
   id: string
