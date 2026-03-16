@@ -675,16 +675,16 @@ interface LinkedHypothesis {
 
 2. **策略**
    - `GET /api/strategies` - 获取策略列表
-   - `POST /api/strategies` - 创建策略（变更请求）
+   - `POST /api/strategies` - 创建策略的变更请求
    - `GET /api/strategies/:id` - 获取策略详情
-   - `PUT /api/strategies/:id` - 更新策略
+   - `PUT /api/strategies/:id` - 创建更新策略的变更请求
    - `GET /api/strategies/:id/hypotheses` - 获取策略假设模板
    - `GET /api/strategies/:id/terms` - 获取策略条款模板
    - `GET /api/strategies/:id/materials` - 获取策略材料
 
 3. **项目**
    - `GET /api/projects` - 获取项目列表
-   - `POST /api/projects` - 创建项目（变更请求）
+   - `POST /api/projects` - 创建项目的变更请求
    - `GET /api/projects/:id` - 获取项目详情
    - `GET /api/projects/:id/phases` - 获取项目阶段
    - `GET /api/projects/:id/hypotheses` - 获取项目假设
@@ -699,10 +699,9 @@ interface LinkedHypothesis {
 5. **AI功能**
    - `POST /api/ai/hypotheses/suggest` - 生成假设建议
    - `POST /api/ai/terms/suggest` - 生成条款建议
-   - `POST /api/ai/materials/suggest` - 生成材料建议
-   - `POST /api/ai/research` - AI研究助手
+   - `POST /api/ai/materials/suggest` - 生成材料收集建议
+   - `POST /api/ai/research` - AI调研材料
    - `POST /api/ai/chat` - AI智能问答
-   - `POST /api/ai/generate-report` - 生成项目汇报文档
 
 ### 数据库设计
 
