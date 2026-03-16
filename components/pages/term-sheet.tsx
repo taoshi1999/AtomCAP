@@ -514,7 +514,7 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
               </div>
               <span>创建: {section.creator.name}</span>
             </div>
-            <span>审批:</span>
+            <span>���批:</span>
             {section.reviewers.map((r, idx) => (
               <div key={idx} className="flex items-center gap-1">
                 <div className="h-5 w-5 rounded-full bg-[#6B7280] flex items-center justify-center">
@@ -788,7 +788,7 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
   // Table view
   return (
     <div className="h-full overflow-auto bg-[#F9FAFB]">
-      <div className="mx-auto max-w-7xl px-6 py-6">
+      <div className="px-6 py-6">
         {/* Strategy template banner for new projects */}
         {isNewProject && project?.strategyName && showTemplateBanner && (
           <div className="mb-4 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4 relative">

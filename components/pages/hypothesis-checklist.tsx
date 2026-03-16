@@ -54,12 +54,14 @@ export interface HypothesisTableItem {
   status: "verified" | "pending" | "risky"
 }
 
+// 个人信息
 interface PersonInfo {
   name: string
   role: string
   avatar?: string
 }
 
+// 价值点
 export interface ValuePoint {
   id: string
   title: string
@@ -76,6 +78,7 @@ export interface ValuePoint {
   comments: { author: string; content: string; time: string }[]
 }
 
+// 风险点
 export interface RiskPoint {
   id: string
   title: string
@@ -92,6 +95,7 @@ export interface RiskPoint {
   comments: { author: string; content: string; time: string }[]
 }
 
+// 投委决议
 interface CommitteeDecision {
   conclusion: string
   status: "approved" | "rejected" | "pending"
@@ -102,6 +106,7 @@ interface CommitteeDecision {
   comments: { author: string; content: string; time: string }[]
 }
 
+// 验证情况
 interface Verification {
   conclusion: string
   status: "confirmed" | "invalidated" | "pending"
@@ -112,6 +117,7 @@ interface Verification {
   comments: { author: string; content: string; time: string }[]
 }
 
+// 关联条款
 interface LinkedTerm {
   id: string
   title: string
@@ -119,6 +125,7 @@ interface LinkedTerm {
   status: "approved" | "pending" | "rejected"
 }
 
+// 假设详情
 export interface HypothesisDetail {
   id: string
   title: string
@@ -135,7 +142,7 @@ export interface HypothesisDetail {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Mock people                                                        */
+/*  项目人员数据                                                        */
 /* ------------------------------------------------------------------ */
 const PEOPLE: Record<string, PersonInfo> = {
   zhangwei: { name: "张伟", role: "投资经理" },
@@ -147,7 +154,7 @@ const PEOPLE: Record<string, PersonInfo> = {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Mock data - table items                                            */
+/*  假设清单数据                                            */
 /* ------------------------------------------------------------------ */
 const hypothesisTableData: HypothesisTableItem[] = [
   {
@@ -156,8 +163,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "创始人闫俊杰",
     name: "创始人闫俊杰具有扎实的人工智能学术背景",
     owner: "张伟",
-    createdAt: "2024-01-15",
-    updatedAt: "2024-02-20",
+    createdAt: "2026-01-15",
+    updatedAt: "2026-02-20",
     status: "verified",
   },
   {
@@ -166,8 +173,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "创始人闫俊杰",
     name: "创始人具备丰富的AI产品商业化经验",
     owner: "李四",
-    createdAt: "2024-01-15",
-    updatedAt: "2024-02-18",
+    createdAt: "2026-01-15",
+    updatedAt: "2026-02-18",
     status: "pending",
   },
   {
@@ -176,8 +183,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "创始人闫俊杰",
     name: "创始人展现出强大的团队凝聚力和战略规划能力",
     owner: "张伟",
-    createdAt: "2024-01-16",
-    updatedAt: "2024-02-19",
+    createdAt: "2026-01-16",
+    updatedAt: "2026-02-19",
     status: "pending",
   },
   {
@@ -186,8 +193,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "核心团队",
     name: "技术团队在大模型训练和推理优化方面具备业界领先水平",
     owner: "王五",
-    createdAt: "2024-01-17",
-    updatedAt: "2024-02-21",
+    createdAt: "2026-01-17",
+    updatedAt: "2026-02-21",
     status: "pending",
   },
   {
@@ -196,8 +203,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "核心团队",
     name: "市场团队拥有深厚的企业客户资源和渠道网络",
     owner: "李四",
-    createdAt: "2024-01-18",
-    updatedAt: "2024-02-22",
+    createdAt: "2026-01-18",
+    updatedAt: "2026-02-22",
     status: "pending",
   },
   {
@@ -206,8 +213,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "市场规模",
     name: "中国大模型市场总规模在2025年将达到500亿元",
     owner: "张伟",
-    createdAt: "2024-01-20",
-    updatedAt: "2024-02-25",
+    createdAt: "2026-01-20",
+    updatedAt: "2026-02-25",
     status: "pending",
   },
   {
@@ -216,8 +223,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "市场规模",
     name: "企业级AI应用市场可服务规模达到200亿元",
     owner: "李四",
-    createdAt: "2024-01-21",
-    updatedAt: "2024-02-26",
+    createdAt: "2026-01-21",
+    updatedAt: "2026-02-26",
     status: "risky",
   },
   {
@@ -226,8 +233,8 @@ const hypothesisTableData: HypothesisTableItem[] = [
     category: "市场规模",
     name: "MiniMax可触达市场规模约50亿元",
     owner: "王五",
-    createdAt: "2024-01-22",
-    updatedAt: "2024-02-27",
+    createdAt: "2026-01-22",
+    updatedAt: "2026-02-27",
     status: "pending",
   },
 ]
@@ -450,8 +457,8 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
     id: "tech-bg",
     title: "创始人闫俊杰具有扎实的人工智能学术背景",
     qaId: "QA-2024-001",
-    createdAt: "2024-01-15",
-    updatedAt: "2024-02-20",
+    createdAt: "2026-01-15",
+    updatedAt: "2026-02-20",
     status: "verified",
     creator: PEOPLE.zhangwei,
     valuePoints: [
@@ -515,12 +522,12 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
       },
     ],
     committeeDecision: {
-      conclusion: "假设成立",
+      conclusion: "成立",
       status: "approved",
       content: "经投委会审议，创始人的学术背景得到充分验证，其在AI领域的研究深度和影响力均达到行业领先水平。虽然商业化经验存在一定风险，但团队整体配置可以弥补。建议持续跟踪其商业化进展。",
       creator: PEOPLE.wangzong,
       reviewers: [PEOPLE.chenzong, PEOPLE.zhangwei, PEOPLE.lisi],
-      createdAt: "2024-01-22",
+      createdAt: "2026-01-22",
       comments: [
         { author: "张伟", content: "同意投委结论，建议在条款中加入创始人竞业禁止条款", time: "2024-01-22 15:00" },
       ],
@@ -531,7 +538,7 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
       content: "投资后6个月跟踪显示，创始人的学术背景为公司招募顶级人才提供了重要背书，已成功吸引多名顶级学者加入。技术团队在大模型训练优化方面取得突破性进展，与创始人的学术积累密切相关。",
       creator: PEOPLE.zhangwei,
       reviewers: [PEOPLE.lisi, PEOPLE.wangwu],
-      createdAt: "2024-07-15",
+      createdAt: "2026-03-15",
       comments: [],
     },
     linkedTerms: [
@@ -545,9 +552,9 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
 /*  Status helpers                                                     */
 /* ------------------------------------------------------------------ */
 const statusConfig = {
-  verified: { label: "已验证", color: "bg-[#DCFCE7] text-[#166534]" },
+  verified: { label: "成立", color: "bg-[#DCFCE7] text-[#166534]" },
   pending: { label: "待验证", color: "bg-[#FEF3C7] text-[#92400E]" },
-  risky: { label: "有风险", color: "bg-[#FEE2E2] text-[#991B1B]" },
+  risky: { label: "不成立", color: "bg-[#FEE2E2] text-[#991B1B]" },
 }
 
 /* ------------------------------------------------------------------ */
@@ -844,7 +851,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
   if (showDetail && selectedDetail) {
     return (
       <div className="h-full overflow-auto bg-[#F9FAFB]">
-        <div className="mx-auto max-w-5xl px-6 py-6">
+        <div className="px-6 py-6">
           {/* Breadcrumb */}
           <div className="mb-4 flex items-center gap-2 text-sm text-[#6B7280]">
             <button onClick={handleBackToList} className="hover:text-[#2563EB] transition-colors">
@@ -1256,262 +1263,262 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
               ) : (
                 <div className="space-y-3">
                   {selectedDetail.linkedTerms.map((term) => (
-                  <div key={term.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <FileCheck className="h-4 w-4 text-[#6B7280]" />
-                      <div>
-                        <span className="text-sm text-[#111827]">{term.title}</span>
-                        <p className="text-xs text-[#9CA3AF]">ID: {term.termId}</p>
+                    <div key={term.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <FileCheck className="h-4 w-4 text-[#6B7280]" />
+                        <div>
+                          <span className="text-sm text-[#111827]">{term.title}</span>
+                          <p className="text-xs text-[#9CA3AF]">ID: {term.termId}</p>
+                        </div>
                       </div>
+                      <Badge className={cn(
+                        "text-xs",
+                        term.status === "approved"
+                          ? "bg-[#DCFCE7] text-[#166534]"
+                          : term.status === "rejected"
+                            ? "bg-[#FEE2E2] text-[#991B1B]"
+                            : "bg-[#FEF3C7] text-[#92400E]"
+                      )}>
+                        {term.status === "approved" ? "通过" : term.status === "rejected" ? "拒绝" : "待审"}
+                      </Badge>
                     </div>
-                    <Badge className={cn(
-                      "text-xs",
-                      term.status === "approved"
-                        ? "bg-[#DCFCE7] text-[#166534]"
-                        : term.status === "rejected"
-                          ? "bg-[#FEE2E2] text-[#991B1B]"
-                          : "bg-[#FEF3C7] text-[#92400E]"
-                    )}>
-                      {term.status === "approved" ? "通过" : term.status === "rejected" ? "拒绝" : "待审"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
         </div>
 
         {/* Add Value Point Dialog */}
-      <Dialog open={showAddVP} onOpenChange={setShowAddVP}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-[#111827]">新增价值点</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">价值点标题 <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                placeholder="请输入价值点标题..."
-                value={vpForm.title}
-                onChange={(e) => setVpForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/20 focus:border-[#22C55E]"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">论据支持</label>
-              <textarea
-                placeholder="请输入论据支持描述..."
-                value={vpForm.evidenceDescription}
-                onChange={(e) => setVpForm((f) => ({ ...f, evidenceDescription: e.target.value }))}
-                rows={3}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/20 focus:border-[#22C55E] resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">论证分析</label>
-              <textarea
-                placeholder="请输入论证分析内容..."
-                value={vpForm.analysisContent}
-                onChange={(e) => setVpForm((f) => ({ ...f, analysisContent: e.target.value }))}
-                rows={3}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/20 focus:border-[#22C55E] resize-none"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={() => { setShowAddVP(false); setVpForm({ title: "", evidenceDescription: "", analysisContent: "" }) }}
-              className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleSubmitValuePoint}
-              disabled={!vpForm.title.trim()}
-              className="rounded-lg bg-[#22C55E] px-4 py-2 text-sm font-medium text-white hover:bg-[#16A34A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              新增
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Risk Point Dialog */}
-      <Dialog open={showAddRP} onOpenChange={setShowAddRP}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-[#111827]">新增风险点</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">风险点标题 <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                placeholder="请输入风险点标题..."
-                value={rpForm.title}
-                onChange={(e) => setRpForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20 focus:border-[#EF4444]"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">论据支持</label>
-              <textarea
-                placeholder="请输入论据支持描述..."
-                value={rpForm.evidenceDescription}
-                onChange={(e) => setRpForm((f) => ({ ...f, evidenceDescription: e.target.value }))}
-                rows={3}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20 focus:border-[#EF4444] resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">论证分析</label>
-              <textarea
-                placeholder="请输入论证分析内容..."
-                value={rpForm.analysisContent}
-                onChange={(e) => setRpForm((f) => ({ ...f, analysisContent: e.target.value }))}
-                rows={3}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20 focus:border-[#EF4444] resize-none"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={() => { setShowAddRP(false); setRpForm({ title: "", evidenceDescription: "", analysisContent: "" }) }}
-              className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleSubmitRiskPoint}
-              disabled={!rpForm.title.trim()}
-              className="rounded-lg bg-[#EF4444] px-4 py-2 text-sm font-medium text-white hover:bg-[#DC2626] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              新增
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Committee Decision Dialog */}
-      <Dialog open={showAddCD} onOpenChange={setShowAddCD}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-[#111827]">新增审议结果</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">审议内容 <span className="text-red-500">*</span></label>
-              <textarea
-                placeholder="请输入审议内容..."
-                value={cdContent}
-                onChange={(e) => setCdContent(e.target.value)}
-                rows={4}
-                className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">审议结果 <span className="text-red-500">*</span></label>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setCdConclusion("假设成立")}
-                  className={cn(
-                    "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
-                    cdConclusion === "假设成立"
-                      ? "border-[#22C55E] bg-[#F0FDF4] text-[#16A34A]"
-                      : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]"
-                  )}
-                >
-                  成立
-                </button>
-                <button
-                  onClick={() => setCdConclusion("假设不成立")}
-                  className={cn(
-                    "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
-                    cdConclusion === "假设不成立"
-                      ? "border-[#EF4444] bg-[#FEF2F2] text-[#DC2626]"
-                      : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]"
-                  )}
-                >
-                  不成立
-                </button>
+        <Dialog open={showAddVP} onOpenChange={setShowAddVP}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-[#111827]">新增价值点</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">价值点标题 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="请输入价值点标题..."
+                  value={vpForm.title}
+                  onChange={(e) => setVpForm((f) => ({ ...f, title: e.target.value }))}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/20 focus:border-[#22C55E]"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">论据支持</label>
+                <textarea
+                  placeholder="请输入论据支持描述..."
+                  value={vpForm.evidenceDescription}
+                  onChange={(e) => setVpForm((f) => ({ ...f, evidenceDescription: e.target.value }))}
+                  rows={3}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/20 focus:border-[#22C55E] resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">论证分析</label>
+                <textarea
+                  placeholder="请输入论证分析内容..."
+                  value={vpForm.analysisContent}
+                  onChange={(e) => setVpForm((f) => ({ ...f, analysisContent: e.target.value }))}
+                  rows={3}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/20 focus:border-[#22C55E] resize-none"
+                />
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium text-[#374151] mb-1.5 block">审议人 <span className="text-red-500">*</span></label>
-              <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
-                <div className="p-2 border-b border-[#E5E7EB] bg-[#F9FAFB]">
-                  <div className="flex items-center gap-2">
-                    <Search className="h-3.5 w-3.5 text-[#9CA3AF] shrink-0" />
-                    <input
-                      type="text"
-                      placeholder="搜索审议人..."
-                      value={cdSearchQuery}
-                      onChange={(e) => setCdSearchQuery(e.target.value)}
-                      className="flex-1 text-sm bg-transparent outline-none text-[#374151] placeholder:text-[#9CA3AF]"
-                    />
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => { setShowAddVP(false); setVpForm({ title: "", evidenceDescription: "", analysisContent: "" }) }}
+                className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitValuePoint}
+                disabled={!vpForm.title.trim()}
+                className="rounded-lg bg-[#22C55E] px-4 py-2 text-sm font-medium text-white hover:bg-[#16A34A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                新增
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Risk Point Dialog */}
+        <Dialog open={showAddRP} onOpenChange={setShowAddRP}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-[#111827]">新增风险点</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">风险点标题 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="请输入风险点标题..."
+                  value={rpForm.title}
+                  onChange={(e) => setRpForm((f) => ({ ...f, title: e.target.value }))}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20 focus:border-[#EF4444]"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">论据支持</label>
+                <textarea
+                  placeholder="请输入论据支持描述..."
+                  value={rpForm.evidenceDescription}
+                  onChange={(e) => setRpForm((f) => ({ ...f, evidenceDescription: e.target.value }))}
+                  rows={3}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20 focus:border-[#EF4444] resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">论证分析</label>
+                <textarea
+                  placeholder="请输入论证分析内容..."
+                  value={rpForm.analysisContent}
+                  onChange={(e) => setRpForm((f) => ({ ...f, analysisContent: e.target.value }))}
+                  rows={3}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20 focus:border-[#EF4444] resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => { setShowAddRP(false); setRpForm({ title: "", evidenceDescription: "", analysisContent: "" }) }}
+                className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitRiskPoint}
+                disabled={!rpForm.title.trim()}
+                className="rounded-lg bg-[#EF4444] px-4 py-2 text-sm font-medium text-white hover:bg-[#DC2626] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                新增
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Committee Decision Dialog */}
+        <Dialog open={showAddCD} onOpenChange={setShowAddCD}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-[#111827]">新增审议结果</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">审议内容 <span className="text-red-500">*</span></label>
+                <textarea
+                  placeholder="请输入审议内容..."
+                  value={cdContent}
+                  onChange={(e) => setCdContent(e.target.value)}
+                  rows={4}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">审议结果 <span className="text-red-500">*</span></label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setCdConclusion("假设成立")}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
+                      cdConclusion === "假设成立"
+                        ? "border-[#22C55E] bg-[#F0FDF4] text-[#16A34A]"
+                        : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]"
+                    )}
+                  >
+                    成立
+                  </button>
+                  <button
+                    onClick={() => setCdConclusion("假设不成立")}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
+                      cdConclusion === "假设不成立"
+                        ? "border-[#EF4444] bg-[#FEF2F2] text-[#DC2626]"
+                        : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]"
+                    )}
+                  >
+                    不成立
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">审议人 <span className="text-red-500">*</span></label>
+                <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                  <div className="p-2 border-b border-[#E5E7EB] bg-[#F9FAFB]">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-3.5 w-3.5 text-[#9CA3AF] shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="搜索审议人..."
+                        value={cdSearchQuery}
+                        onChange={(e) => setCdSearchQuery(e.target.value)}
+                        className="flex-1 text-sm bg-transparent outline-none text-[#374151] placeholder:text-[#9CA3AF]"
+                      />
+                    </div>
+                  </div>
+                  <div className="divide-y divide-[#F3F4F6] max-h-[200px] overflow-y-auto">
+                    {Object.entries(PEOPLE)
+                      .filter(([, p]) =>
+                        p.name.includes(cdSearchQuery) || p.role.includes(cdSearchQuery)
+                      )
+                      .map(([key, person]) => (
+                        <button
+                          key={key}
+                          onClick={() => toggleCdReviewer(key)}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                            cdReviewers.includes(key) ? "bg-[#EFF6FF]" : "hover:bg-[#F9FAFB]"
+                          )}
+                        >
+                          <div className={cn(
+                            "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                            cdReviewers.includes(key)
+                              ? "border-[#2563EB] bg-[#2563EB]"
+                              : "border-[#D1D5DB] bg-white"
+                          )}>
+                            {cdReviewers.includes(key) && (
+                              <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                                <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          <div className="h-7 w-7 rounded-full bg-[#2563EB] flex items-center justify-center shrink-0">
+                            <span className="text-[10px] text-white font-medium">{person.name.slice(0, 1)}</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-[#111827]">{person.name}</p>
+                            <p className="text-xs text-[#6B7280]">{person.role}</p>
+                          </div>
+                        </button>
+                      ))}
                   </div>
                 </div>
-                <div className="divide-y divide-[#F3F4F6] max-h-[200px] overflow-y-auto">
-                  {Object.entries(PEOPLE)
-                    .filter(([, p]) =>
-                      p.name.includes(cdSearchQuery) || p.role.includes(cdSearchQuery)
-                    )
-                    .map(([key, person]) => (
-                      <button
-                        key={key}
-                        onClick={() => toggleCdReviewer(key)}
-                        className={cn(
-                          "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                          cdReviewers.includes(key) ? "bg-[#EFF6FF]" : "hover:bg-[#F9FAFB]"
-                        )}
-                      >
-                        <div className={cn(
-                          "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
-                          cdReviewers.includes(key)
-                            ? "border-[#2563EB] bg-[#2563EB]"
-                            : "border-[#D1D5DB] bg-white"
-                        )}>
-                          {cdReviewers.includes(key) && (
-                            <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
-                              <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </div>
-                        <div className="h-7 w-7 rounded-full bg-[#2563EB] flex items-center justify-center shrink-0">
-                          <span className="text-[10px] text-white font-medium">{person.name.slice(0, 1)}</span>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-[#111827]">{person.name}</p>
-                          <p className="text-xs text-[#6B7280]">{person.role}</p>
-                        </div>
-                      </button>
-                    ))}
-                </div>
+                {cdReviewers.length > 0 && (
+                  <p className="text-xs text-[#6B7280] mt-1.5">已选择 {cdReviewers.length} 位审议人</p>
+                )}
               </div>
-              {cdReviewers.length > 0 && (
-                <p className="text-xs text-[#6B7280] mt-1.5">已选择 {cdReviewers.length} 位审议人</p>
-              )}
             </div>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={() => { setShowAddCD(false); setCdContent(""); setCdConclusion("假设成立"); setCdReviewers([]); setCdSearchQuery("") }}
-              className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleSubmitCommitteeDecision}
-              disabled={!cdContent.trim() || cdReviewers.length === 0}
-              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              新增
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => { setShowAddCD(false); setCdContent(""); setCdConclusion("假设成立"); setCdReviewers([]); setCdSearchQuery("") }}
+                className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitCommitteeDecision}
+                disabled={!cdContent.trim() || cdReviewers.length === 0}
+                className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                新增
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -1519,7 +1526,7 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
   // Table view
   return (
     <div className="h-full overflow-auto bg-[#F9FAFB]">
-      <div className="mx-auto max-w-7xl px-6 py-6">
+      <div className="px-6 py-6">
         {/* Strategy template banner for new projects */}
         {isNewProject && project?.strategyName && showTemplateBanner && (
           <div className="mb-4 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4 relative">

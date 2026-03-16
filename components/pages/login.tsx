@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Eye, EyeOff, RefreshCw, Lock, User, ShieldCheck } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -10,32 +10,13 @@ interface LoginProps {
   onLogin: () => void
 }
 
-function generateCaptcha(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  let result = ""
-  for (let i = 0; i < 4; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return result
-}
-
 export function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [captchaInput, setCaptchaInput] = useState("")
-  const [captchaCode, setCaptchaCode] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-
-  useEffect(() => {
-    setCaptchaCode(generateCaptcha())
-  }, [])
-
-  function refreshCaptcha() {
-    setCaptchaCode(generateCaptcha())
-    setCaptchaInput("")
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -128,26 +109,16 @@ export function Login({ onLogin }: LoginProps) {
                     className="pl-9 h-10 border-[#E5E7EB] bg-white text-[#111827] placeholder:text-[#9CA3AF] focus-visible:ring-[#2563EB] focus-visible:border-[#2563EB] uppercase tracking-widest"
                   />
                 </div>
-                <div
-                  className="flex h-10 w-24 shrink-0 cursor-pointer select-none items-center justify-center rounded-md border border-[#E5E7EB] bg-[#F9FAFB] hover:bg-[#F3F4F6] transition-colors"
-                  onClick={refreshCaptcha}
-                  title="点击刷新"
-                >
-                  <span
-                    className="text-base font-bold tracking-[0.18em] text-[#374151]"
-                    style={{ fontFamily: "monospace" }}
-                  >
-                    {captchaCode}
-                  </span>
+                <div className="relative h-10 w-24 shrink-0 overflow-hidden rounded-md border border-[#E5E7EB]">
+                  <Image
+                    src="/captcha.jpg"
+                    alt="验证码图片"
+                    fill
+                    sizes="96px"
+                    className="object-cover"
+                    priority
+                  />
                 </div>
-                <button
-                  type="button"
-                  onClick={refreshCaptcha}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#E5E7EB] bg-white text-[#9CA3AF] hover:text-[#6B7280] hover:bg-[#F9FAFB] transition-colors"
-                  title="刷新验证码"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </button>
               </div>
             </div>
 
