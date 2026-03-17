@@ -165,9 +165,9 @@ export function ProjectOverview({ project, isNewProject = false }: ProjectOvervi
                     {project.round}
                   </Badge>
                 )}
-                <Badge className="bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-50">
+                {/* <Badge className="bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-50">
                   新建项目
-                </Badge>
+                </Badge> */}
               </div>
             </div>
           </div>
@@ -365,9 +365,8 @@ export function ProjectOverview({ project, isNewProject = false }: ProjectOvervi
                   )}
                 </p>
                 <p
-                  className={`mt-1 text-xs ${
-                    m.trendUp ? "text-emerald-600" : "text-[#6B7280]"
-                  }`}
+                  className={`mt-1 text-xs ${m.trendUp ? "text-emerald-600" : "text-[#6B7280]"
+                    }`}
                 >
                   {m.trend}
                 </p>
