@@ -21,6 +21,7 @@ import {
   Bot,
   ClipboardList,
   GitBranch,
+  CreditCard,
 } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -68,6 +69,7 @@ export interface PendingPhase {
   changeId: string
   changeName: string
   changeType: "next-setup" | "next-duration" | "enter-duration" | "first-setup"
+    | "立项" | "next-pre-investment" | "投决" | "next-mid-investment" | "next-post-investment"
   initiator: { id: string; name: string; initials: string }
   initiatedAt: string
   reviewers: { id: string; name: string; initials: string }[]
@@ -636,9 +638,28 @@ interface WorkflowProps {
   // Persisted AI research generation state
   savedGeneratedAiResearchGroups?: GeneratedAiResearchGroup[]
   onSaveAiResearchGroups?: (groups: GeneratedAiResearchGroup[]) => void
+  onDiKuan?: () => void
 }
 
 /* ─── New Project Phase Template ─────────────── */
+function createPhase(phaseNumber: number, period: string): Phase {
+  const today = new Date().toISOString().split("T")[0]
+  return {
+    id: `phase-${period}-${phaseNumber}`,
+    groupLabel: period,
+    name: `${period} - 阶段${phaseNumber}`,
+    fullLabel: `${period} - 阶段${phaseNumber}`,
+    assignee: "张伟",
+    assigneeAvatar: "张",
+    hypothesesCount: 0,
+    termsCount: 0,
+    materialsCount: 0,
+    status: "active",
+    startDate: today,
+    logs: [],
+  }
+}
+
 function createNewPhase(phaseNumber: number, isSetup: boolean): Phase {
   const groupLabel = isSetup ? "设立期" : "存续期"
   const today = new Date().toISOString().split("T")[0]
@@ -681,6 +702,7 @@ export function Workflow({
   onCreatePendingProjectMaterial,
   savedGeneratedAiResearchGroups,
   onSaveAiResearchGroups,
+  onDiKuan,
 }: WorkflowProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -692,6 +714,11 @@ export function Workflow({
   const currentSetupPhase = projectPhases.filter(p => p.groupLabel === "设立期").length
   const currentDurationPhase = projectPhases.filter(p => p.groupLabel === "存续期").length
   const isInDuration = currentDurationPhase > 0
+  const currentPreInvestmentPhase  = projectPhases.filter(p => p.groupLabel === "投前期").length
+  const currentMidInvestmentPhase  = projectPhases.filter(p => p.groupLabel === "投中期").length
+  const currentPostInvestmentPhase = projectPhases.filter(p => p.groupLabel === "投后期").length
+  const isInMidInvestment  = currentMidInvestmentPhase > 0
+  const isInPostInvestment = currentPostInvestmentPhase > 0
 
   // Default to the latest active or last completed phase
   const defaultPhase = (() => {
@@ -880,6 +907,102 @@ export function Workflow({
       ],
     }
     onCreatePendingPhase?.(pendingPhase)
+  }
+
+  // ── New investment lifecycle handlers ─────────────────────────────────────
+
+  function handleLiXiang() {
+    const newPhase = createPhase(1, "投前期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `立项 - 启动${newPhase.fullLabel}`,
+      changeType: "立项",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleStartNextPreInvestmentPhase() {
+    const newPhase = createPhase(currentPreInvestmentPhase + 1, "投前期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `启动${newPhase.fullLabel}`,
+      changeType: "next-pre-investment",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleTouJue() {
+    const newPhase = createPhase(1, "投中期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `投决 - 进入${newPhase.fullLabel}`,
+      changeType: "投决",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleStartNextMidInvestmentPhase() {
+    const newPhase = createPhase(currentMidInvestmentPhase + 1, "投中期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `启动${newPhase.fullLabel}`,
+      changeType: "next-mid-investment",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleStartNextPostInvestmentPhase() {
+    const newPhase = createPhase(currentPostInvestmentPhase + 1, "投后期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `启动${newPhase.fullLabel}`,
+      changeType: "next-post-investment",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleDiKuan() {
+    onDiKuan?.()
   }
 
   // Notify parent of initial phase on mount
@@ -4202,11 +4325,11 @@ ${logs}
             这是一个新创建的项目，工作流尚未启动。点击下方按钮启动项目的第一个阶段。
           </p>
           <button
-            onClick={handleStartFirstPhase}
+            onClick={handleLiXiang}
             className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
           >
             <Plus className="h-4 w-4" />
-            启动设立期 - 阶段1
+            立项
           </button>
         </div>
       </div>
@@ -4227,7 +4350,53 @@ ${logs}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {/* Show different buttons based on project state - no phase limits */}
+              {/* ── New investment lifecycle buttons ── */}
+              {isNewProject && currentPreInvestmentPhase > 0 && !isInMidInvestment && !isInPostInvestment && (
+                <>
+                  <button
+                    onClick={handleStartNextPreInvestmentPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleTouJue}
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                    投决
+                  </button>
+                </>
+              )}
+              {isNewProject && isInMidInvestment && !isInPostInvestment && (
+                <>
+                  <button
+                    onClick={handleStartNextMidInvestmentPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleDiKuan}
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#F59E0B] bg-white px-4 py-2.5 text-sm font-medium text-[#D97706] transition-colors hover:bg-[#FFFBEB]"
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    划款
+                  </button>
+                </>
+              )}
+              {isNewProject && isInPostInvestment && (
+                <button
+                  onClick={handleStartNextPostInvestmentPhase}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                >
+                  <Plus className="h-4 w-4" />
+                  启动下一阶段
+                </button>
+              )}
+              {/* ── Legacy 设立期/存续期 buttons (existing new-project system) ── */}
               {isNewProject && !isInDuration && currentSetupPhase > 0 && (
                 <>
                   <button
@@ -4287,6 +4456,8 @@ ${logs}
                 lastGroup = phase.groupLabel
                 const isLastInGroup = idx < projectPhases.length - 1 ? projectPhases[idx + 1].groupLabel !== phase.groupLabel : true
                 const isSetup = phase.groupLabel === "设立期"
+                  || phase.groupLabel === "投前期"
+                  || phase.groupLabel === "投中期"
 
                 return (
                   <div key={phase.id} className="flex items-start shrink-0">
@@ -4294,7 +4465,12 @@ ${logs}
                     <div className="flex flex-col">
                       {showGroupHeader && (
                         <div className="mb-3 flex items-center gap-2">
-                          <span className={cn("h-2.5 w-2.5 rounded-full", isSetup ? "bg-violet-500" : "bg-teal-500")} />
+                          <span className={cn("h-2.5 w-2.5 rounded-full",
+                            phase.groupLabel === "投前期" ? "bg-blue-500"
+                            : phase.groupLabel === "投中期" ? "bg-amber-500"
+                            : phase.groupLabel === "投后期" ? "bg-teal-500"
+                            : isSetup ? "bg-violet-500" : "bg-teal-500"
+                          )} />
                           <span className="text-sm font-semibold text-[#374151]">{phase.groupLabel}</span>
                         </div>
                       )}

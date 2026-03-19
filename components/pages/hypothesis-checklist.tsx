@@ -2227,10 +2227,12 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 className="w-64 pl-9 bg-white border-[#E5E7EB]"
               />
             </div>
-            <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
-              <Plus className="h-4 w-4 mr-2" />
-              新建假设
-            </Button>
+            {!isInDuration && (
+              <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
+                <Plus className="h-4 w-4 mr-2" />
+                新建假设
+              </Button>
+            )}
           </div>
         </div>
 

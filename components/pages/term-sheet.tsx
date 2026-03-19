@@ -450,6 +450,7 @@ const statusConfig = {
 interface TermSheetProps {
   isNewProject?: boolean
   isInDuration?: boolean
+  termLockPeriod?: string
   project?: { strategyId?: string; strategyName?: string }
   projectMaterials?: StrategyMaterial[]
   inheritedTerms?: TermTableItem[]
@@ -458,7 +459,7 @@ interface TermSheetProps {
   onCreateImplementationStatus?: (termId: string, termName: string, data: ImplementationStatusFormData) => void
 }
 
-export function TermSheet({ isNewProject = false, isInDuration = false, project, projectMaterials, inheritedTerms, extraDetails, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
+export function TermSheet({ isNewProject = false, isInDuration = false, termLockPeriod, project, projectMaterials, inheritedTerms, extraDetails, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -1353,7 +1354,7 @@ export function TermSheet({ isNewProject = false, isInDuration = false, project,
           <div>
             <h1 className="text-2xl font-bold text-[#111827]">条款清单</h1>
             {isNewProject && isInDuration ? (
-              <p className="mt-1 text-sm text-[#D97706] font-medium">项目已进入存续期，已有条款不可更改。</p>
+              <p className="mt-1 text-sm text-[#D97706] font-medium">项目已进入{termLockPeriod ?? "存续期"}，已有条款不可更改。</p>
             ) : (
               <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
             )}

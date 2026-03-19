@@ -76,13 +76,18 @@ interface ProjectDetailProps {
   onCreateNegotiationDecision?: (termId: string, termName: string, data: NegotiationDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
   onCreateImplementationStatus?: (termId: string, termName: string, data: ImplementationStatusFormData) => void
+  onDiKuan?: () => void
 }
 
-export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions, savedGeneratedTermSuggestions, onSaveTermSuggestions, onCreatePendingProjectTerm, projectTermDetails, onCreatePendingProjectMaterial, savedGeneratedMaterialSuggestions, onSaveMaterialSuggestions, savedGeneratedAiResearchGroups, onSaveAiResearchGroups, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateNegotiationDecision, onCreateVerification, onCreateImplementationStatus }: ProjectDetailProps) {
+export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCreatePendingPhase, onCreatePendingProjectHypothesis, projectHypotheses, projectHypothesisDetails, projectTerms, projectMaterials, savedGeneratedSuggestions, onSaveSuggestions, savedGeneratedTermSuggestions, onSaveTermSuggestions, onCreatePendingProjectTerm, projectTermDetails, onCreatePendingProjectMaterial, savedGeneratedMaterialSuggestions, onSaveMaterialSuggestions, savedGeneratedAiResearchGroups, onSaveAiResearchGroups, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateNegotiationDecision, onCreateVerification, onCreateImplementationStatus, onDiKuan }: ProjectDetailProps) {
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
   const isNewProject = projectId.startsWith("new-project-")
-  const isInDuration = (phases ?? []).some(p => p.groupLabel === "存续期")
+  const isMidInvestment  = isNewProject && (phases ?? []).some(p => p.groupLabel === "投中期")
+  const isPostInvestment = isNewProject && (phases ?? []).some(p => p.groupLabel === "投后期")
+  const isInDuration = (phases ?? []).some(p => p.groupLabel === "存续期") || isPostInvestment
+  const isHypothesisLocked = isInDuration || isMidInvestment
+  const termLockPeriod = isPostInvestment ? "投后期" : "存续期"
   const [currentPhase, setCurrentPhase] = useState<string>(isNewProject ? "无" : "")
 
   return (
@@ -182,11 +187,12 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
             onCreatePendingProjectMaterial={onCreatePendingProjectMaterial}
             savedGeneratedAiResearchGroups={savedGeneratedAiResearchGroups}
             onSaveAiResearchGroups={onSaveAiResearchGroups}
+            onDiKuan={onDiKuan}
           />
         ) : activeSubPage === "hypotheses" ? (
           <HypothesisChecklist
             isNewProject={isNewProject}
-            isInDuration={isInDuration}
+            isInDuration={isHypothesisLocked}
             project={project}
             projectMaterials={projectMaterials}
             inheritedHypotheses={projectHypotheses}
@@ -200,6 +206,7 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
           <TermSheet
             isNewProject={isNewProject}
             isInDuration={isInDuration}
+            termLockPeriod={termLockPeriod}
             project={project}
             projectMaterials={projectMaterials}
             inheritedTerms={projectTerms}

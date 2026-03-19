@@ -314,8 +314,12 @@ export default function Page() {
       )
       
       // Add new phase with generated id
+      const prefixMap: Record<string, string> = {
+        "设立期": "setup", "存续期": "duration",
+        "投前期": "pre-inv", "投中期": "mid-inv", "投后期": "post-inv",
+      }
       const newPhase: Phase = {
-        id: `${phase.groupLabel === "设立期" ? "setup" : "duration"}-${Date.now()}`,
+        id: `${prefixMap[phase.groupLabel] ?? "phase"}-${Date.now()}`,
         ...phase,
       }
       
@@ -328,6 +332,39 @@ export default function Page() {
       // Navigate back to project detail
       setView({ type: "project-detail", projectId })
     }
+  }
+
+  function handleDiKuan(projectId: string) {
+    const today = new Date().toISOString().split("T")[0]
+    const currentPhases = projectPhases[projectId] || []
+    const snapshotH = (projectHypotheses[projectId]?.length ?? 0) +
+      pendingProjectHypotheses.filter((h) => h.projectId === projectId).length
+    const snapshotT = (projectTerms[projectId]?.length ?? 0) +
+      pendingProjectTerms.filter((t) => t.projectId === projectId).length
+    const snapshotM = (projectMaterialsMap[projectId]?.length ?? 0) +
+      pendingProjectMaterials.filter((m) => m.projectId === projectId).length
+    const updatedPhases = currentPhases.map((p) =>
+      p.status === "active"
+        ? { ...p, status: "completed" as const, endDate: today,
+            hypothesesCount: snapshotH, termsCount: snapshotT, materialsCount: snapshotM }
+        : p
+    )
+    const newPhase: Phase = {
+      id: `post-inv-${Date.now()}`,
+      groupLabel: "投后期",
+      name: "投后期 - 阶段1",
+      fullLabel: "投后期 - 阶段1",
+      assignee: "张伟",
+      assigneeAvatar: "张",
+      hypothesesCount: 0,
+      termsCount: 0,
+      materialsCount: 0,
+      status: "active",
+      startDate: today,
+      logs: [],
+    }
+    setProjectPhases((prev) => ({ ...prev, [projectId]: [...updatedPhases, newPhase] }))
+    setView({ type: "project-detail", projectId })
   }
 
   function handleRejectPhase(id: string) {
@@ -1168,6 +1205,7 @@ export default function Page() {
   onCreateNegotiationDecision={(termId, termName, data) => handleCreateNegotiationDecision(view.projectId, termId, termName, data)}
   onCreateVerification={(hypothesisId, hypothesisName, data) => handleCreateVerification(view.projectId, hypothesisId, hypothesisName, data)}
   onCreateImplementationStatus={(termId, termName, data) => handleCreateImplementationStatus(view.projectId, termId, termName, data)}
+  onDiKuan={() => handleDiKuan(view.projectId)}
   />
         )}
         {view.type === "strategy-detail" && (
