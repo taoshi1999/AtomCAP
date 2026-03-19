@@ -4,7 +4,8 @@ import { useState } from "react"
 import { AppTopbar, type TopNavKey } from "@/components/app-topbar"
 import { Dashboard } from "@/components/pages/dashboard"
 import { ProjectsGrid, type Project, type PendingProject, initialProjects } from "@/components/pages/projects-grid"
-import { StrategiesGrid, type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/components/pages/strategies-grid"
+import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/components/pages/strategies-grid"
+import { StrategyCenter } from "@/components/pages/strategy-center"
 import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
@@ -1088,7 +1089,7 @@ export default function Page() {
           />
         )}
         {view.type === "strategies" && (
-          <StrategiesGrid 
+          <StrategyCenter
             strategies={strategies}
             onStrategiesChange={setStrategies}
             onSelectStrategy={handleSelectStrategy}

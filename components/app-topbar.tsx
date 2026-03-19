@@ -76,7 +76,7 @@ export function AppTopbar({ activeNav, onNavigate }: AppTopbarProps) {
           )}
         >
           <Briefcase className="h-4 w-4" />
-          策略列表
+          策略中心
         </button>
         <button
           onClick={() => onNavigate("change-requests")}
