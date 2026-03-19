@@ -214,6 +214,10 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
             isNewProject={isNewProject}
             project={project}
             strategyMaterials={projectMaterials}
+            projectId={projectId}
+            projectHypotheses={projectHypotheses}
+            projectTerms={projectTerms}
+            onCreatePendingProjectMaterial={onCreatePendingProjectMaterial}
           />
         ) : null}
       </div>

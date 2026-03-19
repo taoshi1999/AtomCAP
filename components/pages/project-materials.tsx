@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Download,
   Eye,
@@ -17,6 +17,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Sparkles,
+  Bot,
+  FileDown,
+  Pencil,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +35,9 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import type { StrategyMaterial, PendingMaterial } from "@/components/pages/strategies-grid"
+import type { PendingProjectMaterial } from "@/components/pages/workflow"
+import type { HypothesisTableItem } from "@/components/pages/hypothesis-checklist"
+import type { TermTableItem } from "@/components/pages/term-sheet"
 
 // ─── Existing mock material data ─────────────────────────────────────────────
 
@@ -244,6 +251,42 @@ export function getFormatColor(format: string) {
   }
 }
 
+// ─── Generate dialog config ───────────────────────────────────────────────────
+
+type GenStep = "config" | "generating" | "result"
+
+const DOC_TEMPLATES = [
+  { id: "dd",       name: "尽职调查报告", desc: "全面评估项目风险与投资价值" },
+  { id: "bp",       name: "商业计划书",   desc: "系统梳理商业模式与市场机会" },
+  { id: "contract", name: "投资合同",     desc: "规范化投资交易条款文本" },
+  { id: "risk",     name: "风险评估报告", desc: "量化分析各维度投资风险" },
+  { id: "memo",     name: "投资备忘录",   desc: "决策层简报与核心结论摘要" },
+]
+
+const THINKING_STEPS = [
+  "正在读取假设清单...",
+  "正在分析投资条款...",
+  "正在构建文档框架...",
+  "正在生成核心内容...",
+  "正在深度推理分析...",
+  "正在优化格式排版...",
+]
+
+// Fallback data when project has no hypotheses/terms yet
+const FALLBACK_HYPOTHESES: HypothesisTableItem[] = [
+  { id: "fh1", direction: "技术攻关", category: "核心技术", name: "AI芯片国产替代窗口期判断", owner: "张伟", createdAt: "2025-01-10", updatedAt: "2025-02-15", status: "verified" },
+  { id: "fh2", direction: "市场判断", category: "规模预测", name: "算力需求持续高速增长假设", owner: "李四", createdAt: "2025-01-12", updatedAt: "2025-02-20", status: "pending" },
+  { id: "fh3", direction: "竞争分析", category: "壁垒评估", name: "目标企业技术护城河显著", owner: "王芳", createdAt: "2025-01-15", updatedAt: "2025-03-01", status: "verified" },
+  { id: "fh4", direction: "财务预测", category: "盈利能力", name: "项目3年内实现正向EBITDA", owner: "张伟", createdAt: "2025-01-18", updatedAt: "2025-02-28", status: "risky" },
+]
+
+const FALLBACK_TERMS: TermTableItem[] = [
+  { id: "ft1", direction: "里程碑条款", category: "产品交付", name: "产品量产里程碑对赌条款", owner: "张伟", createdAt: "2025-01-20", updatedAt: "2025-02-15", status: "approved" },
+  { id: "ft2", direction: "控制权条款", category: "董事会席位", name: "董事会一票否决权条款", owner: "李四", createdAt: "2025-01-22", updatedAt: "2025-02-20", status: "approved" },
+  { id: "ft3", direction: "退出条款", category: "优先清算", name: "1.5x非参与式优先清算权", owner: "王芳", createdAt: "2025-01-25", updatedAt: "2025-03-05", status: "pending" },
+  { id: "ft4", direction: "反稀释条款", category: "宽基加权", name: "宽基加权平均反稀释保护", owner: "张伟", createdAt: "2025-01-28", updatedAt: "2025-03-01", status: "approved" },
+]
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface ProjectMaterialsProps {
@@ -256,6 +299,11 @@ interface ProjectMaterialsProps {
   onCreatePendingMaterial?: (pending: PendingMaterial) => void
   materialPrefill?: { title: string; category: string; content: string }
   onMaterialPrefillUsed?: () => void
+  // Project-level material generation
+  projectId?: string
+  projectHypotheses?: HypothesisTableItem[]
+  projectTerms?: TermTableItem[]
+  onCreatePendingProjectMaterial?: (pending: PendingProjectMaterial) => void
 }
 
 export function ProjectMaterials({
@@ -268,6 +316,10 @@ export function ProjectMaterials({
   onCreatePendingMaterial,
   materialPrefill,
   onMaterialPrefillUsed,
+  projectId,
+  projectHypotheses,
+  projectTerms,
+  onCreatePendingProjectMaterial,
 }: ProjectMaterialsProps) {
   const isTrackStrategy = strategyType === "赛道策略"
   const inheritedFromParent = isTrackStrategy && isNewProject && parentStrategyName
@@ -285,12 +337,50 @@ export function ProjectMaterials({
   const [dialogMaterialTitle, setDialogMaterialTitle] = useState("")
   const [dialogMaterialCategory, setDialogMaterialCategory] = useState("")
 
+  // ── Generate dialog state ─────────────────────────────────────────────────
+  const [isGenerateOpen, setIsGenerateOpen] = useState(false)
+  const [genStep, setGenStep] = useState<GenStep>("config")
+  const [genSelectedHypotheses, setGenSelectedHypotheses] = useState<Set<string>>(new Set())
+  const [genSelectedTerms, setGenSelectedTerms] = useState<Set<string>>(new Set())
+  const [genTemplate, setGenTemplate] = useState("尽职调查报告")
+  const [genGuide, setGenGuide] = useState("")
+  const [genThinkingStep, setGenThinkingStep] = useState(0)
+  const [genProgress, setGenProgress] = useState(0)
+
+  // ── AI generation animation ───────────────────────────────────────────────
+  useEffect(() => {
+    if (genStep !== "generating") return
+    let idx = 0
+    const stepInterval = setInterval(() => {
+      idx = (idx + 1) % THINKING_STEPS.length
+      setGenThinkingStep(idx)
+    }, 550)
+
+    let prog = 0
+    const progressInterval = setInterval(() => {
+      prog = Math.min(prog + 3, 98)
+      setGenProgress(prog)
+      if (prog >= 98) clearInterval(progressInterval)
+    }, 90)
+
+    const completeTimer = setTimeout(() => {
+      clearInterval(stepInterval)
+      clearInterval(progressInterval)
+      setGenProgress(100)
+      setGenStep("result")
+    }, 3200)
+
+    return () => {
+      clearInterval(stepInterval)
+      clearInterval(progressInterval)
+      clearTimeout(completeTimer)
+    }
+  }, [genStep])
+
   // ── Handle prefill from overview recommendation ──────────────────────────
-  // Reset guard when prefill is cleared by parent
   if (!materialPrefill && prefillApplied) {
     setPrefillApplied(false)
   }
-  // Apply new prefill: open dialog with pre-filled values
   if (materialPrefill && !prefillApplied) {
     const folderId = categoryFolderMap[materialPrefill.category] || null
     setFormDescription(materialPrefill.content)
@@ -305,7 +395,7 @@ export function ProjectMaterials({
     onMaterialPrefillUsed?.()
   }
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Upload handlers ───────────────────────────────────────────────────────
 
   function openEmptyDialog() {
     setFormDescription("")
@@ -338,9 +428,7 @@ export function ProjectMaterials({
     if (selectedFiles.size === 0 || uploadState === "uploading") return
     setUploadState("uploading")
     setUploadProgress(0)
-    // Trigger CSS transition in next tick
     setTimeout(() => setUploadProgress(100), 50)
-    // After animation completes, create the pending material and navigate
     setTimeout(() => {
       const allFiles = mockLocalFolders.flatMap((f) => f.files)
       const selectedFileData = allFiles.filter((f) => selectedFiles.has(f.id))
@@ -376,6 +464,71 @@ export function ProjectMaterials({
     }, 1600)
   }
 
+  // ── Generate handlers ─────────────────────────────────────────────────────
+
+  function openGenerateDialog() {
+    setGenStep("config")
+    setGenSelectedHypotheses(new Set())
+    setGenSelectedTerms(new Set())
+    setGenTemplate("尽职调查报告")
+    setGenGuide("")
+    setGenThinkingStep(0)
+    setGenProgress(0)
+    setIsGenerateOpen(true)
+  }
+
+  function handleStartGenerate() {
+    setGenStep("generating")
+    setGenThinkingStep(0)
+    setGenProgress(0)
+  }
+
+  function handleGenerateUpload() {
+    if (!onCreatePendingProjectMaterial) return
+    const fileName = `${genTemplate}.docx`
+    const pending: PendingProjectMaterial = {
+      id: `pending-mat-gen-${Date.now()}`,
+      projectId: projectId || "",
+      projectName: project?.name || "当前项目",
+      material: {
+        name: fileName,
+        format: "DOCX",
+        category: "AI生成材料",
+        description: genGuide || `基于AI深度分析生成的${genTemplate}`,
+        collectReason: `选取 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款作为参考，通过AI生成${genTemplate}`,
+      },
+      changeId: `CR-${Date.now().toString().slice(-6)}`,
+      changeName: `上传AI生成材料: ${fileName}`,
+      changeType: "collect",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    }
+    onCreatePendingProjectMaterial(pending)
+    setIsGenerateOpen(false)
+  }
+
+  function toggleGenHypothesis(id: string) {
+    setGenSelectedHypotheses((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleGenTerm(id: string) {
+    setGenSelectedTerms((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   // ── Build display items ───────────────────────────────────────────────────
   const approvedItems = (strategyMaterials || []).map((m) => ({
     id: m.id,
@@ -385,13 +538,19 @@ export function ProjectMaterials({
     description: m.description,
   }))
 
-  // For inherited/existing strategies show mock data; for plain new strategies only show approved
   const usesMockData = !isNewProject || !!inheritedFromParent
   const displayItems = [...approvedItems, ...(usesMockData ? materials : [])]
   const isEmpty = displayItems.length === 0
 
-  // File browser: current folder data
   const currentFolder = mockLocalFolders.find((f) => f.id === currentFolderId) ?? null
+
+  // Hypotheses & terms to show in generate dialog
+  const dialogHypotheses = (projectHypotheses && projectHypotheses.length > 0)
+    ? projectHypotheses
+    : FALLBACK_HYPOTHESES
+  const dialogTerms = (projectTerms && projectTerms.length > 0)
+    ? projectTerms
+    : FALLBACK_TERMS
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -405,15 +564,26 @@ export function ProjectMaterials({
             </div>
             <h3 className="text-lg font-semibold text-[#111827] mb-2">暂无通用材料</h3>
             <p className="text-sm text-[#6B7280] mb-6 leading-relaxed">
-              {project?.name ? `「${project.name}」` : "该策略"}还没有上传任何材料。点击下方按钮开始上传您的第一份材料。
+              {project?.name ? `「${project.name}」` : "该策略"}还没有上传任何材料。点击下方按钮开始上传或生成您的第一份材料。
             </p>
-            <button
-              onClick={openEmptyDialog}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-            >
-              <Plus className="h-4 w-4" />
-              上传材料
-            </button>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={openEmptyDialog}
+                className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+              >
+                <Upload className="h-4 w-4" />
+                上传材料
+              </button>
+              {onCreatePendingProjectMaterial && (
+                <button
+                  onClick={openGenerateDialog}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  生成材料
+                </button>
+              )}
+            </div>
           </div>
         </div>
       ) : (
@@ -466,13 +636,24 @@ export function ProjectMaterials({
             {/* Header */}
             <div className="flex items-center justify-between mb-1">
               <h1 className="text-2xl font-bold text-[#111827]">通用材料</h1>
-              <button
-                onClick={openEmptyDialog}
-                className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                上传材料
-              </button>
+              <div className="flex items-center gap-2">
+                {onCreatePendingProjectMaterial && (
+                  <button
+                    onClick={openGenerateDialog}
+                    className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    生成材料
+                  </button>
+                )}
+                <button
+                  onClick={openEmptyDialog}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  上传材料
+                </button>
+              </div>
             </div>
             <p className="mt-1 text-sm text-[#6B7280] mb-6">
               {project?.name ? `${project.name} - ` : ""}行业通用材料与文件管理
@@ -498,24 +679,19 @@ export function ProjectMaterials({
                       key={item.id}
                       className="grid grid-cols-[minmax(240px,2fr)_90px_80px_minmax(200px,3fr)_160px] items-center gap-4 px-6 py-4 transition-colors hover:bg-[#F9FAFB]"
                     >
-                      {/* File Name */}
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F3F4F6]">
                           <FormatIcon className="h-4.5 w-4.5 text-[#6B7280]" />
                         </div>
                         <span className="truncate text-sm font-medium text-[#111827]">{item.name}</span>
                       </div>
-                      {/* Format */}
                       <div>
                         <Badge variant="outline" className={`text-xs font-medium ${getFormatColor(item.format)}`}>
                           {item.format}
                         </Badge>
                       </div>
-                      {/* Size */}
                       <span className="text-sm text-[#6B7280]">{item.size}</span>
-                      {/* Description */}
                       <p className="truncate text-sm text-[#6B7280]">{item.description}</p>
-                      {/* Actions */}
                       <div className="flex items-center justify-end gap-2">
                         <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
                           <Download className="h-3.5 w-3.5" />
@@ -546,7 +722,6 @@ export function ProjectMaterials({
           </DialogHeader>
 
           {uploadState === "uploading" ? (
-            /* ── Upload animation ── */
             <div className="flex flex-col items-center justify-center py-10 gap-5">
               <Loader2 className="h-10 w-10 animate-spin text-[#2563EB]" />
               <p className="text-sm font-medium text-[#374151]">
@@ -562,9 +737,7 @@ export function ProjectMaterials({
               </div>
             </div>
           ) : (
-            /* ── Form ── */
             <div className="space-y-5 py-2">
-              {/* Material description */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-[#374151]">材料简介</Label>
                 <textarea
@@ -576,11 +749,8 @@ export function ProjectMaterials({
                 />
               </div>
 
-              {/* File browser */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-[#374151]">选择文件</Label>
-
-                {/* Breadcrumb path */}
                 <div className="flex items-center gap-1.5 rounded-md bg-[#F9FAFB] border border-[#E5E7EB] px-3 py-2 text-xs text-[#6B7280]">
                   <Folder className="h-3.5 w-3.5 text-[#9CA3AF] shrink-0" />
                   <span>本机文档</span>
@@ -592,9 +762,7 @@ export function ProjectMaterials({
                   )}
                 </div>
 
-                {/* Browser pane */}
                 <div className="rounded-lg border border-[#E5E7EB] bg-white overflow-hidden">
-                  {/* Back button when inside a folder */}
                   {currentFolder && (
                     <button
                       onClick={() => setCurrentFolderId(null)}
@@ -604,10 +772,8 @@ export function ProjectMaterials({
                       返回上一层
                     </button>
                   )}
-
                   <div className="max-h-[220px] overflow-y-auto divide-y divide-[#F3F4F6]">
                     {currentFolder ? (
-                      /* File list inside a folder */
                       currentFolder.files.map((file) => {
                         const isSelected = selectedFiles.has(file.id)
                         const FormatIcon = getFormatIcon(file.format)
@@ -620,37 +786,19 @@ export function ProjectMaterials({
                               isSelected ? "bg-blue-50" : "hover:bg-[#F9FAFB]"
                             )}
                           >
-                            {/* Checkbox */}
-                            <div
-                              className={cn(
-                                "flex h-4 w-4 items-center justify-center rounded border shrink-0 transition-colors",
-                                isSelected
-                                  ? "bg-[#2563EB] border-[#2563EB]"
-                                  : "border-[#D1D5DB]"
-                              )}
-                            >
+                            <div className={cn("flex h-4 w-4 items-center justify-center rounded border shrink-0 transition-colors", isSelected ? "bg-[#2563EB] border-[#2563EB]" : "border-[#D1D5DB]")}>
                               {isSelected && <Check className="h-3 w-3 text-white" />}
                             </div>
-                            {/* File icon */}
                             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[#F3F4F6]">
                               <FormatIcon className="h-3.5 w-3.5 text-[#6B7280]" />
                             </div>
-                            {/* Name */}
                             <span className="flex-1 truncate text-sm text-[#374151]">{file.name}</span>
-                            {/* Format badge */}
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] shrink-0 ${getFormatColor(file.format)}`}
-                            >
-                              {file.format}
-                            </Badge>
-                            {/* Size */}
+                            <Badge variant="outline" className={`text-[10px] shrink-0 ${getFormatColor(file.format)}`}>{file.format}</Badge>
                             <span className="text-xs text-[#9CA3AF] shrink-0 w-14 text-right">{file.size}</span>
                           </button>
                         )
                       })
                     ) : (
-                      /* Folder list at root */
                       mockLocalFolders.map((folder) => {
                         const selectedInFolder = folder.files.filter((f) => selectedFiles.has(f.id)).length
                         return (
@@ -664,9 +812,7 @@ export function ProjectMaterials({
                             </div>
                             <span className="flex-1 text-sm text-[#374151]">{folder.name}</span>
                             {selectedInFolder > 0 && (
-                              <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] shrink-0">
-                                已选 {selectedInFolder}
-                              </Badge>
+                              <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] shrink-0">已选 {selectedInFolder}</Badge>
                             )}
                             <ChevronRight className="h-4 w-4 text-[#9CA3AF]" />
                           </button>
@@ -675,8 +821,6 @@ export function ProjectMaterials({
                     )}
                   </div>
                 </div>
-
-                {/* Selection count */}
                 {selectedFiles.size > 0 && (
                   <p className="text-xs text-[#2563EB]">已选择 {selectedFiles.size} 个文件</p>
                 )}
@@ -684,14 +828,9 @@ export function ProjectMaterials({
             </div>
           )}
 
-          {/* Footer buttons (hidden while uploading) */}
           {uploadState === "idle" && (
             <div className="flex justify-end gap-3 pt-2 border-t border-[#E5E7EB] mt-2">
-              <button
-                type="button"
-                onClick={handleDialogClose}
-                className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
-              >
+              <button type="button" onClick={handleDialogClose} className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]">
                 取消
               </button>
               <button
@@ -703,6 +842,275 @@ export function ProjectMaterials({
                 <Upload className="h-4 w-4" />
                 上传 {selectedFiles.size > 0 ? `${selectedFiles.size} 个` : ""}文件
               </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Generate Material Dialog ─────────────────────────────────────── */}
+      <Dialog open={isGenerateOpen} onOpenChange={(open) => { if (!open && genStep !== "generating") setIsGenerateOpen(false) }}>
+        <DialogContent className="sm:max-w-[680px] max-h-[90vh] flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-lg font-semibold text-[#111827]">
+              <Sparkles className="h-5 w-5 text-violet-600" />
+              {genStep === "config" ? "生成材料" : genStep === "generating" ? "AI 深度思考中..." : "材料生成完成"}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#6B7280]">
+              {genStep === "config" && "选择参考内容与文档模板，AI将为您生成专业材料"}
+              {genStep === "generating" && "AI 正在基于您的选择深度分析并生成材料，请稍候..."}
+              {genStep === "result" && `已成功生成「${genTemplate}.docx」，请确认内容后选择上传或关闭`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* ── Step: config ── */}
+          {genStep === "config" && (
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="space-y-5 py-2 pr-1">
+
+                {/* Hypotheses */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#111827]">
+                    勾选参考假设
+                    <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedHypotheses.size} 项已选）</span>
+                  </Label>
+                  <div className="rounded-lg border border-[#E5E7EB] bg-white divide-y divide-[#F3F4F6] overflow-hidden">
+                    {dialogHypotheses.map((h) => {
+                      const checked = genSelectedHypotheses.has(h.id)
+                      return (
+                        <button
+                          key={h.id}
+                          onClick={() => toggleGenHypothesis(h.id)}
+                          className={cn("flex items-start gap-3 w-full px-4 py-3 text-left transition-colors", checked ? "bg-violet-50" : "hover:bg-[#F9FAFB]")}
+                        >
+                          <div className={cn("flex h-4 w-4 items-center justify-center rounded border shrink-0 mt-0.5 transition-colors", checked ? "bg-violet-600 border-violet-600" : "border-[#D1D5DB]")}>
+                            {checked && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-[#111827] leading-snug">{h.name}</p>
+                            <p className="text-xs text-[#6B7280] mt-0.5">{h.direction} · {h.category}</p>
+                          </div>
+                          <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 mt-0.5",
+                            h.status === "verified" ? "bg-emerald-100 text-emerald-700"
+                            : h.status === "risky" ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-700"
+                          )}>
+                            {h.status === "verified" ? "已验证" : h.status === "risky" ? "有风险" : "待验证"}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Terms */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#111827]">
+                    勾选参考条款
+                    <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedTerms.size} 项已选）</span>
+                  </Label>
+                  <div className="rounded-lg border border-[#E5E7EB] bg-white divide-y divide-[#F3F4F6] overflow-hidden">
+                    {dialogTerms.map((t) => {
+                      const checked = genSelectedTerms.has(t.id)
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => toggleGenTerm(t.id)}
+                          className={cn("flex items-start gap-3 w-full px-4 py-3 text-left transition-colors", checked ? "bg-violet-50" : "hover:bg-[#F9FAFB]")}
+                        >
+                          <div className={cn("flex h-4 w-4 items-center justify-center rounded border shrink-0 mt-0.5 transition-colors", checked ? "bg-violet-600 border-violet-600" : "border-[#D1D5DB]")}>
+                            {checked && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-[#111827] leading-snug">{t.name}</p>
+                            <p className="text-xs text-[#6B7280] mt-0.5">{t.direction} · {t.category}</p>
+                          </div>
+                          <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 mt-0.5",
+                            t.status === "approved" ? "bg-emerald-100 text-emerald-700"
+                            : t.status === "rejected" ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-700"
+                          )}>
+                            {t.status === "approved" ? "已批准" : t.status === "rejected" ? "已拒绝" : "待审核"}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Template selection */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#111827]">选择文档模板</Label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {DOC_TEMPLATES.map((tpl) => {
+                      const active = genTemplate === tpl.name
+                      return (
+                        <button
+                          key={tpl.id}
+                          onClick={() => setGenTemplate(tpl.name)}
+                          className={cn(
+                            "flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors",
+                            active ? "border-violet-400 bg-violet-50" : "border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                          )}
+                        >
+                          <div className={cn("h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center", active ? "border-violet-600" : "border-[#D1D5DB]")}>
+                            {active && <div className="h-2 w-2 rounded-full bg-violet-600" />}
+                          </div>
+                          <div>
+                            <p className={cn("text-sm font-medium", active ? "text-violet-700" : "text-[#111827]")}>{tpl.name}</p>
+                            <p className="text-xs text-[#6B7280]">{tpl.desc}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Guide text */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-[#111827]">材料生成指引</Label>
+                  <textarea
+                    value={genGuide}
+                    onChange={(e) => setGenGuide(e.target.value)}
+                    placeholder="请输入材料生成指引，例如：重点围绕技术壁垒和市场规模进行分析，要求逻辑清晰、数据充分，生成一份适合投委会审阅的尽职调查报告..."
+                    rows={4}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                  />
+                </div>
+              </div>
+            </ScrollArea>
+          )}
+
+          {/* ── Step: generating ── */}
+          {genStep === "generating" && (
+            <div className="flex flex-1 flex-col items-center justify-center py-12 gap-6">
+              {/* Pulsing AI icon */}
+              <div className="relative">
+                <div className="absolute inset-0 animate-ping rounded-full bg-violet-200 opacity-60" />
+                <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-blue-600 shadow-lg">
+                  <Bot className="h-10 w-10 text-white" />
+                </div>
+              </div>
+
+              {/* Thinking step */}
+              <div className="text-center space-y-1">
+                <p className="text-base font-semibold text-[#111827]">
+                  {THINKING_STEPS[genThinkingStep]}
+                </p>
+                <p className="text-sm text-[#6B7280]">
+                  正在生成「{genTemplate}.docx」
+                </p>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full max-w-xs">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs text-[#6B7280]">AI 推理进度</span>
+                  <span className="text-xs font-medium text-violet-600">{genProgress}%</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#E5E7EB]">
+                  <div
+                    className="h-full bg-gradient-to-r from-violet-500 to-blue-500 transition-all duration-300 ease-out rounded-full"
+                    style={{ width: `${genProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Scrolling thought bubbles */}
+              <div className="w-full max-w-sm rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] px-4 py-3 space-y-1">
+                {THINKING_STEPS.slice(0, genThinkingStep + 1).reverse().slice(0, 3).map((s, i) => (
+                  <div key={s} className={cn("flex items-center gap-2 text-xs transition-all", i === 0 ? "text-violet-700 font-medium" : "text-[#9CA3AF]")}>
+                    {i === 0 ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Check className="h-3 w-3 shrink-0" />}
+                    {s}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Step: result ── */}
+          {genStep === "result" && (
+            <div className="flex flex-1 flex-col items-center justify-center py-8 gap-6">
+              {/* Success indicator */}
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+                <Check className="h-8 w-8 text-emerald-600" />
+              </div>
+
+              <div className="text-center">
+                <p className="text-base font-semibold text-[#111827]">材料生成成功</p>
+                <p className="text-sm text-[#6B7280] mt-1">AI 已完成「{genTemplate}」的生成，请确认内容</p>
+              </div>
+
+              {/* Generated file card */}
+              <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-4">
+                  {/* File icon */}
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-blue-50 border border-blue-100">
+                    <FileText className="h-7 w-7 text-blue-600" />
+                  </div>
+                  {/* File info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#111827] truncate">{genTemplate}.docx</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">DOCX</Badge>
+                      <span className="text-xs text-[#6B7280]">预估 3.2 MB</span>
+                      <span className="text-xs text-[#6B7280]">·</span>
+                      <span className="text-xs text-emerald-600 font-medium">AI 生成</span>
+                    </div>
+                    <p className="text-xs text-[#6B7280] mt-1.5 line-clamp-2">
+                      {genGuide || `基于 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款生成的${genTemplate}`}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 mt-4 pt-4 border-t border-[#F3F4F6]">
+                  <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-xs">
+                    <FileDown className="h-3.5 w-3.5" />
+                    下载
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-xs">
+                    <Pencil className="h-3.5 w-3.5" />
+                    编辑
+                  </Button>
+                </div>
+              </div>
+
+              <p className="text-xs text-[#6B7280] text-center max-w-sm">
+                确认材料内容无误后，点击「上传」发起变更请求，审批通过后即可在项目材料中查看
+              </p>
+            </div>
+          )}
+
+          {/* ── Footer ── */}
+          {genStep !== "generating" && (
+            <div className="shrink-0 flex justify-end gap-3 pt-3 border-t border-[#E5E7EB] mt-2">
+              <button
+                type="button"
+                onClick={() => setIsGenerateOpen(false)}
+                className="rounded-lg border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+              >
+                {genStep === "result" ? "关闭" : "取消"}
+              </button>
+              {genStep === "config" && (
+                <button
+                  type="button"
+                  onClick={handleStartGenerate}
+                  className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  开始生成
+                </button>
+              )}
+              {genStep === "result" && (
+                <button
+                  type="button"
+                  onClick={handleGenerateUpload}
+                  className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                >
+                  <Upload className="h-4 w-4" />
+                  上传
+                </button>
+              )}
             </div>
           )}
         </DialogContent>
