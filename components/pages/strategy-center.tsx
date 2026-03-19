@@ -33,7 +33,7 @@ const tabs: { key: SubPage; label: string; icon: React.ReactNode }[] = [
   },
   {
     key: "consultation",
-    label: "咨询中心",
+    label: "资讯中心",
     icon: <BookOpen className="h-4 w-4" />,
   },
 ]

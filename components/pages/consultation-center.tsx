@@ -57,7 +57,7 @@ const articles: Article[] = [
     tag: "热门",
     coverColor: "from-teal-500 to-cyan-600",
     coverIcon: "MARKET\nRESEARCH",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-02-04",
     views: 18420,
     featured: true,
@@ -71,7 +71,7 @@ const articles: Article[] = [
     tag: "热门",
     coverColor: "from-blue-500 to-indigo-600",
     coverIcon: "M&A\nREPORT",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-02-27",
     views: 9340,
   },
@@ -84,7 +84,7 @@ const articles: Article[] = [
     tag: "热门",
     coverColor: "from-violet-500 to-purple-600",
     coverIcon: "FUND\nRAISE",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-02-10",
     views: 7210,
   },
@@ -96,7 +96,7 @@ const articles: Article[] = [
     category: "市场洞察",
     coverColor: "from-rose-500 to-pink-600",
     coverIcon: "ANNUAL\nREVIEW",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-02-04",
     views: 14750,
   },
@@ -108,7 +108,7 @@ const articles: Article[] = [
     category: "市场洞察",
     coverColor: "from-amber-500 to-orange-600",
     coverIcon: "Q1-Q3\nINSIGHT",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2025-11-10",
     views: 5680,
   },
@@ -121,7 +121,7 @@ const articles: Article[] = [
     tag: "热门",
     coverColor: "from-emerald-500 to-teal-600",
     coverIcon: "IPO\nREPORT",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2025-07-24",
     views: 8890,
   },
@@ -133,7 +133,7 @@ const articles: Article[] = [
     category: "投资策略",
     coverColor: "from-sky-500 to-blue-600",
     coverIcon: "EXIT\nOUTLOOK",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-01-07",
     views: 6320,
   },
@@ -146,7 +146,7 @@ const articles: Article[] = [
     tag: "最新",
     coverColor: "from-lime-500 to-green-600",
     coverIcon: "EXIT\nQUARTER",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-03-10",
     views: 3210,
   },
@@ -158,7 +158,7 @@ const articles: Article[] = [
     category: "行业研究",
     coverColor: "from-indigo-500 to-violet-600",
     coverIcon: "Q1 2025\nSTUDY",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2025-05-12",
     views: 4450,
   },
@@ -184,7 +184,7 @@ const articles: Article[] = [
     tag: "最新",
     coverColor: "from-cyan-500 to-sky-600",
     coverIcon: "MONTHLY\nREPORT",
-    source: "清科研究",
+    source: "AtomCAP",
     date: "2026-03-01",
     views: 2980,
   },
@@ -415,7 +415,7 @@ export function ConsultationCenter() {
       <div className="shrink-0 border-b border-border bg-white px-8 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-foreground">咨询中心</h1>
+            <h1 className="text-xl font-bold text-foreground">资讯中心</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
               整合市场研究报告、行业洞察与投资策略，助力投资决策
             </p>
