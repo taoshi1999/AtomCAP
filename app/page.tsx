@@ -9,7 +9,7 @@ import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
 import { Login } from "@/components/pages/login"
-import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData } from "@/components/pages/workflow"
+import type { Phase, PendingPhase, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData, PendingNegotiationDecision, NegotiationDecisionFormData, PendingVerification, VerificationFormData, PendingImplementationStatus, ImplementationStatusFormData } from "@/components/pages/workflow"
 import { type HypothesisTableItem, type HypothesisDetail, type ValuePoint, type RiskPoint, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
 import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
@@ -51,6 +51,9 @@ export default function Page() {
   // Pending project-level hypotheses
   const [pendingProjectHypotheses, setPendingProjectHypotheses] = useState<PendingProjectHypothesis[]>([])
   const [pendingCommitteeDecisions, setPendingCommitteeDecisions] = useState<PendingCommitteeDecision[]>([])
+  const [pendingNegotiationDecisions, setPendingNegotiationDecisions] = useState<PendingNegotiationDecision[]>([])
+  const [pendingVerifications, setPendingVerifications] = useState<PendingVerification[]>([])
+  const [pendingImplementationStatuses, setPendingImplementationStatuses] = useState<PendingImplementationStatus[]>([])
   const [pendingProjectTerms, setPendingProjectTerms] = useState<PendingProjectTerm[]>([])
   const [projectTermDetails, setProjectTermDetails] = useState<Record<string, Record<string, TermDetail>>>({})
   // Saved generated hypothesis suggestions per project - keyed by projectId, persists for the session
@@ -594,6 +597,235 @@ export default function Page() {
     setPendingCommitteeDecisions((prev) => prev.filter((p) => p.id !== id))
   }
 
+  // Negotiation decision change request handlers
+  function handleCreateNegotiationDecision(projectId: string, termId: string, termName: string, data: NegotiationDecisionFormData) {
+    const today = new Date().toISOString().split("T")[0]
+    const project = projects.find((p) => p.id === projectId)
+    const pending: PendingNegotiationDecision = {
+      id: `nd-${Date.now()}`,
+      projectId,
+      projectName: project?.name || "",
+      termId,
+      termName,
+      decision: data,
+      changeId: `ND-${Date.now()}`,
+      changeName: `更新条款谈判结果: ${termName}`,
+      changeType: "negotiation-decision",
+      initiator: { id: "zhangwei", name: "张伟", initials: "ZW" },
+      initiatedAt: today,
+      reviewers: [
+        { id: "wangzong", name: "王总", initials: "WZ" },
+        { id: "chenzong", name: "陈总", initials: "CZ" },
+      ],
+    }
+    setPendingNegotiationDecisions((prev) => [pending, ...prev])
+    setView({ type: "change-requests" })
+  }
+
+  function handleApproveNegotiationDecision(id: string) {
+    const pending = pendingNegotiationDecisions.find((p) => p.id === id)
+    if (pending) {
+      const { projectId, termId, decision } = pending
+      const today = new Date().toISOString().split("T")[0]
+      const newStatus = decision.conclusion === "通过" ? "approved" as const : "rejected" as const
+      const newNegotiationResult = {
+        conclusion: decision.conclusion === "通过" ? "谈判达成" : "谈判否决",
+        status: decision.conclusion === "通过" ? "agreed" as const : "rejected" as const,
+        content: decision.content,
+        creator: { name: "张伟", role: "投资经理" },
+        reviewers: decision.reviewers,
+        createdAt: today,
+        comments: [] as { author: string; content: string; time: string }[],
+      }
+      // Update or create the term detail entry
+      setProjectTermDetails((prev) => {
+        const projectDetails = prev[projectId] || {}
+        const existingDetail = projectDetails[termId]
+        const termItem = (projectTerms[projectId] || []).find((t) => t.id === termId)
+        // Import TermDetail structure from term-sheet — build a minimal entry if not existing
+        const updatedDetail = existingDetail
+          ? { ...existingDetail, status: newStatus, negotiationResult: newNegotiationResult }
+          : {
+              id: termId,
+              title: termItem?.name || pending.termName,
+              termId: `TM-${Date.now()}`,
+              createdAt: termItem?.createdAt || today,
+              updatedAt: today,
+              status: newStatus,
+              creator: { name: "张伟", role: "投资经理" },
+              ourDemand: { content: "", files: [], linkedHypotheses: [], creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+              ourBasis: { content: "", files: [], linkedHypotheses: [], creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+              bilateralConflict: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+              ourBottomLine: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+              compromiseSpace: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+              negotiationResult: newNegotiationResult,
+              implementationStatus: { status: "not-started" as const, content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+            }
+        return { ...prev, [projectId]: { ...projectDetails, [termId]: updatedDetail } }
+      })
+      // Update term status in projectTerms list
+      setProjectTerms((prev) => {
+        const terms = prev[projectId] || []
+        return {
+          ...prev,
+          [projectId]: terms.map((t) =>
+            t.id === termId ? { ...t, status: newStatus } : t
+          ),
+        }
+      })
+      setPendingNegotiationDecisions((prev) => prev.filter((p) => p.id !== id))
+      setView({ type: "project-detail", projectId })
+    }
+  }
+
+  function handleRejectNegotiationDecision(id: string) {
+    setPendingNegotiationDecisions((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  // Verification change request handlers
+  function handleCreateVerification(projectId: string, hypothesisId: string, hypothesisName: string, data: VerificationFormData) {
+    const today = new Date().toISOString().split("T")[0]
+    const project = projects.find((p) => p.id === projectId)
+    const pending: PendingVerification = {
+      id: `vf-${Date.now()}`,
+      projectId,
+      projectName: project?.name || "",
+      hypothesisId,
+      hypothesisName,
+      data,
+      changeId: `VF-${Date.now()}`,
+      changeName: `新增假设验证情况: ${hypothesisName}`,
+      changeType: "verification",
+      initiator: { id: "zhangwei", name: "张伟", initials: "ZW" },
+      initiatedAt: today,
+      reviewers: [
+        { id: "wangzong", name: "王总", initials: "WZ" },
+        { id: "chenzong", name: "陈总", initials: "CZ" },
+      ],
+    }
+    setPendingVerifications((prev) => [pending, ...prev])
+    setView({ type: "change-requests" })
+  }
+
+  function handleApproveVerification(id: string) {
+    const pending = pendingVerifications.find((p) => p.id === id)
+    if (pending) {
+      const { projectId, hypothesisId, data } = pending
+      const today = new Date().toISOString().split("T")[0]
+      const newVerification = {
+        conclusion: data.conclusion,
+        status: data.conclusion === "符合预期" ? "confirmed" as const : "invalidated" as const,
+        content: data.content,
+        creator: { name: "张伟", role: "投资经理" },
+        reviewers: data.responsibles,
+        createdAt: today,
+        comments: [] as { author: string; content: string; time: string }[],
+      }
+      setProjectHypothesisDetails((prev) => {
+        const projectDetails = prev[projectId] || {}
+        const existingDetail = projectDetails[hypothesisId]
+        const hypothesis = (projectHypotheses[projectId] || []).find((h) => h.id === hypothesisId)
+        const updatedDetail: HypothesisDetail = existingDetail
+          ? { ...existingDetail, verification: newVerification }
+          : {
+              id: hypothesisId,
+              title: hypothesis?.name || "",
+              qaId: `QA-${Date.now()}`,
+              createdAt: hypothesis?.createdAt || today,
+              updatedAt: today,
+              status: hypothesis?.status || "pending",
+              creator: { name: "张伟", role: "投资经理" },
+              valuePoints: [],
+              riskPoints: [],
+              committeeDecision: {
+                conclusion: "",
+                status: "pending" as const,
+                content: "",
+                creator: { name: "张伟", role: "投资经理" },
+                reviewers: [],
+                createdAt: "",
+                comments: [],
+              },
+              verification: newVerification,
+              linkedTerms: [],
+            }
+        return {
+          ...prev,
+          [projectId]: { ...projectDetails, [hypothesisId]: updatedDetail },
+        }
+      })
+      setPendingVerifications((prev) => prev.filter((p) => p.id !== id))
+      setView({ type: "project-detail", projectId })
+    }
+  }
+
+  function handleRejectVerification(id: string) {
+    setPendingVerifications((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  // Implementation status change request handlers
+  function handleCreateImplementationStatus(projectId: string, termId: string, termName: string, data: ImplementationStatusFormData) {
+    const today = new Date().toISOString().split("T")[0]
+    const project = projects.find((p) => p.id === projectId)
+    const pending: PendingImplementationStatus = {
+      id: `is-${Date.now()}`,
+      projectId,
+      projectName: project?.name || "",
+      termId,
+      termName,
+      data,
+      changeId: `IS-${Date.now()}`,
+      changeName: `新增条款落实情况: ${termName}`,
+      changeType: "implementation-status",
+      initiator: { id: "zhangwei", name: "张伟", initials: "ZW" },
+      initiatedAt: today,
+      reviewers: [
+        { id: "wangzong", name: "王总", initials: "WZ" },
+        { id: "chenzong", name: "陈总", initials: "CZ" },
+      ],
+    }
+    setPendingImplementationStatuses((prev) => [pending, ...prev])
+    setView({ type: "change-requests" })
+  }
+
+  function handleApproveImplementationStatus(id: string) {
+    const pending = pendingImplementationStatuses.find((p) => p.id === id)
+    if (pending) {
+      const { projectId, termId, data } = pending
+      const today = new Date().toISOString().split("T")[0]
+      const newStatus = {
+        status: "implemented" as const,
+        conclusion: data.conclusion,
+        content: data.content,
+        creator: { name: "张伟", role: "投资经理" },
+        reviewers: data.responsibles,
+        createdAt: today,
+        comments: [] as { author: string; content: string; time: string }[],
+      }
+      setProjectTermDetails((prev) => {
+        const projectDetails = prev[projectId] || {}
+        const existingDetail = projectDetails[termId]
+        if (!existingDetail) return prev
+        return {
+          ...prev,
+          [projectId]: {
+            ...projectDetails,
+            [termId]: {
+              ...existingDetail,
+              implementationStatus: newStatus,
+            },
+          },
+        }
+      })
+      setPendingImplementationStatuses((prev) => prev.filter((p) => p.id !== id))
+      setView({ type: "project-detail", projectId })
+    }
+  }
+
+  function handleRejectImplementationStatus(id: string) {
+    setPendingImplementationStatuses((prev) => prev.filter((p) => p.id !== id))
+  }
+
   function handleCreatePendingProjectTerm(pending: PendingProjectTerm) {
     setPendingProjectTerms((prev) => [pending, ...prev])
     setView({ type: "change-requests" })
@@ -872,7 +1104,10 @@ export default function Page() {
   pendingProjectHypotheses={pendingProjectHypotheses}
   pendingCommitteeDecisions={pendingCommitteeDecisions}
   pendingTerms={pendingTerms}
+  pendingProjectTerms={pendingProjectTerms}
+  pendingNegotiationDecisions={pendingNegotiationDecisions}
   pendingMaterials={pendingMaterials}
+  pendingProjectMaterials={pendingProjectMaterials}
   onApproveStrategy={handleApproveStrategy}
   onRejectStrategy={handleRejectStrategy}
   onApproveProject={handleApproveProject}
@@ -887,14 +1122,20 @@ export default function Page() {
   onRejectCommitteeDecision={handleRejectCommitteeDecision}
   onApproveTerm={handleApproveTerm}
   onRejectTerm={handleRejectTerm}
-  pendingProjectTerms={pendingProjectTerms}
   onApproveProjectTerm={handleApproveProjectTerm}
   onRejectProjectTerm={handleRejectProjectTerm}
+  onApproveNegotiationDecision={handleApproveNegotiationDecision}
+  onRejectNegotiationDecision={handleRejectNegotiationDecision}
   onApproveMaterial={handleApproveMaterial}
   onRejectMaterial={handleRejectMaterial}
-  pendingProjectMaterials={pendingProjectMaterials}
   onApproveProjectMaterial={handleApproveProjectMaterial}
   onRejectProjectMaterial={handleRejectProjectMaterial}
+  pendingVerifications={pendingVerifications}
+  onApproveVerification={handleApproveVerification}
+  onRejectVerification={handleRejectVerification}
+  pendingImplementationStatuses={pendingImplementationStatuses}
+  onApproveImplementationStatus={handleApproveImplementationStatus}
+  onRejectImplementationStatus={handleRejectImplementationStatus}
   />
         )}
         {view.type === "project-detail" && (
@@ -923,6 +1164,9 @@ export default function Page() {
   onAddValuePoint={(hypothesisId, vp) => handleAddValuePoint(view.projectId, hypothesisId, vp)}
   onAddRiskPoint={(hypothesisId, rp) => handleAddRiskPoint(view.projectId, hypothesisId, rp)}
   onCreateCommitteeDecision={(hypothesisId, hypothesisName, data) => handleCreateCommitteeDecision(view.projectId, hypothesisId, hypothesisName, data)}
+  onCreateNegotiationDecision={(termId, termName, data) => handleCreateNegotiationDecision(view.projectId, termId, termName, data)}
+  onCreateVerification={(hypothesisId, hypothesisName, data) => handleCreateVerification(view.projectId, hypothesisId, hypothesisName, data)}
+  onCreateImplementationStatus={(termId, termName, data) => handleCreateImplementationStatus(view.projectId, termId, termName, data)}
   />
         )}
         {view.type === "strategy-detail" && (

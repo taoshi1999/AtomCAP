@@ -19,11 +19,15 @@ import {
   Handshake,
   CheckCircle,
   ClipboardCheck,
+  Upload,
+  Pencil,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import type { NegotiationDecisionFormData, ImplementationStatusFormData } from "@/components/pages/workflow"
+import type { StrategyMaterial } from "@/components/pages/strategies-grid"
 
 /* ------------------------------------------------------------------ */
 /*  Data types                                                         */
@@ -72,6 +76,7 @@ interface NegotiationResult {
 
 interface ImplementationStatus {
   status: "implemented" | "in-progress" | "not-started"
+  conclusion?: string
   content: string
   creator: PersonInfo
   reviewers: PersonInfo[]
@@ -295,6 +300,65 @@ const termDetails: Record<string, TermDetail> = {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Default detail entries for AI基础设施 template terms               */
+/* ------------------------------------------------------------------ */
+const emptySection = (creator: PersonInfo): SectionContent => ({
+  content: "",
+  files: [],
+  linkedHypotheses: [],
+  creator,
+  reviewers: [],
+  createdAt: "",
+  comments: [],
+})
+
+const emptyNegotiation: NegotiationResult = {
+  conclusion: "",
+  status: "partial",
+  content: "",
+  creator: PEOPLE.zhangwei,
+  reviewers: [],
+  createdAt: "",
+  comments: [],
+}
+
+const emptyImplementation: ImplementationStatus = {
+  status: "not-started",
+  content: "",
+  creator: PEOPLE.zhangwei,
+  reviewers: [],
+  createdAt: "",
+  comments: [],
+}
+
+;["ai-t1", "ai-t2", "ai-t3", "ai-t4", "ai-t5", "ai-t6"].forEach((tid, i) => {
+  const item = [
+    { name: "投资方有权获取被投企业月度财务报告", termId: "TM-2026-001", createdAt: "2026-01-10" },
+    { name: "投资方有权对重大技术决策进行知情和建议", termId: "TM-2026-002", createdAt: "2026-01-12" },
+    { name: "采用完全棘轮反稀释条款保护投资方权益", termId: "TM-2026-003", createdAt: "2026-01-15" },
+    { name: "投资方有权委派一名董事参与公司董事会", termId: "TM-2026-004", createdAt: "2026-01-18" },
+    { name: "对核心技术IP转让和授权享有一票否决权", termId: "TM-2026-005", createdAt: "2026-01-20" },
+    { name: "若公司未能在5年内实现IPO，投资方有权要求回购", termId: "TM-2026-006", createdAt: "2026-01-22" },
+  ][i]
+  termDetails[tid] = {
+    id: tid,
+    title: item.name,
+    termId: item.termId,
+    createdAt: item.createdAt,
+    updatedAt: item.createdAt,
+    status: "pending",
+    creator: PEOPLE.zhangwei,
+    ourDemand: emptySection(PEOPLE.zhangwei),
+    ourBasis: emptySection(PEOPLE.zhangwei),
+    bilateralConflict: emptySection(PEOPLE.lisi),
+    ourBottomLine: emptySection(PEOPLE.wangwu),
+    compromiseSpace: emptySection(PEOPLE.zhangwei),
+    negotiationResult: emptyNegotiation,
+    implementationStatus: emptyImplementation,
+  }
+})
+
+/* ------------------------------------------------------------------ */
 /*  AI基础设施策略模板条款数据                                          */
 /* ------------------------------------------------------------------ */
 const aiInfrastructureTerms: TermTableItem[] = [
@@ -385,16 +449,109 @@ const statusConfig = {
 /* ------------------------------------------------------------------ */
 interface TermSheetProps {
   isNewProject?: boolean
+  isInDuration?: boolean
   project?: { strategyId?: string; strategyName?: string }
+  projectMaterials?: StrategyMaterial[]
   inheritedTerms?: TermTableItem[]
   extraDetails?: Record<string, TermDetail>
+  onCreateNegotiationDecision?: (termId: string, termName: string, data: NegotiationDecisionFormData) => void
+  onCreateImplementationStatus?: (termId: string, termName: string, data: ImplementationStatusFormData) => void
 }
 
-export function TermSheet({ isNewProject = false, project, inheritedTerms, extraDetails }: TermSheetProps) {
+export function TermSheet({ isNewProject = false, isInDuration = false, project, projectMaterials, inheritedTerms, extraDetails, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const [showTemplateBanner, setShowTemplateBanner] = useState(true)
+
+  // Negotiation decision dialog state
+  const [showNegotiationDialog, setShowNegotiationDialog] = useState(false)
+  const [ndForm, setNdForm] = useState({ content: "", conclusion: "通过" as "通过" | "否决" })
+  const [ndReviewerSearch, setNdReviewerSearch] = useState("")
+  const [ndSelectedReviewers, setNdSelectedReviewers] = useState<{ name: string; role: string }[]>([])
+
+  // Implementation status dialog state
+  const [showAddIS, setShowAddIS] = useState(false)
+  const [isContent, setIsContent] = useState("")
+  const [isConclusion, setIsConclusion] = useState<"符合预期" | "待定" | "不符合预期">("符合预期")
+  const [isMaterials, setIsMaterials] = useState<string[]>([])
+  const [isResponsibles, setIsResponsibles] = useState<string[]>([])
+  const [isSearch, setIsSearch] = useState("")
+
+  const ALL_REVIEWERS = [
+    { name: "张伟", role: "投资经理" },
+    { name: "李四", role: "高级分析师" },
+    { name: "王五", role: "合伙人" },
+    { name: "王总", role: "投委会主席" },
+    { name: "陈总", role: "风控总监" },
+    { name: "赵六", role: "法务顾问" },
+  ]
+
+  const filteredNdReviewers = ALL_REVIEWERS.filter((r) =>
+    r.name.includes(ndReviewerSearch) || r.role.includes(ndReviewerSearch)
+  )
+
+  const filteredISPeople = ALL_REVIEWERS.filter((r) =>
+    r.name.includes(isSearch) || r.role.includes(isSearch)
+  )
+
+  function handleOpenNegotiationDialog() {
+    setNdForm({ content: "", conclusion: "通过" })
+    setNdReviewerSearch("")
+    setNdSelectedReviewers([])
+    setShowNegotiationDialog(true)
+  }
+
+  function handleToggleNdReviewer(person: { name: string; role: string }) {
+    setNdSelectedReviewers((prev) =>
+      prev.some((r) => r.name === person.name)
+        ? prev.filter((r) => r.name !== person.name)
+        : [...prev, person]
+    )
+  }
+
+  function handleSubmitNegotiationDecision() {
+    if (!selectedId || !ndForm.content.trim() || ndSelectedReviewers.length === 0) return
+    const item = sourceData.find((t) => t.id === selectedId)
+    onCreateNegotiationDecision?.(selectedId, item?.name || "", {
+      content: ndForm.content,
+      conclusion: ndForm.conclusion,
+      reviewers: ndSelectedReviewers,
+    })
+    setShowNegotiationDialog(false)
+  }
+
+  function handleOpenISDialog() {
+    setIsContent("")
+    setIsConclusion("符合预期")
+    setIsMaterials([])
+    setIsResponsibles([])
+    setIsSearch("")
+    setShowAddIS(true)
+  }
+
+  function toggleISMaterial(id: string) {
+    setIsMaterials((prev) => prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id])
+  }
+
+  function toggleISResponsible(name: string) {
+    setIsResponsibles((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name])
+  }
+
+  function handleSubmitIS() {
+    if (!selectedId || !isContent.trim() || isResponsibles.length === 0) return
+    const item = sourceData.find((t) => t.id === selectedId)
+    onCreateImplementationStatus?.(selectedId, item?.name || "", {
+      content: isContent,
+      conclusion: isConclusion,
+      materials: isMaterials,
+      responsibles: isResponsibles.map((name) => {
+        const person = ALL_REVIEWERS.find((p) => p.name === name)
+        return { name, role: person?.role || "" }
+      }),
+    })
+    setShowAddIS(false)
+  }
 
   // Priority: inherited (from approved project) > template > existing mock data
   const sourceData = inheritedTerms
@@ -472,6 +629,17 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
       </div>
       <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
         <div className={cn("border-l-4 p-5", borderColor)}>
+          {/* Edit/Delete actions */}
+          {isNewProject && !isInDuration && (
+            <div className="flex justify-end gap-1 mb-3">
+              <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           {/* Content */}
           <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
             <p className="text-sm text-[#374151] leading-relaxed">{section.content}</p>
@@ -581,9 +749,15 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
           <div className="bg-white rounded-xl border border-[#E5E7EB] p-6 mb-6">
             <div className="flex items-start justify-between mb-3">
               <h1 className="text-xl font-bold text-[#111827]">{selectedDetail.title}</h1>
-              <Badge className={cn("text-xs", statusConfig[selectedDetail.status].color)}>
-                {statusConfig[selectedDetail.status].label}
-              </Badge>
+              {(() => {
+                const listItem = sourceData.find((t) => t.id === selectedId)
+                const st = listItem?.status || selectedDetail.status
+                return (
+                  <Badge className={cn("text-xs", statusConfig[st].color)}>
+                    {statusConfig[st].label}
+                  </Badge>
+                )
+              })()}
             </div>
             <p className="text-sm text-[#6B7280] mb-3">
               ID: {selectedDetail.termId} | 创建时间: {selectedDetail.createdAt} | 更新时间: {selectedDetail.updatedAt}
@@ -643,27 +817,168 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
             selectedDetail.compromiseSpace
           )}
 
+          {/* Negotiation Decision Dialog */}
+          {showNegotiationDialog && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
+                <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#E5E7EB]">
+                  <h3 className="text-base font-semibold text-[#111827]">新增谈判结果</h3>
+                  <button onClick={() => setShowNegotiationDialog(false)} className="p-1 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="px-6 py-4 space-y-4">
+                  {/* 谈判内容 */}
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                      谈判内容 <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <textarea
+                      className="w-full rounded-lg border border-[#E5E7EB] px-3 py-2 text-sm text-[#111827] resize-none focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                      rows={4}
+                      placeholder="请输入谈判内容..."
+                      value={ndForm.content}
+                      onChange={(e) => setNdForm((f) => ({ ...f, content: e.target.value }))}
+                    />
+                  </div>
+                  {/* 谈判结果 */}
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                      谈判结果 <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setNdForm((f) => ({ ...f, conclusion: "通过" }))}
+                        className={cn(
+                          "flex-1 py-2 rounded-lg text-sm font-medium border transition-colors",
+                          ndForm.conclusion === "通过"
+                            ? "bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]"
+                            : "bg-white text-[#374151] border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        通过
+                      </button>
+                      <button
+                        onClick={() => setNdForm((f) => ({ ...f, conclusion: "否决" }))}
+                        className={cn(
+                          "flex-1 py-2 rounded-lg text-sm font-medium border transition-colors",
+                          ndForm.conclusion === "否决"
+                            ? "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]"
+                            : "bg-white text-[#374151] border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        否决
+                      </button>
+                    </div>
+                  </div>
+                  {/* 谈判人 */}
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                      谈判人 <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-[#E5E7EB]">
+                        <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
+                        <input
+                          type="text"
+                          placeholder="搜索谈判人..."
+                          className="flex-1 text-sm outline-none text-[#111827] placeholder:text-[#9CA3AF]"
+                          value={ndReviewerSearch}
+                          onChange={(e) => setNdReviewerSearch(e.target.value)}
+                        />
+                      </div>
+                      <div className="max-h-36 overflow-y-auto">
+                        {filteredNdReviewers.map((person) => {
+                          const selected = ndSelectedReviewers.some((r) => r.name === person.name)
+                          return (
+                            <button
+                              key={person.name}
+                              onClick={() => handleToggleNdReviewer(person)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F9FAFB]"
+                            >
+                              <div className={cn(
+                                "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                                selected ? "bg-[#2563EB] border-[#2563EB]" : "border-[#D1D5DB] bg-white"
+                              )}>
+                                {selected && <CheckCircle className="h-3 w-3 text-white" />}
+                              </div>
+                              <div className="h-7 w-7 rounded-full bg-[#2563EB] flex items-center justify-center shrink-0">
+                                <span className="text-[10px] text-white font-medium">{person.name.slice(0, 1)}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-[#111827]">{person.name}</p>
+                                <p className="text-xs text-[#6B7280]">{person.role}</p>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#E5E7EB]">
+                  <button
+                    onClick={() => setShowNegotiationDialog(false)}
+                    className="px-4 py-2 text-sm font-medium text-[#374151] border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleSubmitNegotiationDecision}
+                    disabled={!ndForm.content.trim() || ndSelectedReviewers.length === 0}
+                    className="px-4 py-2 text-sm font-medium text-white bg-[#2563EB] rounded-lg hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    新增
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 谈判结果 */}
           <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-1 w-1 rounded-full bg-[#0EA5E9]" />
-              <h2 className="text-base font-semibold text-[#0EA5E9]">谈判结果</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-[#0EA5E9]" />
+                <h2 className="text-base font-semibold text-[#0EA5E9]">谈判结果</h2>
+              </div>
+              {isNewProject && !isInDuration && (
+                <button
+                  onClick={handleOpenNegotiationDialog}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#0EA5E9] border border-[#0EA5E9] rounded-lg hover:bg-[#F0F9FF] transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  新增谈判结果
+                </button>
+              )}
             </div>
             {selectedDetail.negotiationResult.content ? (
               <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
                 <div className="border-l-4 border-[#0EA5E9] p-5">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-[#111827]">最终结论</h3>
-                    <Badge className={cn(
-                      "text-xs",
-                      selectedDetail.negotiationResult.status === "agreed"
-                        ? "bg-[#DCFCE7] text-[#166534]"
-                        : selectedDetail.negotiationResult.status === "partial"
-                          ? "bg-[#FEF3C7] text-[#92400E]"
-                          : "bg-[#FEE2E2] text-[#991B1B]"
-                    )}>
-                      {selectedDetail.negotiationResult.conclusion}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge className={cn(
+                        "text-xs",
+                        selectedDetail.negotiationResult.status === "agreed"
+                          ? "bg-[#DCFCE7] text-[#166534]"
+                          : selectedDetail.negotiationResult.status === "partial"
+                            ? "bg-[#FEF3C7] text-[#92400E]"
+                            : "bg-[#FEE2E2] text-[#991B1B]"
+                      )}>
+                        {selectedDetail.negotiationResult.conclusion}
+                      </Badge>
+                      {isNewProject && !isInDuration && (
+                        <div className="flex items-center gap-1">
+                          <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
                     <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.negotiationResult.content}</p>
@@ -712,35 +1027,76 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-xl border border-[#E5E7EB] px-5 py-8 text-center text-sm text-[#9CA3AF]">
-                暂无
+              <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
+                <div className="border-l-4 border-[#0EA5E9] p-5">
+                  <div className="py-6 text-center text-sm text-[#9CA3AF] mb-4">暂无谈判结果</div>
+                  <div>
+                    <p className="text-xs text-[#6B7280] mb-2">评论</p>
+                    <div className="flex items-center gap-2 mt-3">
+                      <input type="text" placeholder="添加评论..." className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20 focus:border-[#0EA5E9]" />
+                      <button className="p-2 text-[#0EA5E9] hover:bg-[#F0F9FF] rounded-lg transition-colors">
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
           {/* 落实情况 */}
           <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-1 w-1 rounded-full bg-[#10B981]" />
-              <h2 className="text-base font-semibold text-[#10B981]">落实情况</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-[#10B981]" />
+                <h2 className="text-base font-semibold text-[#10B981]">落实情况</h2>
+              </div>
+              {isNewProject && isInDuration && (
+                <button
+                  onClick={handleOpenISDialog}
+                  className="flex items-center gap-1 rounded-lg bg-[#ECFDF5] px-3 py-1.5 text-xs font-medium text-[#10B981] hover:bg-[#D1FAE5] transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  新增落实情况
+                </button>
+              )}
             </div>
             {selectedDetail.implementationStatus.content ? (
               <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
                 <div className="border-l-4 border-[#10B981] p-5">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold text-[#111827]">执行状态</h3>
-                    <Badge className={cn(
-                      "text-xs",
-                      selectedDetail.implementationStatus.status === "implemented"
-                        ? "bg-[#DCFCE7] text-[#166534]"
-                        : selectedDetail.implementationStatus.status === "in-progress"
-                          ? "bg-[#FEF3C7] text-[#92400E]"
-                          : "bg-[#F3F4F6] text-[#6B7280]"
-                    )}>
-                      {selectedDetail.implementationStatus.status === "implemented" ? "已落实"
-                        : selectedDetail.implementationStatus.status === "in-progress" ? "执行中"
-                        : "未开始"}
-                    </Badge>
+                    <span className="text-sm font-semibold text-[#111827]">落实结论</span>
+                    <div className="flex items-center gap-2">
+                      <Badge className={cn(
+                        "text-xs",
+                        selectedDetail.implementationStatus.conclusion === "符合预期"
+                          ? "bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]"
+                          : selectedDetail.implementationStatus.conclusion === "待定"
+                            ? "bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]"
+                            : selectedDetail.implementationStatus.conclusion === "不符合预期"
+                              ? "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]"
+                              : selectedDetail.implementationStatus.status === "implemented"
+                                ? "bg-[#DCFCE7] text-[#166534]"
+                                : selectedDetail.implementationStatus.status === "in-progress"
+                                  ? "bg-[#FEF3C7] text-[#92400E]"
+                                  : "bg-[#F3F4F6] text-[#6B7280]"
+                      )}>
+                        {selectedDetail.implementationStatus.conclusion ||
+                          (selectedDetail.implementationStatus.status === "implemented" ? "已落实"
+                            : selectedDetail.implementationStatus.status === "in-progress" ? "执行中"
+                            : "未开始")}
+                      </Badge>
+                      {isNewProject && !isInDuration && (
+                        <div className="flex items-center gap-1">
+                          <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
                     <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.implementationStatus.content}</p>
@@ -766,8 +1122,8 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
                     <div className="flex items-center gap-2 mt-3">
-                      <input type="text" placeholder="添加评论..." className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]" />
-                      <button className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors">
+                      <input type="text" placeholder="添加评论..." className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#10B981]/20 focus:border-[#10B981]" />
+                      <button className="p-2 text-[#10B981] hover:bg-[#ECFDF5] rounded-lg transition-colors">
                         <Send className="h-4 w-4" />
                       </button>
                     </div>
@@ -775,11 +1131,189 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-xl border border-[#E5E7EB] px-5 py-8 text-center text-sm text-[#9CA3AF]">
-                暂无
+              <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
+                <div className="border-l-4 border-[#10B981] p-5">
+                  <div className="py-6 text-center text-sm text-[#9CA3AF] mb-4">暂无落实情况</div>
+                  <div>
+                    <p className="text-xs text-[#6B7280] mb-2">评论</p>
+                    <div className="flex items-center gap-2 mt-3">
+                      <input type="text" placeholder="添加评论..." className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#10B981]/20 focus:border-[#10B981]" />
+                      <button className="p-2 text-[#10B981] hover:bg-[#ECFDF5] rounded-lg transition-colors">
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
+
+          {/* Implementation Status Dialog */}
+          {showAddIS && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] flex flex-col">
+                <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#E5E7EB] shrink-0">
+                  <h3 className="text-base font-semibold text-[#111827]">新增落实情况</h3>
+                  <button onClick={() => setShowAddIS(false)} className="p-1 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
+                  {/* 落实内容 */}
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                      落实内容 <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <textarea
+                      className="w-full rounded-lg border border-[#E5E7EB] px-3 py-2 text-sm text-[#111827] resize-none focus:outline-none focus:ring-2 focus:ring-[#10B981]/20 focus:border-[#10B981]"
+                      rows={4}
+                      placeholder="请输入落实内容..."
+                      value={isContent}
+                      onChange={(e) => setIsContent(e.target.value)}
+                    />
+                  </div>
+                  {/* 落实结果 */}
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                      落实结果 <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setIsConclusion("符合预期")}
+                        className={cn(
+                          "flex-1 py-2 rounded-lg text-sm font-medium border transition-colors",
+                          isConclusion === "符合预期"
+                            ? "bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]"
+                            : "bg-white text-[#374151] border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        符合预期
+                      </button>
+                      <button
+                        onClick={() => setIsConclusion("待定")}
+                        className={cn(
+                          "flex-1 py-2 rounded-lg text-sm font-medium border transition-colors",
+                          isConclusion === "待定"
+                            ? "bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]"
+                            : "bg-white text-[#374151] border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        待定
+                      </button>
+                      <button
+                        onClick={() => setIsConclusion("不符合预期")}
+                        className={cn(
+                          "flex-1 py-2 rounded-lg text-sm font-medium border transition-colors",
+                          isConclusion === "不符合预期"
+                            ? "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]"
+                            : "bg-white text-[#374151] border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        不符合预期
+                      </button>
+                    </div>
+                  </div>
+                  {/* 相关材料 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-sm font-medium text-[#374151]">相关材料</label>
+                      <button className="flex items-center gap-1 text-xs text-[#6B7280] border border-[#E5E7EB] rounded-md px-2 py-1 hover:bg-[#F9FAFB] transition-colors">
+                        <Upload className="h-3 w-3" />
+                        上传材料
+                      </button>
+                    </div>
+                    {projectMaterials && projectMaterials.length > 0 ? (
+                      <div className="border border-[#E5E7EB] rounded-lg overflow-hidden max-h-36 overflow-y-auto">
+                        {projectMaterials.map((mat) => {
+                          const selected = isMaterials.includes(mat.id)
+                          return (
+                            <button
+                              key={mat.id}
+                              onClick={() => toggleISMaterial(mat.id)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F9FAFB]"
+                            >
+                              <div className={cn(
+                                "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                                selected ? "bg-[#10B981] border-[#10B981]" : "border-[#D1D5DB] bg-white"
+                              )}>
+                                {selected && <CheckCircle className="h-3 w-3 text-white" />}
+                              </div>
+                              <FileText className="h-4 w-4 text-[#9CA3AF] shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-[#111827] truncate">{mat.name}</p>
+                                <p className="text-xs text-[#9CA3AF]">{mat.format} · {mat.size || "—"}</p>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="border border-[#E5E7EB] rounded-lg px-4 py-3 text-sm text-[#9CA3AF] text-center">暂无项目材料</div>
+                    )}
+                  </div>
+                  {/* 负责人 */}
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">
+                      负责人 <span className="text-[#EF4444]">*</span>
+                    </label>
+                    <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-[#E5E7EB]">
+                        <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
+                        <input
+                          type="text"
+                          placeholder="搜索负责人..."
+                          className="flex-1 text-sm outline-none text-[#111827] placeholder:text-[#9CA3AF]"
+                          value={isSearch}
+                          onChange={(e) => setIsSearch(e.target.value)}
+                        />
+                      </div>
+                      <div className="max-h-36 overflow-y-auto">
+                        {filteredISPeople.map((person) => {
+                          const selected = isResponsibles.includes(person.name)
+                          return (
+                            <button
+                              key={person.name}
+                              onClick={() => toggleISResponsible(person.name)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F9FAFB]"
+                            >
+                              <div className={cn(
+                                "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                                selected ? "bg-[#10B981] border-[#10B981]" : "border-[#D1D5DB] bg-white"
+                              )}>
+                                {selected && <CheckCircle className="h-3 w-3 text-white" />}
+                              </div>
+                              <div className="h-7 w-7 rounded-full bg-[#10B981] flex items-center justify-center shrink-0">
+                                <span className="text-[10px] text-white font-medium">{person.name.slice(0, 1)}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-[#111827]">{person.name}</p>
+                                <p className="text-xs text-[#6B7280]">{person.role}</p>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#E5E7EB] shrink-0">
+                  <button
+                    onClick={() => setShowAddIS(false)}
+                    className="px-4 py-2 text-sm font-medium text-[#374151] border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleSubmitIS}
+                    disabled={!isContent.trim() || isResponsibles.length === 0}
+                    className="px-4 py-2 text-sm font-medium text-white bg-[#10B981] rounded-lg hover:bg-[#059669] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    新增
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -818,7 +1352,11 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-[#111827]">条款清单</h1>
-            <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
+            {isNewProject && isInDuration ? (
+              <p className="mt-1 text-sm text-[#D97706] font-medium">项目已进入存续期，已有条款不可更改。</p>
+            ) : (
+              <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <div className="relative">
@@ -831,10 +1369,12 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
                 className="w-64 pl-9 bg-white border-[#E5E7EB]"
               />
             </div>
-            <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
-              <Plus className="h-4 w-4 mr-2" />
-              新建条款
-            </Button>
+            {!(isNewProject && isInDuration) && (
+              <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
+                <Plus className="h-4 w-4 mr-2" />
+                新建条款
+              </Button>
+            )}
           </div>
         </div>
 
@@ -890,13 +1430,15 @@ export function TermSheet({ isNewProject = false, project, inheritedTerms, extra
                         <Eye className="h-3 w-3" />
                         详情
                       </button>
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#EF4444] hover:bg-[#FEF2F2] rounded transition-colors"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        删除
-                      </button>
+                      {!(isNewProject && isInDuration) && (
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#EF4444] hover:bg-[#FEF2F2] rounded transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          删除
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

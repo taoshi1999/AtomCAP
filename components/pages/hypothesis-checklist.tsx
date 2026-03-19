@@ -18,8 +18,10 @@ import {
   ArrowLeft,
   Eye,
   Trash2,
+  Pencil,
   User,
   X,
+  Upload,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,7 +40,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import type { CommitteeDecisionFormData } from "./workflow"
+import type { CommitteeDecisionFormData, VerificationFormData } from "./workflow"
+import type { StrategyMaterial } from "./strategies-grid"
 
 /* ------------------------------------------------------------------ */
 /*  Data types                                                         */
@@ -533,7 +536,7 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
       ],
     },
     verification: {
-      conclusion: "假设已验证",
+      conclusion: "符合预期",
       status: "confirmed",
       content: "投资后6个月跟踪显示，创始人的学术背景为公司招募顶级人才提供了重要背书，已成功吸引多名顶级学者加入。技术团队在大模型训练优化方面取得突破性进展，与创始人的学术积累密切相关。",
       creator: PEOPLE.zhangwei,
@@ -545,6 +548,376 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
       { id: "lt1", title: "投资方有权委派一名董事进入公司董事会", termId: "TM-2024-001", status: "approved" },
       { id: "lt2", title: "投资方有权委派一名观察员列席董事会会议", termId: "TM-2024-002", status: "approved" },
     ],
+  },
+  "biz-exp": {
+    id: "biz-exp",
+    title: "创始人具备丰富的AI产品商业化经验",
+    qaId: "QA-2024-002",
+    createdAt: "2026-01-15",
+    updatedAt: "2026-02-18",
+    status: "pending",
+    creator: PEOPLE.lisi,
+    valuePoints: [
+      {
+        id: "biz-vp1",
+        title: "曾主导多款AI产品从0到1的商业化落地",
+        evidence: {
+          description: "创始人在加入MiniMax前曾在头部AI公司担任产品负责人，主导完成3款to B AI产品的商业化，累计ARR超过5000万元",
+          files: [
+            { name: "商业化案例汇总.pdf", size: "3.2 MB", date: "2024-02-10" },
+          ],
+        },
+        analysis: {
+          content: "创始人的商业化经验覆盖了企业客户获取、定价策略制定和销售体系搭建，对当前MiniMax的to B战略具有直接参考价值。",
+          creator: PEOPLE.lisi,
+          reviewers: [PEOPLE.zhangwei, PEOPLE.wangwu],
+          createdAt: "2024-02-10",
+        },
+        comments: [],
+      },
+    ],
+    riskPoints: [
+      {
+        id: "biz-rp1",
+        title: "过往经验集中在特定垂直赛道，横向迁移能力待验证",
+        evidence: {
+          description: "商业化经验主要集中在医疗AI和金融AI领域，而MiniMax定位为通用大模型，业务场景差异较大",
+          files: [],
+        },
+        analysis: {
+          content: "垂直赛道的商业化方法论与通用大模型的开放生态策略存在较大差异，需关注创始人能否有效迁移其经验。",
+          creator: PEOPLE.zhangwei,
+          reviewers: [PEOPLE.lisi],
+          createdAt: "2024-02-12",
+        },
+        comments: [],
+      },
+    ],
+    committeeDecision: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangzong,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.lisi,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
+  },
+  "leadership": {
+    id: "leadership",
+    title: "创始人展现出强大的团队凝聚力和战略规划能力",
+    qaId: "QA-2024-003",
+    createdAt: "2026-01-16",
+    updatedAt: "2026-02-19",
+    status: "pending",
+    creator: PEOPLE.zhangwei,
+    valuePoints: [
+      {
+        id: "lead-vp1",
+        title: "核心团队稳定性高，关键人员任职均超过2年",
+        evidence: {
+          description: "MiniMax核心团队10人中，有8人跟随创始人超过2年，团队离职率显著低于行业平均水平",
+          files: [
+            { name: "核心团队背景调查.pdf", size: "2.1 MB", date: "2024-02-15" },
+          ],
+        },
+        analysis: {
+          content: "核心团队的高稳定性是创始人领导力的直接体现，也为公司的长期战略执行提供了重要保障。",
+          creator: PEOPLE.zhangwei,
+          reviewers: [PEOPLE.lisi, PEOPLE.wangwu],
+          createdAt: "2024-02-15",
+        },
+        comments: [],
+      },
+    ],
+    riskPoints: [],
+    committeeDecision: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangzong,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.zhangwei,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
+  },
+  "tech-team": {
+    id: "tech-team",
+    title: "技术团队在大模型训练和推理优化方面具备业界领先水平",
+    qaId: "QA-2024-004",
+    createdAt: "2026-01-17",
+    updatedAt: "2026-02-21",
+    status: "pending",
+    creator: PEOPLE.wangwu,
+    valuePoints: [
+      {
+        id: "tt-vp1",
+        title: "团队成员来自顶尖高校及头部AI企业",
+        evidence: {
+          description: "技术团队中有6名PhD，分别来自清华、北大、CMU等顶尖高校，并有多名前百度、字节核心技术人员",
+          files: [
+            { name: "技术团队学历背景.xlsx", size: "1.3 MB", date: "2024-02-20" },
+          ],
+        },
+        analysis: {
+          content: "顶尖的学历背景与工业界经验的结合，使MiniMax的技术团队在大模型领域具备了稀缺的复合型能力。",
+          creator: PEOPLE.wangwu,
+          reviewers: [PEOPLE.zhangwei, PEOPLE.lisi],
+          createdAt: "2024-02-20",
+        },
+        comments: [],
+      },
+    ],
+    riskPoints: [
+      {
+        id: "tt-rp1",
+        title: "核心技术人员存在被竞争对手挖角的风险",
+        evidence: {
+          description: "大模型赛道竞争激烈，多家头部公司正在积极扩张技术团队，MiniMax核心技术人员薪酬面临竞争压力",
+          files: [],
+        },
+        analysis: {
+          content: "建议在投资条款中加入关键人员锁定条款，并关注员工持股计划的激励效果。",
+          creator: PEOPLE.lisi,
+          reviewers: [PEOPLE.zhangwei],
+          createdAt: "2024-02-22",
+        },
+        comments: [],
+      },
+    ],
+    committeeDecision: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangzong,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangwu,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
+  },
+  "market-team": {
+    id: "market-team",
+    title: "市场团队拥有深厚的企业客户资源和渠道网络",
+    qaId: "QA-2024-005",
+    createdAt: "2026-01-18",
+    updatedAt: "2026-02-22",
+    status: "pending",
+    creator: PEOPLE.lisi,
+    valuePoints: [],
+    riskPoints: [
+      {
+        id: "mt-rp1",
+        title: "企业客户资源主要依赖少数关键销售人员",
+        evidence: {
+          description: "初步调研显示，市场团队约70%的客户资源集中在2-3名核心销售人员手中，存在单点依赖风险",
+          files: [],
+        },
+        analysis: {
+          content: "需关注关键销售人员离职对客户资源的影响，建议在尽调中进一步核实客户关系的沉淀情况。",
+          creator: PEOPLE.lisi,
+          reviewers: [PEOPLE.zhangwei],
+          createdAt: "2024-02-25",
+        },
+        comments: [],
+      },
+    ],
+    committeeDecision: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangzong,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.lisi,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
+  },
+  "tam": {
+    id: "tam",
+    title: "中国大模型市场总规模在2025年将达到500亿元",
+    qaId: "QA-2024-006",
+    createdAt: "2026-01-20",
+    updatedAt: "2026-02-25",
+    status: "pending",
+    creator: PEOPLE.zhangwei,
+    valuePoints: [
+      {
+        id: "tam-vp1",
+        title: "多家权威机构预测数据相互印证",
+        evidence: {
+          description: "IDC、艾瑞咨询、Gartner等机构对2025年中国大模型市场规模的预测区间均在400-600亿元之间",
+          files: [
+            { name: "市场规模研究报告汇总.pdf", size: "5.8 MB", date: "2024-03-01" },
+          ],
+        },
+        analysis: {
+          content: "多家权威机构的数据相互印证，市场规模预测具有较高可信度，500亿元是相对保守的中位估计。",
+          creator: PEOPLE.zhangwei,
+          reviewers: [PEOPLE.lisi, PEOPLE.wangwu],
+          createdAt: "2024-03-01",
+        },
+        comments: [],
+      },
+    ],
+    riskPoints: [],
+    committeeDecision: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangzong,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.zhangwei,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
+  },
+  "sam": {
+    id: "sam",
+    title: "企业级AI应用市场可服务规模达到200亿元",
+    qaId: "QA-2024-007",
+    createdAt: "2026-01-21",
+    updatedAt: "2026-02-26",
+    status: "risky",
+    creator: PEOPLE.lisi,
+    valuePoints: [],
+    riskPoints: [
+      {
+        id: "sam-rp1",
+        title: "企业级市场渗透率被高估，实际可服务规模存在较大不确定性",
+        evidence: {
+          description: "对20家目标企业客户的访谈显示，其中仅35%表示有明确的AI采购预算，实际可服务规模可能在80-120亿元区间",
+          files: [
+            { name: "企业客户访谈报告.pdf", size: "4.2 MB", date: "2024-03-05" },
+          ],
+        },
+        analysis: {
+          content: "企业级AI市场的渗透速度受限于客户数字化成熟度、数据安全顾虑和采购决策周期，200亿元的预测偏于乐观。",
+          creator: PEOPLE.lisi,
+          reviewers: [PEOPLE.zhangwei, PEOPLE.wangwu],
+          createdAt: "2024-03-05",
+        },
+        comments: [
+          { author: "张伟", content: "同意这一风险判断，建议重新评估市场空间假设", time: "2024-03-06 10:00" },
+        ],
+      },
+    ],
+    committeeDecision: {
+      conclusion: "假设不成立",
+      status: "rejected",
+      content: "经投委会审议，企业级AI市场可服务规模200亿元的假设被认定为不成立。基于对标企业数据和客户访谈，实际SAM更可能在100亿元左右。建议修订商业计划中的市场空间假设，并重新评估营收预测。",
+      creator: PEOPLE.wangzong,
+      reviewers: [PEOPLE.chenzong, PEOPLE.zhangwei],
+      createdAt: "2026-02-15",
+      comments: [
+        { author: "张伟", content: "投委会结论与我们的实地调研结果一致", time: "2026-02-15 17:00" },
+      ],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.lisi,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
+  },
+  "som": {
+    id: "som",
+    title: "MiniMax可触达市场规模约50亿元",
+    qaId: "QA-2024-008",
+    createdAt: "2026-01-22",
+    updatedAt: "2026-02-27",
+    status: "pending",
+    creator: PEOPLE.wangwu,
+    valuePoints: [
+      {
+        id: "som-vp1",
+        title: "现有客户管道已覆盖预期SOM的30%",
+        evidence: {
+          description: "MiniMax目前已有意向客户合同金额累计约15亿元，占预期50亿SOM的30%，验证了可触达性",
+          files: [
+            { name: "销售管道数据.xlsx", size: "2.0 MB", date: "2024-03-10" },
+          ],
+        },
+        analysis: {
+          content: "现有销售管道数据为SOM预测提供了一定的实证支撑，但最终转化率和时间周期仍需持续跟踪。",
+          creator: PEOPLE.wangwu,
+          reviewers: [PEOPLE.zhangwei],
+          createdAt: "2024-03-10",
+        },
+        comments: [],
+      },
+    ],
+    riskPoints: [],
+    committeeDecision: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangzong,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    verification: {
+      conclusion: "",
+      status: "pending",
+      content: "",
+      creator: PEOPLE.wangwu,
+      reviewers: [],
+      createdAt: "",
+      comments: [],
+    },
+    linkedTerms: [],
   },
 }
 
@@ -655,15 +1028,18 @@ export function getTemplateHypothesesForStrategy(strategyId: string): Hypothesis
 /* ------------------------------------------------------------------ */
 interface HypothesisChecklistProps {
   isNewProject?: boolean
+  isInDuration?: boolean
   project?: { strategyId?: string; strategyName?: string; id?: string; name?: string }
+  projectMaterials?: StrategyMaterial[]
   inheritedHypotheses?: HypothesisTableItem[]
   extraDetails?: Record<string, HypothesisDetail>
   onAddValuePoint?: (hypothesisId: string, vp: ValuePoint) => void
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
+  onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
 }
 
-export function HypothesisChecklist({ isNewProject = false, project, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -691,6 +1067,14 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
   const [cdConclusion, setCdConclusion] = useState<"假设成立" | "假设不成立">("假设成立")
   const [cdReviewers, setCdReviewers] = useState<string[]>([])
   const [cdSearchQuery, setCdSearchQuery] = useState("")
+
+  // Add verification dialog state
+  const [showAddVF, setShowAddVF] = useState(false)
+  const [vfContent, setVfContent] = useState("")
+  const [vfConclusion, setVfConclusion] = useState<"符合预期" | "不符合预期">("符合预期")
+  const [vfMaterials, setVfMaterials] = useState<string[]>([])
+  const [vfResponsibles, setVfResponsibles] = useState<string[]>([])
+  const [vfSearch, setVfSearch] = useState("")
 
   // Priority: inherited (from approved project) > template > existing mock data
   const sourceData = inheritedHypotheses
@@ -826,6 +1210,35 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
     )
   }
 
+  function handleSubmitVerification() {
+    if (!selectedId || !vfContent.trim() || vfResponsibles.length === 0 || !selectedDetail) return
+    const data: VerificationFormData = {
+      content: vfContent,
+      conclusion: vfConclusion,
+      materials: vfMaterials,
+      responsibles: vfResponsibles.map((k) => PEOPLE[k]).filter(Boolean),
+    }
+    onCreateVerification?.(selectedId, selectedDetail.title, data)
+    setVfContent("")
+    setVfConclusion("符合预期")
+    setVfMaterials([])
+    setVfResponsibles([])
+    setVfSearch("")
+    setShowAddVF(false)
+  }
+
+  function toggleVfMaterial(id: string) {
+    setVfMaterials((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+    )
+  }
+
+  function toggleVfResponsible(key: string) {
+    setVfResponsibles((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    )
+  }
+
   // For new projects without a strategy template, show empty state
   if (isNewProject && !project?.strategyId) {
     return (
@@ -912,7 +1325,19 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
             {[...selectedDetail.valuePoints, ...(localValuePoints[selectedId ?? ""] || [])].map((vp) => (
               <div key={vp.id} className="bg-white rounded-xl border border-[#E5E7EB] mb-4 overflow-hidden">
                 <div className="border-l-4 border-[#22C55E] p-5">
-                  <h3 className="font-semibold text-[#22C55E] mb-3">{vp.title}</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-[#22C55E]">{vp.title}</h3>
+                    {isNewProject && (
+                      <div className="flex items-center gap-1">
+                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Evidence */}
                   <div className="mb-4">
@@ -1014,7 +1439,19 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
             {[...selectedDetail.riskPoints, ...(localRiskPoints[selectedId ?? ""] || [])].map((rp) => (
               <div key={rp.id} className="bg-white rounded-xl border border-[#E5E7EB] mb-4 overflow-hidden">
                 <div className="border-l-4 border-[#EF4444] p-5">
-                  <h3 className="font-semibold text-[#EF4444] mb-3">{rp.title}</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-[#EF4444]">{rp.title}</h3>
+                    {isNewProject && (
+                      <div className="flex items-center gap-1">
+                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Evidence */}
                   <div className="mb-4">
@@ -1098,42 +1535,60 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
 
           {/* Committee decision section */}
           <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-1 w-1 rounded-full bg-[#2563EB]" />
-              <h2 className="text-base font-semibold text-[#2563EB]">投委决议</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-[#2563EB]" />
+                <h2 className="text-base font-semibold text-[#2563EB]">投委会审议结果</h2>
+              </div>
+              {isNewProject && (
+                <button
+                  onClick={() => setShowAddCD(true)}
+                  className="flex items-center gap-1 rounded-lg bg-[#EFF6FF] px-3 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-[#DBEAFE] transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  新增审议结果
+                </button>
+              )}
             </div>
             <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
               <div className="border-l-4 border-[#2563EB] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-[#111827]">投委会审议结果</h3>
-                  <div className="flex items-center gap-2">
-                    {selectedDetail.committeeDecision.conclusion ? (
-                      <Badge className="bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]">
-                        {selectedDetail.committeeDecision.conclusion}
-                      </Badge>
-                    ) : null}
-                    {isNewProject && (
-                      <button
-                        onClick={() => setShowAddCD(true)}
-                        className="flex items-center gap-1 rounded-lg bg-[#EFF6FF] px-3 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-[#DBEAFE] transition-colors"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        新增审议结果
-                      </button>
-                    )}
-                  </div>
-                </div>
-
                 {selectedDetail.committeeDecision.content ? (
-                  <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
-                    <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.committeeDecision.content}</p>
-                  </div>
+                  <>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold text-[#111827]">审议结论</span>
+                      <div className="flex items-center gap-2">
+                        {selectedDetail.committeeDecision.conclusion && (
+                          <Badge className={cn(
+                            "text-xs",
+                            selectedDetail.committeeDecision.conclusion === "假设成立"
+                              ? "bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]"
+                              : "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]"
+                          )}>
+                            {selectedDetail.committeeDecision.conclusion}
+                          </Badge>
+                        )}
+                        {isNewProject && (
+                          <div className="flex items-center gap-1">
+                            <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
+                      <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.committeeDecision.content}</p>
+                    </div>
+                  </>
                 ) : (
-                  <p className="text-sm text-[#9CA3AF] mb-4">暂无审议结果</p>
+                  <div className="py-6 text-center text-sm text-[#9CA3AF] mb-4">暂无审议结果</div>
                 )}
 
                 {/* Creator & Reviewers */}
-                {selectedDetail.committeeDecision.creator?.name && (
+                {selectedDetail.committeeDecision.content && selectedDetail.committeeDecision.creator?.name && (
                   <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
                     <div className="flex items-center gap-1">
                       <div className="h-5 w-5 rounded-full bg-[#2563EB] flex items-center justify-center">
@@ -1188,31 +1643,60 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
 
           {/* Verification section */}
           <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-1 w-1 rounded-full bg-[#8B5CF6]" />
-              <h2 className="text-base font-semibold text-[#8B5CF6]">验证情况</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-[#8B5CF6]" />
+                <h2 className="text-base font-semibold text-[#8B5CF6]">验证情况</h2>
+              </div>
+              {isNewProject && isInDuration && (
+                <button
+                  onClick={() => setShowAddVF(true)}
+                  className="flex items-center gap-1 rounded-lg bg-[#F5F3FF] px-3 py-1.5 text-xs font-medium text-[#8B5CF6] hover:bg-[#EDE9FE] transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  新增验证情况
+                </button>
+              )}
             </div>
             <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
               <div className="border-l-4 border-[#8B5CF6] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-[#111827]">投后验证评估</h3>
-                  {selectedDetail.verification.conclusion ? (
-                    <Badge className="bg-[#F3E8FF] text-[#7C3AED] border-[#DDD6FE]">
-                      {selectedDetail.verification.conclusion}
-                    </Badge>
-                  ) : null}
-                </div>
-
                 {selectedDetail.verification.content ? (
-                  <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
-                    <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.verification.content}</p>
-                  </div>
+                  <>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold text-[#111827]">验证结论</span>
+                      <div className="flex items-center gap-2">
+                        {selectedDetail.verification.conclusion && (
+                          <Badge className={cn(
+                            "text-xs",
+                            selectedDetail.verification.conclusion === "符合预期"
+                              ? "bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]"
+                              : "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]"
+                          )}>
+                            {selectedDetail.verification.conclusion}
+                          </Badge>
+                        )}
+                        {isNewProject && (
+                          <div className="flex items-center gap-1">
+                            <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-[#F9FAFB] rounded-lg mb-4">
+                      <p className="text-sm text-[#374151] leading-relaxed">{selectedDetail.verification.content}</p>
+                    </div>
+                  </>
                 ) : (
-                  <p className="text-sm text-[#9CA3AF] mb-4">暂无验证评估</p>
+                  <div className="py-6 text-center text-sm text-[#9CA3AF] mb-4">暂无验证评估</div>
                 )}
 
                 {/* Creator & Reviewers */}
-                {selectedDetail.verification.creator?.name && (
+                {selectedDetail.verification.content && selectedDetail.verification.creator?.name && (
                   <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
                     <div className="flex items-center gap-1">
                       <div className="h-5 w-5 rounded-full bg-[#2563EB] flex items-center justify-center">
@@ -1240,9 +1724,9 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                     <input
                       type="text"
                       placeholder="添加评论..."
-                      className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                      className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6]"
                     />
-                    <button className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors">
+                    <button className="p-2 text-[#8B5CF6] hover:bg-[#F5F3FF] rounded-lg transition-colors">
                       <Send className="h-4 w-4" />
                     </button>
                   </div>
@@ -1513,6 +1997,180 @@ export function HypothesisChecklist({ isNewProject = false, project, inheritedHy
                 onClick={handleSubmitCommitteeDecision}
                 disabled={!cdContent.trim() || cdReviewers.length === 0}
                 className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                新增
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Verification Dialog */}
+        <Dialog open={showAddVF} onOpenChange={setShowAddVF}>
+          <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-[#111827]">新增验证情况</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {/* 验证内容 */}
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">验证内容 <span className="text-red-500">*</span></label>
+                <textarea
+                  placeholder="请输入验证内容..."
+                  value={vfContent}
+                  onChange={(e) => setVfContent(e.target.value)}
+                  rows={4}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6] resize-none"
+                />
+              </div>
+              {/* 验证结果 */}
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">验证结果 <span className="text-red-500">*</span></label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setVfConclusion("符合预期")}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
+                      vfConclusion === "符合预期"
+                        ? "border-[#22C55E] bg-[#F0FDF4] text-[#16A34A]"
+                        : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]"
+                    )}
+                  >
+                    符合预期
+                  </button>
+                  <button
+                    onClick={() => setVfConclusion("不符合预期")}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
+                      vfConclusion === "不符合预期"
+                        ? "border-[#EF4444] bg-[#FEF2F2] text-[#DC2626]"
+                        : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]"
+                    )}
+                  >
+                    不符合预期
+                  </button>
+                </div>
+              </div>
+              {/* 相关材料 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-[#374151]">相关材料</label>
+                  <button
+                    className="flex items-center gap-1 text-xs text-[#8B5CF6] hover:text-[#7C3AED] transition-colors"
+                    onClick={() => {/* 上传功能展示用，不实现 */}}
+                  >
+                    <Upload className="h-3 w-3" />
+                    上传材料
+                  </button>
+                </div>
+                <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                  {projectMaterials && projectMaterials.length > 0 ? (
+                    <div className="divide-y divide-[#F3F4F6] max-h-[160px] overflow-y-auto">
+                      {projectMaterials.map((material) => (
+                        <button
+                          key={material.id}
+                          onClick={() => toggleVfMaterial(material.id)}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                            vfMaterials.includes(material.id) ? "bg-[#F5F3FF]" : "hover:bg-[#F9FAFB]"
+                          )}
+                        >
+                          <div className={cn(
+                            "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                            vfMaterials.includes(material.id)
+                              ? "border-[#8B5CF6] bg-[#8B5CF6]"
+                              : "border-[#D1D5DB] bg-white"
+                          )}>
+                            {vfMaterials.includes(material.id) && (
+                              <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                                <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          <FileText className="h-4 w-4 text-[#8B5CF6] shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-[#111827] truncate">{material.name}</p>
+                            <p className="text-xs text-[#9CA3AF]">{material.format} · {material.size}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">暂无项目材料</div>
+                  )}
+                </div>
+                {vfMaterials.length > 0 && (
+                  <p className="text-xs text-[#6B7280] mt-1.5">已选择 {vfMaterials.length} 份材料</p>
+                )}
+              </div>
+              {/* 负责人 */}
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">负责人 <span className="text-red-500">*</span></label>
+                <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                  <div className="p-2 border-b border-[#E5E7EB] bg-[#F9FAFB]">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-3.5 w-3.5 text-[#9CA3AF] shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="搜索负责人..."
+                        value={vfSearch}
+                        onChange={(e) => setVfSearch(e.target.value)}
+                        className="flex-1 text-sm bg-transparent outline-none text-[#374151] placeholder:text-[#9CA3AF]"
+                      />
+                    </div>
+                  </div>
+                  <div className="divide-y divide-[#F3F4F6] max-h-[160px] overflow-y-auto">
+                    {Object.entries(PEOPLE)
+                      .filter(([, p]) =>
+                        p.name.includes(vfSearch) || p.role.includes(vfSearch)
+                      )
+                      .map(([key, person]) => (
+                        <button
+                          key={key}
+                          onClick={() => toggleVfResponsible(key)}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                            vfResponsibles.includes(key) ? "bg-[#F5F3FF]" : "hover:bg-[#F9FAFB]"
+                          )}
+                        >
+                          <div className={cn(
+                            "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                            vfResponsibles.includes(key)
+                              ? "border-[#8B5CF6] bg-[#8B5CF6]"
+                              : "border-[#D1D5DB] bg-white"
+                          )}>
+                            {vfResponsibles.includes(key) && (
+                              <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                                <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          <div className="h-7 w-7 rounded-full bg-[#8B5CF6] flex items-center justify-center shrink-0">
+                            <span className="text-[10px] text-white font-medium">{person.name.slice(0, 1)}</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-[#111827]">{person.name}</p>
+                            <p className="text-xs text-[#6B7280]">{person.role}</p>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+                {vfResponsibles.length > 0 && (
+                  <p className="text-xs text-[#6B7280] mt-1.5">已选择 {vfResponsibles.length} 位负责人</p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => { setShowAddVF(false); setVfContent(""); setVfConclusion("符合预期"); setVfMaterials([]); setVfResponsibles([]); setVfSearch("") }}
+                className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitVerification}
+                disabled={!vfContent.trim() || vfResponsibles.length === 0}
+                className="rounded-lg bg-[#8B5CF6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7C3AED] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 新增
               </button>

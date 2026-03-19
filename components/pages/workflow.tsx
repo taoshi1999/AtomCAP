@@ -88,8 +88,17 @@ type FullPageView =
   | "term-generation"
   | "material-generation"
   | "ai-research-generation"
+  | "tracking-generation"
   | "ai-chat"
   | null
+
+// Tracking summary item for duration period
+interface TrackingItem {
+  id: string
+  name: string       // 假设或条款具体名称
+  progress: string   // 当前进展
+  nextAction: string // 下一步行动建议
+}
 
 interface ChatMessage {
   role: "user" | "assistant"
@@ -194,6 +203,77 @@ export interface PendingCommitteeDecision {
   changeId: string
   changeName: string
   changeType: "committee-decision"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
+// Negotiation decision form data
+export interface NegotiationDecisionFormData {
+  content: string
+  conclusion: "通过" | "否决"
+  reviewers: { name: string; role: string }[]
+}
+
+// Pending negotiation decision change request
+export interface PendingNegotiationDecision {
+  id: string
+  projectId: string
+  projectName: string
+  termId: string
+  termName: string
+  decision: NegotiationDecisionFormData
+  changeId: string
+  changeName: string
+  changeType: "negotiation-decision"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
+// Verification form data
+export interface VerificationFormData {
+  content: string
+  conclusion: "符合预期" | "不符合预期"
+  materials: string[] // material IDs
+  responsibles: { name: string; role: string }[]
+}
+
+// Pending verification change request
+export interface PendingVerification {
+  id: string
+  projectId: string
+  projectName: string
+  hypothesisId: string
+  hypothesisName: string
+  data: VerificationFormData
+  changeId: string
+  changeName: string
+  changeType: "verification"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
+// Implementation status form data
+export interface ImplementationStatusFormData {
+  content: string
+  conclusion: "符合预期" | "待定" | "不符合预期"
+  materials: string[] // material IDs
+  responsibles: { name: string; role: string }[]
+}
+
+// Pending implementation status change request
+export interface PendingImplementationStatus {
+  id: string
+  projectId: string
+  projectName: string
+  termId: string
+  termName: string
+  data: ImplementationStatusFormData
+  changeId: string
+  changeName: string
+  changeType: "implementation-status"
   initiator: { id: string; name: string; initials: string }
   initiatedAt: string
   reviewers: { id: string; name: string; initials: string }[]
@@ -678,6 +758,13 @@ export function Workflow({
   const [generatedAiResearchGroups, setGeneratedAiResearchGroups] = useState<GeneratedAiResearchGroup[]>(savedGeneratedAiResearchGroups || [])
   const [uploadedAiResearchMaterialIds, setUploadedAiResearchMaterialIds] = useState<Set<string>>(new Set())
 
+  // Tracking summary generation state (duration period)
+  const [isTrackingGenerating, setIsTrackingGenerating] = useState(false)
+  const [trackingGenerationComplete, setTrackingGenerationComplete] = useState(false)
+  const [trackingThinkingSteps, setTrackingThinkingSteps] = useState<ThinkingStep[]>([])
+  const [generatedTrackingHypotheses, setGeneratedTrackingHypotheses] = useState<TrackingItem[]>([])
+  const [generatedTrackingTerms, setGeneratedTrackingTerms] = useState<TrackingItem[]>([])
+
   // Material creation dialog state
   const [showMaterialCreateDialog, setShowMaterialCreateDialog] = useState(false)
   const [materialFormData, setMaterialFormData] = useState<ProjectMaterialFormData>({
@@ -904,6 +991,17 @@ export function Workflow({
       return
     }
 
+    // For tracking-summary, open full page view
+    if (type === "tracking-summary") {
+      setFullPageView("tracking-generation")
+      setIsTrackingGenerating(false)
+      setTrackingThinkingSteps([])
+      setGeneratedTrackingHypotheses([])
+      setGeneratedTrackingTerms([])
+      setTrackingGenerationComplete(false)
+      return
+    }
+
     // For ai-chat, open full page view
     if (type === "ai-chat") {
       setFullPageView("ai-chat")
@@ -953,6 +1051,12 @@ export function Workflow({
     setAiResearchThinkingSteps([])
     setGeneratedAiResearchGroups([])
     setUploadedAiResearchMaterialIds(new Set())
+    // Also reset tracking state
+    setIsTrackingGenerating(false)
+    setTrackingGenerationComplete(false)
+    setTrackingThinkingSteps([])
+    setGeneratedTrackingHypotheses([])
+    setGeneratedTrackingTerms([])
     // Also reset chat thinking state
     setIsChatThinking(false)
   }
@@ -1865,6 +1969,87 @@ export function Workflow({
           onSaveSuggestions?.(suggestions)
           setIsGenerating(false)
           setGenerationComplete(true)
+        }, 500)
+      }
+    }, 800)
+  }
+
+  function handleStartTracking() {
+    setIsTrackingGenerating(true)
+    setTrackingGenerationComplete(false)
+
+    const steps: ThinkingStep[] = [
+      { id: "tk1", label: "读取假设清单及验证情况...", status: "waiting" },
+      { id: "tk2", label: "读取条款清单及落实情况...", status: "waiting" },
+      { id: "tk3", label: "对比预期目标与实际进展...", status: "waiting" },
+      { id: "tk4", label: "识别偏差与风险点...", status: "waiting" },
+      { id: "tk5", label: "生成跟踪情况汇总...", status: "waiting" },
+    ]
+    setTrackingThinkingSteps(steps)
+
+    let currentStep = 0
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setTrackingThinkingSteps((prev) =>
+          prev.map((step, idx) => ({
+            ...step,
+            status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+          }))
+        )
+        currentStep++
+      } else {
+        clearInterval(interval)
+        setTrackingThinkingSteps((prev) =>
+          prev.map((step) => ({ ...step, status: "completed" }))
+        )
+
+        setTimeout(() => {
+          const hypotheses: TrackingItem[] = [
+            {
+              id: "th1",
+              name: "AI基础设施市场规模快速增长",
+              progress: "已通过市场调研验证，2024年市场增速达38%，符合预期。Q3营收同比增长42%，客户续约率达91%，核心指标持续超预期。",
+              nextAction: "建议在下一阶段重新评估市场天花板，补充新兴场景数据，以支持更激进的增长假设。",
+            },
+            {
+              id: "th2",
+              name: "公司在AI推理优化领域具备核心技术壁垒",
+              progress: "技术壁垒假设部分验证。推理效率较业界平均水平提升40%，但竞争对手发布了类似技术方案，差异化优势有所收窄。",
+              nextAction: "建议重点跟踪竞对技术进展，并推动公司加快专利布局，重点围绕低延迟推理算法申请保护性专利。",
+            },
+            {
+              id: "th3",
+              name: "创始团队具备商业化落地能力",
+              progress: "已签署3家大型企业客户，平均合同金额超预期约20%，商业化进展良好。但销售团队规模扩张速度低于计划，存在执行缺口。",
+              nextAction: "建议督促管理层加快销售团队招聘，并关注近两个季度的新增签约情况是否回归正轨。",
+            },
+          ]
+
+          const terms: TrackingItem[] = [
+            {
+              id: "tt1",
+              name: "反稀释条款",
+              progress: "公司已完成B轮融资，融资估值较A轮上涨65%，触发加权平均反稀释机制，本基金已按条款完成份额调整，落实完毕，符合预期。",
+              nextAction: "无需立即行动。建议在C轮前提前确认条款优先级及执行机制，避免后续轮次出现争议。",
+            },
+            {
+              id: "tt2",
+              name: "信息权与检查权",
+              progress: "公司本季度财报延迟3周交付，月度经营数据报送频率不达标（实际每季度1次，约定每月1次），条款落实情况待改善。",
+              nextAction: "建议发送正式函件要求公司按约定频率提供信息，必要时启动董事会层面协调，强化信息权落实。",
+            },
+            {
+              id: "tt3",
+              name: "创始人股权锁定条款",
+              progress: "锁定期内创始人股权结构保持稳定，无转让记录，条款正常落实中。",
+              nextAction: "继续监控股权变动情况，并在锁定期到期前6个月启动续约谈判，确保核心创始人稳定性。",
+            },
+          ]
+
+          setGeneratedTrackingHypotheses(hypotheses)
+          setGeneratedTrackingTerms(terms)
+          setIsTrackingGenerating(false)
+          setTrackingGenerationComplete(true)
         }, 500)
       }
     }, 800)
@@ -3600,6 +3785,200 @@ ${logs}
                   >
                     <Check className="h-4 w-4" />
                     完成并返回
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show full page tracking summary view
+  if (fullPageView === "tracking-generation") {
+    const totalItems = generatedTrackingHypotheses.length + generatedTrackingTerms.length
+    return (
+      <div className="flex h-full flex-col bg-[#F9FAFB]">
+        {/* Header */}
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-8 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleCloseFullPageView}
+                className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                返回工作流
+              </button>
+              <div className="h-6 w-px bg-[#E5E7EB]" />
+              <div>
+                <h1 className="text-xl font-bold text-[#111827]">跟踪情况汇总</h1>
+                <p className="text-sm text-[#6B7280]">{currentPhase?.fullLabel || "存续期 - 阶段1"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-4xl">
+            {!isTrackingGenerating && !trackingGenerationComplete && (
+              /* Start State */
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-teal-100 to-teal-50 ring-8 ring-teal-50/50">
+                  <ClipboardList className="h-10 w-10 text-teal-600" />
+                </div>
+                <h2 className="text-xl font-semibold text-[#111827] mb-2">AI跟踪情况汇总生成</h2>
+                <p className="text-sm text-[#6B7280] text-center max-w-md mb-8">
+                  基于当前存续期阶段的假设验证情况与条款落实情况，AI将为您生成全面的投后跟踪汇总，并提供下一步行动建议。
+                </p>
+                <button
+                  onClick={handleStartTracking}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all hover:from-teal-600 hover:to-emerald-600 hover:shadow-xl"
+                >
+                  <Brain className="h-5 w-5" />
+                  开始汇总
+                </button>
+              </div>
+            )}
+
+            {isTrackingGenerating && (
+              /* Thinking Animation */
+              <div className="py-12">
+                <div className="mb-8 text-center">
+                  <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm text-blue-700">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                    AI正在深度思考...
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
+                  <div className="space-y-4">
+                    {trackingThinkingSteps.map((step, idx) => (
+                      <div key={step.id} className="flex items-center gap-4">
+                        <div className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300",
+                          step.status === "completed" ? "bg-emerald-100" :
+                            step.status === "active" ? "bg-blue-100 animate-pulse" :
+                              "bg-gray-100"
+                        )}>
+                          {step.status === "completed" ? (
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          ) : step.status === "active" ? (
+                            <div className="h-3 w-3 rounded-full bg-blue-500 animate-ping" />
+                          ) : (
+                            <span className="text-xs text-gray-400">{idx + 1}</span>
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-sm transition-colors duration-300",
+                          step.status === "completed" ? "text-emerald-700 font-medium" :
+                            step.status === "active" ? "text-blue-700 font-medium" :
+                              "text-gray-400"
+                        )}>
+                          {step.label}
+                        </span>
+                        {step.status === "active" && (
+                          <div className="flex-1">
+                            <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full w-1/2 bg-blue-500 animate-pulse rounded-full" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {trackingGenerationComplete && (
+              /* Results */
+              <div className="space-y-8">
+                {/* Summary header */}
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                    <Check className="h-5 w-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-[#111827]">汇总完成</h2>
+                    <p className="text-sm text-[#6B7280]">共生成 {totalItems} 条跟踪情况</p>
+                  </div>
+                </div>
+
+                {/* Section 1 — Hypothesis tracking */}
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100">
+                      <Lightbulb className="h-4 w-4 text-amber-600" />
+                    </div>
+                    <h3 className="text-base font-semibold text-[#111827]">假设跟踪情况</h3>
+                    <span className="text-sm text-[#6B7280]">({generatedTrackingHypotheses.length} 条)</span>
+                  </div>
+                  <div className="space-y-4">
+                    {generatedTrackingHypotheses.map((item, idx) => (
+                      <div key={item.id} className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-sm font-semibold text-amber-700">
+                            {idx + 1}
+                          </div>
+                          <h4 className="text-base font-semibold text-[#111827] leading-snug">{item.name}</h4>
+                        </div>
+                        <div className="ml-12 space-y-3">
+                          <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] p-4">
+                            <p className="text-xs font-medium text-[#6B7280] mb-1.5">当前进展</p>
+                            <p className="text-sm text-[#374151] leading-relaxed">{item.progress}</p>
+                          </div>
+                          <div className="rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4">
+                            <p className="text-xs font-medium text-[#2563EB] mb-1.5">下一步行动建议</p>
+                            <p className="text-sm text-[#1E3A5F] leading-relaxed">{item.nextAction}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Section 2 — Term tracking */}
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100">
+                      <FileText className="h-4 w-4 text-violet-600" />
+                    </div>
+                    <h3 className="text-base font-semibold text-[#111827]">条款跟踪情况</h3>
+                    <span className="text-sm text-[#6B7280]">({generatedTrackingTerms.length} 条)</span>
+                  </div>
+                  <div className="space-y-4">
+                    {generatedTrackingTerms.map((item, idx) => (
+                      <div key={item.id} className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-sm font-semibold text-violet-700">
+                            {idx + 1}
+                          </div>
+                          <h4 className="text-base font-semibold text-[#111827] leading-snug">{item.name}</h4>
+                        </div>
+                        <div className="ml-12 space-y-3">
+                          <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] p-4">
+                            <p className="text-xs font-medium text-[#6B7280] mb-1.5">当前进展</p>
+                            <p className="text-sm text-[#374151] leading-relaxed">{item.progress}</p>
+                          </div>
+                          <div className="rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4">
+                            <p className="text-xs font-medium text-[#2563EB] mb-1.5">下一步行动建议</p>
+                            <p className="text-sm text-[#1E3A5F] leading-relaxed">{item.nextAction}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Footer action */}
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={handleCloseFullPageView}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    返回工作流
                   </button>
                 </div>
               </div>
