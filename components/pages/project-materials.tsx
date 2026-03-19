@@ -344,6 +344,7 @@ export function ProjectMaterials({
   const [genSelectedTerms, setGenSelectedTerms] = useState<Set<string>>(new Set())
   const [genTemplate, setGenTemplate] = useState("尽职调查报告")
   const [genGuide, setGenGuide] = useState("")
+  const [genSelectedMaterials, setGenSelectedMaterials] = useState<Set<string>>(new Set())
   const [genThinkingStep, setGenThinkingStep] = useState(0)
   const [genProgress, setGenProgress] = useState(0)
 
@@ -470,6 +471,7 @@ export function ProjectMaterials({
     setGenStep("config")
     setGenSelectedHypotheses(new Set())
     setGenSelectedTerms(new Set())
+    setGenSelectedMaterials(new Set())
     setGenTemplate("尽职调查报告")
     setGenGuide("")
     setGenThinkingStep(0)
@@ -495,7 +497,7 @@ export function ProjectMaterials({
         format: "DOCX",
         category: "AI生成材料",
         description: genGuide || `基于AI深度分析生成的${genTemplate}`,
-        collectReason: `选取 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款作为参考，通过AI生成${genTemplate}`,
+        collectReason: `选取 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款、${genSelectedMaterials.size} 个参考材料，通过AI生成${genTemplate}`,
       },
       changeId: `CR-${Date.now().toString().slice(-6)}`,
       changeName: `上传AI生成材料: ${fileName}`,
@@ -522,6 +524,15 @@ export function ProjectMaterials({
 
   function toggleGenTerm(id: string) {
     setGenSelectedTerms((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleGenMaterial(id: string) {
+    setGenSelectedMaterials((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -937,6 +948,44 @@ export function ProjectMaterials({
                   </div>
                 </div>
 
+                {/* Materials */}
+                {displayItems.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-[#111827]">
+                      勾选参考材料
+                      <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedMaterials.size} 项已选）</span>
+                    </Label>
+                    <div className="rounded-lg border border-[#E5E7EB] bg-white divide-y divide-[#F3F4F6] overflow-hidden">
+                      {displayItems.map((item) => {
+                        const checked = genSelectedMaterials.has(item.id)
+                        const FormatIcon = getFormatIcon(item.format)
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => toggleGenMaterial(item.id)}
+                            className={cn("flex items-center gap-3 w-full px-4 py-3 text-left transition-colors", checked ? "bg-violet-50" : "hover:bg-[#F9FAFB]")}
+                          >
+                            <div className={cn("flex h-4 w-4 items-center justify-center rounded border shrink-0 transition-colors", checked ? "bg-violet-600 border-violet-600" : "border-[#D1D5DB]")}>
+                              {checked && <Check className="h-3 w-3 text-white" />}
+                            </div>
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[#F3F4F6]">
+                              <FormatIcon className="h-3.5 w-3.5 text-[#6B7280]" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-[#111827] truncate">{item.name}</p>
+                              <p className="text-xs text-[#6B7280] truncate mt-0.5">{item.description}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge variant="outline" className={`text-[10px] ${getFormatColor(item.format)}`}>{item.format}</Badge>
+                              <span className="text-xs text-[#9CA3AF] w-14 text-right">{item.size}</span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Template selection */}
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold text-[#111827]">选择文档模板</Label>
@@ -1057,7 +1106,7 @@ export function ProjectMaterials({
                       <span className="text-xs text-emerald-600 font-medium">AI 生成</span>
                     </div>
                     <p className="text-xs text-[#6B7280] mt-1.5 line-clamp-2">
-                      {genGuide || `基于 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款生成的${genTemplate}`}
+                      {genGuide || `基于 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款、${genSelectedMaterials.size} 个参考材料生成的${genTemplate}`}
                     </p>
                   </div>
                 </div>
