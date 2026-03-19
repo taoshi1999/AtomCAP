@@ -23,6 +23,7 @@ import {
   GitBranch,
   CreditCard,
   LogOut,
+  Sparkles,
 } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -800,10 +801,20 @@ export function Workflow({
   const [materialFormData, setMaterialFormData] = useState<ProjectMaterialFormData>({
     name: "",
     format: "PDF",
+    size: "",
     category: "",
     description: "",
     collectReason: "",
   })
+
+  // Core team material collect dialog state
+  const [showCoreTeamDialog, setShowCoreTeamDialog] = useState(false)
+  const [coreTeamUploadStage, setCoreTeamUploadStage] = useState<"idle" | "uploading" | "done">("idle")
+  const [coreTeamUploadProgress, setCoreTeamUploadProgress] = useState(0)
+  const [coreTeamFileSize, setCoreTeamFileSize] = useState("")
+  const [isCoreTeamSummaryGenerating, setIsCoreTeamSummaryGenerating] = useState(false)
+  const [coreTeamSummaryText, setCoreTeamSummaryText] = useState("")
+  const coreTeamFileInputRef = useRef<HTMLInputElement>(null)
 
   // Mock available project materials
   const availableMaterials: ProjectMaterialOption[] = [
@@ -1391,9 +1402,20 @@ export function Workflow({
 
   // Material creation handlers
   function handleCreateFromMaterial(material: SuggestionMaterial) {
+    if (material.id === "sm1-核心团队") {
+      // Open the special core team collect dialog
+      setCoreTeamUploadStage("idle")
+      setCoreTeamUploadProgress(0)
+      setCoreTeamFileSize("")
+      setIsCoreTeamSummaryGenerating(false)
+      setCoreTeamSummaryText("")
+      setShowCoreTeamDialog(true)
+      return
+    }
     setMaterialFormData({
       name: material.name,
       format: material.format,
+      size: "",
       category: material.category,
       description: material.description,
       collectReason: material.collectReason,
@@ -1406,10 +1428,70 @@ export function Workflow({
     setMaterialFormData({
       name: "",
       format: "PDF",
+      size: "",
       category: "",
       description: "",
       collectReason: "",
     })
+  }
+
+  function handleCoreTeamFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    const bytes = file.size
+    const sizeStr = bytes > 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+      : `${(bytes / 1024).toFixed(0)} KB`
+    setCoreTeamUploadStage("uploading")
+    setCoreTeamUploadProgress(0)
+    let progress = 0
+    const interval = setInterval(() => {
+      progress += 14
+      if (progress >= 100) {
+        clearInterval(interval)
+        setCoreTeamUploadProgress(100)
+        setCoreTeamUploadStage("done")
+        setCoreTeamFileSize(sizeStr)
+        setIsCoreTeamSummaryGenerating(true)
+        setTimeout(() => {
+          setIsCoreTeamSummaryGenerating(false)
+          setCoreTeamSummaryText(
+            "本文件收录公司创始人及核心管理团队成员的完整职业履历，包含各成员的教育背景（学历层次、毕业院校及专业方向）、历任重要职位及主要业绩贡献，并附有与核心技术研发、业务拓展及团队管理直接相关的项目经验摘要。材料涵盖CTO等关键技术岗位负责人在AI/ML领域的论文发表记录、行业任职情况及社会影响力评估，可直接用于支撑团队能力假设的验证，并为董事会席位条款及信息权条款的谈判提供客观人才背景参考。"
+          )
+        }, 2500)
+      } else {
+        setCoreTeamUploadProgress(progress)
+      }
+    }, 150)
+  }
+
+  function handleSubmitCoreTeamMaterial() {
+    const pendingMaterial: PendingProjectMaterial = {
+      id: `pending-project-material-${Date.now()}`,
+      projectId,
+      projectName,
+      material: {
+        name: "核心团队履历",
+        format: "PDF",
+        size: coreTeamFileSize,
+        category: "人员简历",
+        description: coreTeamSummaryText,
+        collectReason: "当前阶段假设清单中包含多项团队能力相关假设，核心团队履历可直接用于验证上述假设，并为董事会席位条款谈判提供人才质量的客观依据。",
+      },
+      changeId: `CR-PM-${Date.now().toString().slice(-6)}`,
+      changeName: `上传项目材料: 核心团队履历`,
+      changeType: "collect",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    }
+    onCreatePendingProjectMaterial?.(pendingMaterial)
+    setShowCoreTeamDialog(false)
+    handleCloseFullPageView()
   }
 
   function handleSubmitMaterial() {
@@ -1720,7 +1802,7 @@ export function Workflow({
             {
               id: "gms1",
               title: "补充核心团队背景材料",
-              content: "当前项目缺少对创始团队专业背景的系统性佐证材料。建议收集创始人简历、核心团队履历及期权安排文件，以支撑团队能力相关假设的验证。",
+              content: "当前项目缺少对核心管理团队专业背景的系统性佐证材料。建议分别收集核心团队履历、期权安排文件及关键岗位招聘计划，以全面评估团队执行能力与人才梯队建设情况，支撑团队能力相关假设的验证。",
               linkedHypotheses: [
                 { id: "h1", name: "创始人具有扎实的人工智能学术背景" },
               ],
@@ -1729,21 +1811,30 @@ export function Workflow({
               ],
               materials: [
                 {
-                  id: "sm1-1",
+                  id: "sm1-核心团队",
                   category: "人员简历",
                   format: "PDF",
-                  name: "创始人闫俊杰个人简历",
-                  description: "包含学历背景、工作经历、核心成就及行业影响力的完整个人简历",
-                  collectReason: "验证创始人AI学术背景假设，支撑董事会席位条款谈判依据",
+                  name: "核心团队履历",
+                  description: "核心管理团队成员的详细个人履历，包括教育背景、历任职位及主要业绩贡献",
+                  collectReason: "全面评估团队执行能力，验证团队能力相关假设，支撑董事会席位条款谈判依据",
                   isExisting: false,
                 },
                 {
-                  id: "sm1-2",
-                  category: "人员简历",
+                  id: "sm1-期权安排",
+                  category: "人员激励",
                   format: "PDF",
-                  name: "核心团队履历及期权安排",
-                  description: "核心技术团队成员的详细履历及股权激励方案说明",
-                  collectReason: "全面评估团队构成，验证技术执行能力",
+                  name: "团队成员期权安排",
+                  description: "核心团队的股权激励方案，包含期权池规模、归属计划及核心成员持股比例",
+                  collectReason: "评估团队利益绑定程度，验证核心成员稳定性，为股权条款谈判提供参考",
+                  isExisting: false,
+                },
+                {
+                  id: "sm1-招聘",
+                  category: "人才规划",
+                  format: "PDF",
+                  name: "关键岗位招聘计划",
+                  description: "未来6-12个月核心岗位招募规划，含职位设置、能力要求及预算安排",
+                  collectReason: "评估团队补强方向与扩张节奏，验证团队梯队建设相关假设",
                   isExisting: false,
                 },
               ],
@@ -1751,12 +1842,12 @@ export function Workflow({
             {
               id: "gms2",
               title: "完善财务尽调材料",
-              content: "现有财务材料不足以支撑单位经济模型健康的假设验证。建议补充详细的财务预测模型和单位经济分析，以验证盈利能力假设并支撑相关条款谈判。",
+              content: "现有财务材料不足以支撑单位经济模型健康的假设验证。建议补充详细的财务预测模型、单位经济分析及近三年审计财务报表，以全面验证盈利能力假设并支撑相关条款谈判。",
               linkedHypotheses: [
                 { id: "h4", name: "单位经济模型健康，具备规模化盈利基础" },
               ],
               linkedTerms: [
-                { id: "t2", name: "采用加权平均反稀释保��机制" },
+                { id: "t2", name: "采用加权平均反稀释保护机制" },
               ],
               materials: [
                 {
@@ -1777,12 +1868,21 @@ export function Workflow({
                   collectReason: "量化验证盈利能力假设，支持信息权条款中财务报告要求的合理性",
                   isExisting: false,
                 },
+                {
+                  id: "sm2-3",
+                  category: "财务材料",
+                  format: "PDF",
+                  name: "近三年审计财务报表",
+                  description: "经会计师事务所审计的近三个完整财务年度资产负债表、利润表及现金流量表",
+                  collectReason: "核实历史财务数据真实性，支撑估值模型的历史基准，是机构投资人的标准尽调要求",
+                  isExisting: false,
+                },
               ],
             },
             {
               id: "gms3",
               title: "加强技术壁垒验证材料",
-              content: "当前材料库缺少对公司核心技术壁垒的客观评估材料。建议收集第三方技术评估报告和专利清单，以强化技术竞争力相关假设的可信度。",
+              content: "当前材料库缺少对公司核心技术壁垒的客观评估材料。建议收集技术架构说明书、专利清单及第三方技术评估报告，以强化技术竞争力相关假设的可信度。",
               linkedHypotheses: [
                 { id: "h2", name: "核心技术具备可验证的技术壁垒" },
                 { id: "h3", name: "市场规模足够支撑高速增长" },
@@ -1805,6 +1905,92 @@ export function Workflow({
                   name: "专利及知识产权清单",
                   description: "已授权专利、申请中专利及核心技术的知识产权保护状态",
                   collectReason: "量化评估技术壁垒的可持续性，支撑对应的假设和条款",
+                  isExisting: false,
+                },
+                {
+                  id: "sm3-3",
+                  category: "技术评估",
+                  format: "PDF",
+                  name: "第三方技术评估报告",
+                  description: "由独立技术顾问或机构出具的核心技术可行性、先进性及市场应用评估报告",
+                  collectReason: "提供客观的第三方技术验证背书，增强技术壁垒假设的可信度",
+                  isExisting: false,
+                },
+              ],
+            },
+            {
+              id: "gms4",
+              title: "深化市场与客户验证",
+              content: "当前缺少足够的外部市场验证材料。建议补充目标市场调研报告、重点客户访谈记录及竞争对手案例分析，以全面支撑市场规模与客户需求相关假设。",
+              linkedHypotheses: [
+                { id: "h3", name: "市场规模足够支撑高速增长" },
+              ],
+              linkedTerms: [],
+              materials: [
+                {
+                  id: "sm4-市场",
+                  category: "市场研究",
+                  format: "PDF",
+                  name: "目标市场调研报告",
+                  description: "目标市场规模、增速预测、细分赛道分析及目标客户画像的系统性研究报告",
+                  collectReason: "提供市场规模假设的外部数据支撑，为投资决策委员会提供市场验证依据",
+                  isExisting: false,
+                },
+                {
+                  id: "sm4-访谈",
+                  category: "客户验证",
+                  format: "PDF",
+                  name: "重点客户访谈记录",
+                  description: "5-10家目标客户或现有客户的深度访谈纪要，涵盖需求痛点、采购决策路径及付费意愿",
+                  collectReason: "直接验证客户需求与产品价值主张假设，增强商业模式可行性的说服力",
+                  isExisting: false,
+                },
+                {
+                  id: "sm4-竞争",
+                  category: "竞品分析",
+                  format: "PDF",
+                  name: "竞争对手案例分析",
+                  description: "主要竞争对手的产品功能、市场定价、客户策略及融资历程的对比分析报告",
+                  collectReason: "明确差异化竞争优势，支撑市场份额增长假设，为反稀释条款估值参考提供市场对标依据",
+                  isExisting: false,
+                },
+              ],
+            },
+            {
+              id: "gms5",
+              title: "完善法律合规与股权结构",
+              content: "公司法律合规文件和股权结构是机构投资人尽调的必备材料。建议收集公司注册文件、完整股权结构图及历史融资协议摘要，确保投资决策所需的法律合规信息完整齐备。",
+              linkedHypotheses: [],
+              linkedTerms: [
+                { id: "t1", name: "创始人股权分配细则" },
+                { id: "t2", name: "采用加权平均反稀释保护机制" },
+              ],
+              materials: [
+                {
+                  id: "sm5-注册",
+                  category: "法律文件",
+                  format: "PDF",
+                  name: "公司注册文件与营业执照",
+                  description: "公司章程、营业执照、工商登记信息及历次变更记录，确认主体合法性",
+                  collectReason: "验证投资主体的合法性与注册信息准确性，是所有机构投资人必要的基础合规材料",
+                  isExisting: false,
+                },
+                {
+                  id: "sm5-股权",
+                  category: "股权结构",
+                  format: "PDF",
+                  name: "股权结构图（Cap Table）",
+                  description: "现有股东名册、各轮次融资后完全稀释股权比例及期权池详情的完整股权结构表",
+                  collectReason: "明确投资人入股后的股权比例及稀释情况，是反稀释和清算优先权条款谈判的核心参考",
+                  isExisting: false,
+                },
+                {
+                  id: "sm5-融资",
+                  category: "法律文件",
+                  format: "PDF",
+                  name: "历史融资协议摘要",
+                  description: "已完成融资轮次的主要条款摘要，包括优先权设置、反稀释条款及重要限制性条款",
+                  collectReason: "了解现有投资人权益安排，确保本轮投资条款与历史协议兼容，避免条款冲突风险",
                   isExisting: false,
                 },
               ],
@@ -3755,6 +3941,154 @@ ${logs}
                   disabled={!materialFormData.name.trim() || !materialFormData.category.trim()}
                 >
                   提交收集申请
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Core Team Material Collect Dialog */}
+        <Dialog open={showCoreTeamDialog} onOpenChange={(open) => { if (!open) setShowCoreTeamDialog(false) }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50">
+                  <FolderSearch className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-[#111827]">收集项目材料</div>
+                </div>
+              </DialogTitle>
+              <DialogDescription className="text-sm text-[#6B7280]">
+                AI已生成材料分析，请上传对应材料完成收集申请
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-5 mt-4">
+              {/* 材料概述 - AI generated, read-only */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-blue-50/40">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-600">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    AI生成
+                  </div>
+                  <span className="text-sm font-semibold text-[#111827]">材料概述</span>
+                </div>
+                <p className="text-sm text-[#374151] leading-relaxed">
+                  核心团队履历收录创始人及管理层成员的教育背景、工作经历与核心成就，是评估团队能力与执行力的基础性文件。材料涵盖学历证明、历任职位说明及主要业绩佐证，为投资尽调提供系统性的人才评估依据。
+                </p>
+              </div>
+
+              {/* 推荐理由 - AI generated, read-only */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-amber-50/40">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    AI生成
+                  </div>
+                  <span className="text-sm font-semibold text-[#111827]">推荐理由</span>
+                </div>
+                <p className="text-sm text-[#374151] leading-relaxed">
+                  当前阶段假设清单中包含"创始人具有扎实的人工智能学术背景"等多项团队能力相关假设，但缺乏系统性的人才背景材料支撑。收集核心团队履历可直接用于验证上述假设，并在董事会席位条款谈判中提供人才质量的客观依据。此外，投资方在后续融资轮次和退出谈判中，管理团队的专业背景往往是估值乘数的重要参考因素，系统性的团队材料将显著提升项目的可信度与吸引力。
+                </p>
+              </div>
+
+              {/* 上传材料 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-[#111827]">上传材料</span>
+                  {coreTeamUploadStage === "idle" && (
+                    <button
+                      onClick={() => coreTeamFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-[#2563EB] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      上传材料
+                    </button>
+                  )}
+                  <input
+                    ref={coreTeamFileInputRef}
+                    type="file"
+                    accept=".pdf,.PDF,.docx,.DOCX,.pptx,.PPTX"
+                    className="hidden"
+                    onChange={handleCoreTeamFileSelect}
+                  />
+                </div>
+
+                {coreTeamUploadStage === "idle" && (
+                  <p className="text-sm text-[#9CA3AF]">请上传核心团队履历文件（支持 PDF、DOCX、PPTX 格式）</p>
+                )}
+
+                {coreTeamUploadStage === "uploading" && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 text-sm text-[#374151]">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                      <span>正在上传...</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F3F4F6]">
+                      <div
+                        className="h-full rounded-full bg-amber-500 transition-all duration-150"
+                        style={{ width: `${coreTeamUploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[#9CA3AF]">{coreTeamUploadProgress}%</p>
+                  </div>
+                )}
+
+                {coreTeamUploadStage === "done" && (
+                  <div className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50">
+                      <FileText className="h-5 w-5 text-red-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#111827] truncate">团队成员资料合集.pdf</p>
+                      <p className="text-xs text-[#6B7280]">{coreTeamFileSize}</p>
+                    </div>
+                    <Check className="h-4 w-4 shrink-0 text-emerald-500" />
+                  </div>
+                )}
+              </div>
+
+              {/* 材料简介 - appears after upload done */}
+              {coreTeamUploadStage === "done" && (
+                <div className="rounded-lg border border-[#E5E7EB] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-semibold text-[#111827]">材料简介</span>
+                    {isCoreTeamSummaryGenerating && (
+                      <div className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
+                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#D1D5DB] border-t-transparent" />
+                        AI正在生成材料简介...
+                      </div>
+                    )}
+                  </div>
+                  {isCoreTeamSummaryGenerating ? (
+                    <div className="flex items-center justify-center gap-1 py-6 text-[#9CA3AF] text-sm">
+                      <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
+                    </div>
+                  ) : (
+                    <textarea
+                      readOnly
+                      value={coreTeamSummaryText}
+                      className="w-full resize-none rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151] focus:outline-none"
+                      rows={5}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-[#E5E7EB]">
+                <Button variant="outline" onClick={() => setShowCoreTeamDialog(false)}>
+                  取消
+                </Button>
+                <Button
+                  onClick={handleSubmitCoreTeamMaterial}
+                  className="bg-amber-500 hover:bg-amber-600"
+                  disabled={coreTeamUploadStage !== "done" || isCoreTeamSummaryGenerating}
+                >
+                  上传
                 </Button>
               </div>
             </div>
