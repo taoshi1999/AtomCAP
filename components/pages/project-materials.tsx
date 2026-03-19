@@ -1010,7 +1010,16 @@ export function ProjectMaterials({
 
                 {/* Template selection */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#111827]">选择文档模板</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold text-[#111827]">选择文档模板</Label>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-lg bg-[#F5F3FF] px-3 py-1.5 text-xs font-medium text-[#7C3AED] hover:bg-[#EDE9FE] transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      新增文档模板
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 gap-2">
                     {DOC_TEMPLATES.map((tpl) => {
                       const active = genTemplate === tpl.name
