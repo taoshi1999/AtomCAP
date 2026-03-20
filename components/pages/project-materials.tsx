@@ -189,6 +189,7 @@ const mockLocalFolders: MockFolder[] = [
     id: "folder-5",
     name: "人员简历",
     files: [
+      { id: "f19", name: "团队成员资料合集.pdf", format: "PDF", size: "3.2 MB", matchCategories: ["人员简历"] },
       { id: "f16", name: "闫俊杰_CV.pdf", format: "PDF", size: "0.4 MB", matchCategories: ["人员简历"] },
       { id: "f17", name: "张伟_CV.pdf", format: "PDF", size: "0.3 MB", matchCategories: ["人员简历"] },
       { id: "f18", name: "李四_CV.pdf", format: "PDF", size: "0.3 MB", matchCategories: ["人员简历"] },
@@ -509,14 +510,13 @@ export function ProjectMaterials({
 
   function handleGenerateUpload() {
     if (!onCreatePendingProjectMaterial) return
-    const fileName = `${genTemplate}.docx`
     const fileSize = GEN_SIZES[genTemplate] || "2.0 MB"
     const pending: PendingProjectMaterial = {
       id: `pending-mat-gen-${Date.now()}`,
       projectId: projectId || "",
       projectName: project?.name || "当前项目",
       material: {
-        name: fileName,
+        name: genTemplate,  // no .docx suffix — extension is tracked via format field
         format: "DOCX",
         size: fileSize,
         category: "AI生成材料",
@@ -524,7 +524,7 @@ export function ProjectMaterials({
         collectReason: `选取 ${genSelectedHypotheses.size} 个假设、${genSelectedTerms.size} 个条款、${genSelectedMaterials.size} 个参考材料，通过AI生成${genTemplate}`,
       },
       changeId: `CR-${Date.now().toString().slice(-6)}`,
-      changeName: `上传AI生成材料: ${fileName}`,
+      changeName: `上传AI生成材料: ${genTemplate}`,
       changeType: "collect",
       initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
       initiatedAt: new Date().toISOString().split("T")[0],
@@ -562,6 +562,21 @@ export function ProjectMaterials({
       else next.add(id)
       return next
     })
+  }
+
+  function toggleAllGenHypotheses() {
+    const allSelected = dialogHypotheses.length > 0 && dialogHypotheses.every((h) => genSelectedHypotheses.has(h.id))
+    setGenSelectedHypotheses(allSelected ? new Set() : new Set(dialogHypotheses.map((h) => h.id)))
+  }
+
+  function toggleAllGenTerms() {
+    const allSelected = dialogTerms.length > 0 && dialogTerms.every((t) => genSelectedTerms.has(t.id))
+    setGenSelectedTerms(allSelected ? new Set() : new Set(dialogTerms.map((t) => t.id)))
+  }
+
+  function toggleAllGenMaterials() {
+    const allSelected = displayItems.length > 0 && displayItems.every((item) => genSelectedMaterials.has(item.id))
+    setGenSelectedMaterials(allSelected ? new Set() : new Set(displayItems.map((item) => item.id)))
   }
 
   // ── Build display items ───────────────────────────────────────────────────
@@ -912,10 +927,18 @@ export function ProjectMaterials({
 
                 {/* Hypotheses */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#111827]">
-                    勾选参考假设
-                    <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedHypotheses.size} 项已选）</span>
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold text-[#111827]">
+                      勾选参考假设
+                      <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedHypotheses.size} 项已选）</span>
+                    </Label>
+                    <button
+                      onClick={toggleAllGenHypotheses}
+                      className="text-xs text-violet-600 hover:text-violet-800 transition-colors"
+                    >
+                      {dialogHypotheses.length > 0 && dialogHypotheses.every((h) => genSelectedHypotheses.has(h.id)) ? "取消全选" : "全选"}
+                    </button>
+                  </div>
                   <div className="rounded-lg border border-[#E5E7EB] bg-white divide-y divide-[#F3F4F6] overflow-hidden">
                     {dialogHypotheses.map((h) => {
                       const checked = genSelectedHypotheses.has(h.id)
@@ -947,10 +970,18 @@ export function ProjectMaterials({
 
                 {/* Terms */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-[#111827]">
-                    勾选参考条款
-                    <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedTerms.size} 项已选）</span>
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold text-[#111827]">
+                      勾选参考条款
+                      <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedTerms.size} 项已选）</span>
+                    </Label>
+                    <button
+                      onClick={toggleAllGenTerms}
+                      className="text-xs text-violet-600 hover:text-violet-800 transition-colors"
+                    >
+                      {dialogTerms.length > 0 && dialogTerms.every((t) => genSelectedTerms.has(t.id)) ? "取消全选" : "全选"}
+                    </button>
+                  </div>
                   <div className="rounded-lg border border-[#E5E7EB] bg-white divide-y divide-[#F3F4F6] overflow-hidden">
                     {dialogTerms.map((t) => {
                       const checked = genSelectedTerms.has(t.id)
@@ -983,10 +1014,18 @@ export function ProjectMaterials({
                 {/* Materials */}
                 {displayItems.length > 0 && (
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-[#111827]">
-                      勾选参考材料
-                      <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedMaterials.size} 项已选）</span>
-                    </Label>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-semibold text-[#111827]">
+                        勾选参考材料
+                        <span className="ml-1 text-xs font-normal text-[#6B7280]">（{genSelectedMaterials.size} 项已选）</span>
+                      </Label>
+                      <button
+                        onClick={toggleAllGenMaterials}
+                        className="text-xs text-violet-600 hover:text-violet-800 transition-colors"
+                      >
+                        {displayItems.every((item) => genSelectedMaterials.has(item.id)) ? "取消全选" : "全选"}
+                      </button>
+                    </div>
                     <div className="rounded-lg border border-[#E5E7EB] bg-white divide-y divide-[#F3F4F6] overflow-hidden">
                       {displayItems.map((item) => {
                         const checked = genSelectedMaterials.has(item.id)
