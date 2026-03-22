@@ -773,7 +773,7 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
   },
   "tam": {
     id: "tam",
-    title: "中国大模型市场总规模在2025年将达到500亿元",
+    title: "中国大���型市场总规模在2025年将达到500亿元",
     qaId: "QA-2024-006",
     createdAt: "2026-01-20",
     updatedAt: "2026-02-25",
@@ -1009,26 +1009,6 @@ const aiInfrastructureHypotheses: HypothesisTableItem[] = [
 /** 投中期新增假设 — 仅在投决通过后合并到项目假设清单 */
 export const midInvestmentHypotheses: HypothesisTableItem[] = [
   {
-    id: "ai-h8",
-    direction: "团队能力",
-    category: "创始人",
-    name: "创始人具有扎实的人工智能学术背景",
-    owner: "张伟",
-    createdAt: "2026-02-01",
-    updatedAt: "2026-03-05",
-    status: "pending",
-  },
-  {
-    id: "ai-h9",
-    direction: "团队能力",
-    category: "创始人",
-    name: "创始人具有扎实的人工智能学术背景",
-    owner: "李四",
-    createdAt: "2026-02-01",
-    updatedAt: "2026-03-05",
-    status: "pending",
-  },
-  {
     id: "ai-h10",
     direction: "团队能力",
     category: "核心团队",
@@ -1224,15 +1204,20 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
       : hypothesisTableData
 
   // Filter data
-  const filteredData = sourceData.filter((item) => {
-    const query = searchQuery.toLowerCase()
-    return (
-      item.direction.toLowerCase().includes(query) ||
-      item.category.toLowerCase().includes(query) ||
-      item.name.toLowerCase().includes(query) ||
-      item.owner.toLowerCase().includes(query)
-    )
-  })
+  const filteredData = sourceData
+    .filter((item) => {
+      const query = searchQuery.toLowerCase()
+      return (
+        item.direction.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query) ||
+        item.name.toLowerCase().includes(query) ||
+        item.owner.toLowerCase().includes(query)
+      )
+    })
+    .sort((a, b) => {
+      const order: Record<string, number> = { verified: 0, risky: 1, pending: 2 }
+      return (order[a.status] ?? 2) - (order[b.status] ?? 2)
+    })
 
   // Get detail for selected item - check extraDetails first (for newly created hypotheses), then static mock data
   const selectedDetail = selectedId
@@ -2196,7 +2181,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   <label className="text-sm font-medium text-[#374151]">相关材料</label>
                   <button
                     className="flex items-center gap-1 text-xs text-[#8B5CF6] hover:text-[#7C3AED] transition-colors"
-                    onClick={() => {/* 上传功能展示用，不实现 */}}
+                    onClick={() => {/* 上传功能展示用，不实现 */ }}
                   >
                     <Upload className="h-3 w-3" />
                     上传材料
