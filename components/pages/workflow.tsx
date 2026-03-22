@@ -21,12 +21,19 @@ import {
   Bot,
   ClipboardList,
   GitBranch,
+  CreditCard,
+  LogOut,
+  Sparkles,
+  Search,
 } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -35,7 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { Trash2, Upload, Link2, Pencil, Target, FileCheck, AlertTriangle, Shield, Handshake, CheckCircle, ClipboardCheck } from "lucide-react"
+import { Trash2, Upload, Link2, Pencil, Target, FileCheck, AlertTriangle, Shield, Handshake, CheckCircle, ClipboardCheck, Eye } from "lucide-react"
 
 /* ─── Types ──────────────────────────────────── */
 export interface PhaseLog {
@@ -60,6 +67,41 @@ export interface Phase {
   logs: PhaseLog[]
 }
 
+export interface LiXiangRecord {
+  details: string
+  owners: { id: string; name: string }[]
+  time: string
+}
+
+export interface TouJueRecord {
+  details: string
+  owners: { id: string; name: string }[]
+  time: string
+}
+
+export interface HuaKuanRecord {
+  details: string
+  currency: string
+  amount: string
+  owners: { id: string; name: string }[]
+  time: string
+}
+
+const CURRENCY_OPTIONS = [
+  { value: "USD", label: "美元", symbol: "$" },
+  { value: "CNY", label: "人民币", symbol: "¥" },
+  { value: "EUR", label: "欧元", symbol: "€" },
+  { value: "GBP", label: "英镑", symbol: "£" },
+  { value: "JPY", label: "日元", symbol: "¥" },
+  { value: "HKD", label: "港币", symbol: "HK$" },
+]
+
+export interface TuiChuRecord {
+  details: string
+  owners: { id: string; name: string }[]
+  time: string
+}
+
 export interface PendingPhase {
   id: string
   projectId: string
@@ -68,9 +110,25 @@ export interface PendingPhase {
   changeId: string
   changeName: string
   changeType: "next-setup" | "next-duration" | "enter-duration" | "first-setup"
+    | "立项" | "next-pre-investment" | "投决" | "next-mid-investment" | "next-post-investment"
+    | "划款" | "退出"
   initiator: { id: string; name: string; initials: string }
   initiatedAt: string
   reviewers: { id: string; name: string; initials: string }[]
+  // 立项-specific payload
+  liXiangDetails?: string
+  liXiangOwners?: { id: string; name: string }[]
+  // 投决-specific payload
+  touJueDetails?: string
+  touJueOwners?: { id: string; name: string }[]
+  // 划款-specific payload
+  huaKuanDetails?: string
+  huaKuanCurrency?: string
+  huaKuanAmount?: string
+  huaKuanOwners?: { id: string; name: string }[]
+  // 退出-specific payload
+  tuiChuDetails?: string
+  tuiChuOwners?: { id: string; name: string }[]
 }
 
 type SidebarType =
@@ -88,8 +146,17 @@ type FullPageView =
   | "term-generation"
   | "material-generation"
   | "ai-research-generation"
+  | "tracking-generation"
   | "ai-chat"
   | null
+
+// Tracking summary item for duration period
+interface TrackingItem {
+  id: string
+  name: string       // 假设或条款具体名称
+  progress: string   // 当前进展
+  nextAction: string // 下一步行动建议
+}
 
 interface ChatMessage {
   role: "user" | "assistant"
@@ -199,6 +266,77 @@ export interface PendingCommitteeDecision {
   reviewers: { id: string; name: string; initials: string }[]
 }
 
+// Negotiation decision form data
+export interface NegotiationDecisionFormData {
+  content: string
+  conclusion: "通过" | "否决"
+  reviewers: { name: string; role: string }[]
+}
+
+// Pending negotiation decision change request
+export interface PendingNegotiationDecision {
+  id: string
+  projectId: string
+  projectName: string
+  termId: string
+  termName: string
+  decision: NegotiationDecisionFormData
+  changeId: string
+  changeName: string
+  changeType: "negotiation-decision"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
+// Verification form data
+export interface VerificationFormData {
+  content: string
+  conclusion: "符合预期" | "不符合预期"
+  materials: string[] // material IDs
+  responsibles: { name: string; role: string }[]
+}
+
+// Pending verification change request
+export interface PendingVerification {
+  id: string
+  projectId: string
+  projectName: string
+  hypothesisId: string
+  hypothesisName: string
+  data: VerificationFormData
+  changeId: string
+  changeName: string
+  changeType: "verification"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
+// Implementation status form data
+export interface ImplementationStatusFormData {
+  content: string
+  conclusion: "符合预期" | "待定" | "不符合预期"
+  materials: string[] // material IDs
+  responsibles: { name: string; role: string }[]
+}
+
+// Pending implementation status change request
+export interface PendingImplementationStatus {
+  id: string
+  projectId: string
+  projectName: string
+  termId: string
+  termName: string
+  data: ImplementationStatusFormData
+  changeId: string
+  changeName: string
+  changeType: "implementation-status"
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
 // Suggested term with pre-filled content
 export interface SuggestionTerm {
   id: string
@@ -277,6 +415,7 @@ export interface GeneratedMaterialSuggestion {
 export interface ProjectMaterialFormData {
   name: string
   format: string
+  size: string
   category: string
   description: string
   collectReason: string
@@ -302,6 +441,7 @@ export interface AiResearchMaterial {
   category: string      // 材料分类
   format: string        // 格式 (PDF, XLSX, DOCX, etc.)
   name: string          // 材料名称
+  size: string          // 文件大小
   description: string   // AI调研内容摘要
   source: string        // 数据来源
   isUploaded: boolean   // 是否已上传
@@ -555,9 +695,32 @@ interface WorkflowProps {
   // Persisted AI research generation state
   savedGeneratedAiResearchGroups?: GeneratedAiResearchGroup[]
   onSaveAiResearchGroups?: (groups: GeneratedAiResearchGroup[]) => void
+  isExited?: boolean
+  liXiangRecord?: LiXiangRecord
+  touJueRecord?: TouJueRecord
+  huaKuanRecord?: HuaKuanRecord
+  tuiChuRecord?: TuiChuRecord
 }
 
 /* ─── New Project Phase Template ─────────────── */
+function createPhase(phaseNumber: number, period: string): Phase {
+  const today = new Date().toISOString().split("T")[0]
+  return {
+    id: `phase-${period}-${phaseNumber}`,
+    groupLabel: period,
+    name: `${period} - 阶段${phaseNumber}`,
+    fullLabel: `${period} - 阶段${phaseNumber}`,
+    assignee: "张伟",
+    assigneeAvatar: "张",
+    hypothesesCount: 0,
+    termsCount: 0,
+    materialsCount: 0,
+    status: "active",
+    startDate: today,
+    logs: [],
+  }
+}
+
 function createNewPhase(phaseNumber: number, isSetup: boolean): Phase {
   const groupLabel = isSetup ? "设立期" : "存续期"
   const today = new Date().toISOString().split("T")[0]
@@ -576,6 +739,63 @@ function createNewPhase(phaseNumber: number, isSetup: boolean): Phase {
     logs: [],
   }
 }
+
+/* ─── 立项 Owner Options ──────────────────────── */
+const LIXIANG_OWNERS = [
+  { id: "zhangwei",  name: "张伟", title: "投资经理",   initials: "张", color: "bg-blue-600" },
+  { id: "lisi",      name: "李四", title: "高级分析师", initials: "李", color: "bg-blue-600" },
+  { id: "wangfang",  name: "王芳", title: "投资总监",   initials: "王", color: "bg-blue-600" },
+  { id: "zhaoqiang", name: "赵强", title: "风控经理",   initials: "赵", color: "bg-blue-600" },
+  { id: "chenzong",  name: "陈总", title: "合伙人",     initials: "陈", color: "bg-blue-600" },
+  { id: "liuyan",    name: "刘燕", title: "法务顾问",   initials: "刘", color: "bg-blue-600" },
+  { id: "sunming",   name: "孙明", title: "财务总监",   initials: "孙", color: "bg-blue-600" },
+]
+
+/* ─── Core Team Material Mock File Structure ─── */
+interface MockPickerFile {
+  name: string
+  size: string
+  format: string
+}
+interface MockPickerFolder {
+  name: string
+  files: MockPickerFile[]
+}
+// Canonical sizes for AI research materials — used as a fallback when the
+// material object in state was created before the size field was added
+const AI_RESEARCH_MATERIAL_SIZES: Record<string, string> = {
+  "arm1-1": "4.8 MB",
+  "arm1-2": "3.2 MB",
+  "arm2-1": "5.1 MB",
+  "arm2-2": "1.6 MB",
+  "arm3-1": "2.3 MB",
+  "arm3-2": "3.7 MB",
+}
+
+const CORE_TEAM_MOCK_FOLDERS: MockPickerFolder[] = [
+  {
+    name: "人员简历",
+    files: [
+      { name: "团队成员资料合集.pdf", size: "2.4 MB", format: "PDF" },
+      { name: "闫俊杰_CV.pdf", size: "1.1 MB", format: "PDF" },
+      { name: "技术团队成员简历.pdf", size: "3.2 MB", format: "PDF" },
+    ],
+  },
+  {
+    name: "公司文件",
+    files: [
+      { name: "营业执照.pdf", size: "0.8 MB", format: "PDF" },
+      { name: "公司章程.pdf", size: "1.5 MB", format: "PDF" },
+    ],
+  },
+  {
+    name: "财务文件",
+    files: [
+      { name: "2024年财务报告.xlsx", size: "2.1 MB", format: "XLSX" },
+      { name: "融资历史记录.xlsx", size: "1.3 MB", format: "XLSX" },
+    ],
+  },
+]
 
 /* ─── Component ──────────────────────────────── */
 export function Workflow({
@@ -600,6 +820,11 @@ export function Workflow({
   onCreatePendingProjectMaterial,
   savedGeneratedAiResearchGroups,
   onSaveAiResearchGroups,
+  isExited = false,
+  liXiangRecord,
+  touJueRecord,
+  huaKuanRecord,
+  tuiChuRecord,
 }: WorkflowProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -611,6 +836,11 @@ export function Workflow({
   const currentSetupPhase = projectPhases.filter(p => p.groupLabel === "设立期").length
   const currentDurationPhase = projectPhases.filter(p => p.groupLabel === "存续期").length
   const isInDuration = currentDurationPhase > 0
+  const currentPreInvestmentPhase  = projectPhases.filter(p => p.groupLabel === "投前期").length
+  const currentMidInvestmentPhase  = projectPhases.filter(p => p.groupLabel === "投中期").length
+  const currentPostInvestmentPhase = projectPhases.filter(p => p.groupLabel === "投后期").length
+  const isInMidInvestment  = currentMidInvestmentPhase > 0
+  const isInPostInvestment = currentPostInvestmentPhase > 0
 
   // Default to the latest active or last completed phase
   const defaultPhase = (() => {
@@ -678,15 +908,75 @@ export function Workflow({
   const [generatedAiResearchGroups, setGeneratedAiResearchGroups] = useState<GeneratedAiResearchGroup[]>(savedGeneratedAiResearchGroups || [])
   const [uploadedAiResearchMaterialIds, setUploadedAiResearchMaterialIds] = useState<Set<string>>(new Set())
 
+  // Track which suggestion items have been acted upon in the current session
+  const [createdSuggestionHypothesisIds, setCreatedSuggestionHypothesisIds] = useState<Set<string>>(new Set())
+  const [createdSuggestionTermIds, setCreatedSuggestionTermIds] = useState<Set<string>>(new Set())
+  const [collectedSuggestionMaterialIds, setCollectedSuggestionMaterialIds] = useState<Set<string>>(new Set())
+
+  // 立项 dialog state
+  const [showLiXiangDialog, setShowLiXiangDialog] = useState(false)
+  const [liXiangDetailsInput, setLiXiangDetailsInput] = useState("")
+  const [liXiangSelectedOwners, setLiXiangSelectedOwners] = useState<Set<string>>(new Set())
+  const [liXiangOwnerSearch, setLiXiangOwnerSearch] = useState("")
+  // 已立项 info dialog state
+  const [showLiXiangInfoDialog, setShowLiXiangInfoDialog] = useState(false)
+
+  // 投决 dialog state
+  const [showTouJueDialog, setShowTouJueDialog] = useState(false)
+  const [touJueDetailsInput, setTouJueDetailsInput] = useState("")
+  const [touJueSelectedOwners, setTouJueSelectedOwners] = useState<Set<string>>(new Set())
+  const [touJueOwnerSearch, setTouJueOwnerSearch] = useState("")
+  // 已投决 info dialog state
+  const [showTouJueInfoDialog, setShowTouJueInfoDialog] = useState(false)
+
+  // 划款 dialog state
+  const [showHuaKuanDialog, setShowHuaKuanDialog] = useState(false)
+  const [huaKuanDetailsInput, setHuaKuanDetailsInput] = useState("")
+  const [huaKuanCurrencyInput, setHuaKuanCurrencyInput] = useState("USD")
+  const [huaKuanAmountInput, setHuaKuanAmountInput] = useState("")
+  const [huaKuanSelectedOwners, setHuaKuanSelectedOwners] = useState<Set<string>>(new Set())
+  const [huaKuanOwnerSearch, setHuaKuanOwnerSearch] = useState("")
+  // 已划款 info dialog state
+  const [showHuaKuanInfoDialog, setShowHuaKuanInfoDialog] = useState(false)
+
+  // 退出 dialog state
+  const [showTuiChuDialog, setShowTuiChuDialog] = useState(false)
+  const [tuiChuDetailsInput, setTuiChuDetailsInput] = useState("")
+  const [tuiChuSelectedOwners, setTuiChuSelectedOwners] = useState<Set<string>>(new Set())
+  const [tuiChuOwnerSearch, setTuiChuOwnerSearch] = useState("")
+  // 已退出 info dialog state
+  const [showTuiChuInfoDialog, setShowTuiChuInfoDialog] = useState(false)
+
+  // Tracking summary generation state (duration period)
+  const [isTrackingGenerating, setIsTrackingGenerating] = useState(false)
+  const [trackingGenerationComplete, setTrackingGenerationComplete] = useState(false)
+  const [trackingThinkingSteps, setTrackingThinkingSteps] = useState<ThinkingStep[]>([])
+  const [generatedTrackingHypotheses, setGeneratedTrackingHypotheses] = useState<TrackingItem[]>([])
+  const [generatedTrackingTerms, setGeneratedTrackingTerms] = useState<TrackingItem[]>([])
+
   // Material creation dialog state
   const [showMaterialCreateDialog, setShowMaterialCreateDialog] = useState(false)
   const [materialFormData, setMaterialFormData] = useState<ProjectMaterialFormData>({
     name: "",
     format: "PDF",
+    size: "",
     category: "",
     description: "",
     collectReason: "",
   })
+
+  // Core team material collect dialog state
+  const [showCoreTeamDialog, setShowCoreTeamDialog] = useState(false)
+  const [coreTeamUploadStage, setCoreTeamUploadStage] = useState<"idle" | "uploading" | "done">("idle")
+  const [coreTeamUploadProgress, setCoreTeamUploadProgress] = useState(0)
+  const [coreTeamFileSize, setCoreTeamFileSize] = useState("")
+  const [isCoreTeamSummaryGenerating, setIsCoreTeamSummaryGenerating] = useState(false)
+  const [coreTeamSummaryText, setCoreTeamSummaryText] = useState("")
+  const [showCoreTeamFilePicker, setShowCoreTeamFilePicker] = useState(false)
+  const [coreTeamPickerFolder, setCoreTeamPickerFolder] = useState<string | null>(null)
+  const [coreTeamPickerSelected, setCoreTeamPickerSelected] = useState<string | null>(null)
+  const [coreTeamPickerUploading, setCoreTeamPickerUploading] = useState(false)
+  const [coreTeamPickerProgress, setCoreTeamPickerProgress] = useState(0)
 
   // Mock available project materials
   const availableMaterials: ProjectMaterialOption[] = [
@@ -792,6 +1082,182 @@ export function Workflow({
       ],
     }
     onCreatePendingPhase?.(pendingPhase)
+  }
+
+  // ── New investment lifecycle handlers ─────────────────────────────────────
+
+  function handleLiXiang() {
+    setLiXiangDetailsInput("")
+    setLiXiangSelectedOwners(new Set())
+    setLiXiangOwnerSearch("")
+    setShowLiXiangDialog(true)
+  }
+
+  function handleSubmitLiXiang() {
+    const newPhase = createPhase(1, "投前期")
+    const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => liXiangSelectedOwners.has(o.id))
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `立项 - 启动${newPhase.fullLabel}`,
+      changeType: "立项",
+      liXiangDetails: liXiangDetailsInput,
+      liXiangOwners: selectedOwnerObjects,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+    setShowLiXiangDialog(false)
+  }
+
+  function handleStartNextPreInvestmentPhase() {
+    const newPhase = createPhase(currentPreInvestmentPhase + 1, "投前期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `启动${newPhase.fullLabel}`,
+      changeType: "next-pre-investment",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleTouJue() {
+    setTouJueDetailsInput("")
+    setTouJueSelectedOwners(new Set())
+    setTouJueOwnerSearch("")
+    setShowTouJueDialog(true)
+  }
+
+  function handleSubmitTouJue() {
+    const newPhase = createPhase(1, "投中期")
+    const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => touJueSelectedOwners.has(o.id))
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `投决 - 进入${newPhase.fullLabel}`,
+      changeType: "投决",
+      touJueDetails: touJueDetailsInput,
+      touJueOwners: selectedOwnerObjects,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+    setShowTouJueDialog(false)
+  }
+
+  function handleStartNextMidInvestmentPhase() {
+    const newPhase = createPhase(currentMidInvestmentPhase + 1, "投中期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `启动${newPhase.fullLabel}`,
+      changeType: "next-mid-investment",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleStartNextPostInvestmentPhase() {
+    const newPhase = createPhase(currentPostInvestmentPhase + 1, "投后期")
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `启动${newPhase.fullLabel}`,
+      changeType: "next-post-investment",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleDiKuan() {
+    setHuaKuanDetailsInput("")
+    setHuaKuanCurrencyInput("USD")
+    setHuaKuanAmountInput("")
+    setHuaKuanSelectedOwners(new Set())
+    setHuaKuanOwnerSearch("")
+    setShowHuaKuanDialog(true)
+  }
+
+  function handleSubmitHuaKuan() {
+    const newPhase = createPhase(1, "投后期")
+    const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => huaKuanSelectedOwners.has(o.id))
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `划款 - 进入${newPhase.fullLabel}`,
+      changeType: "划款",
+      huaKuanDetails: huaKuanDetailsInput,
+      huaKuanCurrency: huaKuanCurrencyInput,
+      huaKuanAmount: huaKuanAmountInput,
+      huaKuanOwners: selectedOwnerObjects,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+    setShowHuaKuanDialog(false)
+  }
+
+  function handleTuiChu() {
+    setTuiChuDetailsInput("")
+    setTuiChuSelectedOwners(new Set())
+    setTuiChuOwnerSearch("")
+    setShowTuiChuDialog(true)
+  }
+
+  function handleSubmitTuiChu() {
+    const newPhase = createPhase(1, "退出")
+    const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => tuiChuSelectedOwners.has(o.id))
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: "退出 - 项目退出申请",
+      changeType: "退出",
+      tuiChuDetails: tuiChuDetailsInput,
+      tuiChuOwners: selectedOwnerObjects,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+    setShowTuiChuDialog(false)
   }
 
   // Notify parent of initial phase on mount
@@ -904,6 +1370,17 @@ export function Workflow({
       return
     }
 
+    // For tracking-summary, open full page view
+    if (type === "tracking-summary") {
+      setFullPageView("tracking-generation")
+      setIsTrackingGenerating(false)
+      setTrackingThinkingSteps([])
+      setGeneratedTrackingHypotheses([])
+      setGeneratedTrackingTerms([])
+      setTrackingGenerationComplete(false)
+      return
+    }
+
     // For ai-chat, open full page view
     if (type === "ai-chat") {
       setFullPageView("ai-chat")
@@ -953,11 +1430,22 @@ export function Workflow({
     setAiResearchThinkingSteps([])
     setGeneratedAiResearchGroups([])
     setUploadedAiResearchMaterialIds(new Set())
+    // Also reset suggestion acted-upon tracking
+    setCreatedSuggestionHypothesisIds(new Set())
+    setCreatedSuggestionTermIds(new Set())
+    setCollectedSuggestionMaterialIds(new Set())
+    // Also reset tracking state
+    setIsTrackingGenerating(false)
+    setTrackingGenerationComplete(false)
+    setTrackingThinkingSteps([])
+    setGeneratedTrackingHypotheses([])
+    setGeneratedTrackingTerms([])
     // Also reset chat thinking state
     setIsChatThinking(false)
   }
 
   function handleCreateFromHypothesis(hypothesis: SuggestionHypothesis) {
+    setCreatedSuggestionHypothesisIds((prev) => new Set([...prev, hypothesis.id]))
     // Pre-fill form with hypothesis data including pre-selected materials
     setFormData({
       direction: hypothesis.direction,
@@ -1072,11 +1560,11 @@ export function Workflow({
 
     onCreatePendingProjectHypothesis?.(pendingHypothesis)
     handleCloseCreateDialog()
-    handleCloseFullPageView()
   }
 
   // Term creation handlers
   function handleCreateFromTerm(term: SuggestionTerm) {
+    setCreatedSuggestionTermIds((prev) => new Set([...prev, term.id]))
     setTermFormData({
       direction: term.direction,
       category: term.category,
@@ -1124,14 +1612,25 @@ export function Workflow({
     }
     onCreatePendingProjectTerm?.(pendingTerm)
     handleCloseTermCreateDialog()
-    handleCloseFullPageView()
   }
 
   // Material creation handlers
   function handleCreateFromMaterial(material: SuggestionMaterial) {
+    setCollectedSuggestionMaterialIds((prev) => new Set([...prev, material.id]))
+    if (material.id === "sm1-核心团队") {
+      // Open the special core team collect dialog
+      setCoreTeamUploadStage("idle")
+      setCoreTeamUploadProgress(0)
+      setCoreTeamFileSize("")
+      setIsCoreTeamSummaryGenerating(false)
+      setCoreTeamSummaryText("")
+      setShowCoreTeamDialog(true)
+      return
+    }
     setMaterialFormData({
       name: material.name,
       format: material.format,
+      size: "",
       category: material.category,
       description: material.description,
       collectReason: material.collectReason,
@@ -1144,10 +1643,82 @@ export function Workflow({
     setMaterialFormData({
       name: "",
       format: "PDF",
+      size: "",
       category: "",
       description: "",
       collectReason: "",
     })
+  }
+
+  function openCoreTeamFilePicker() {
+    setCoreTeamPickerFolder(null)
+    setCoreTeamPickerSelected(null)
+    setCoreTeamPickerUploading(false)
+    setCoreTeamPickerProgress(0)
+    setShowCoreTeamFilePicker(true)
+  }
+
+  function handleCoreTeamPickerConfirm() {
+    if (!coreTeamPickerSelected) return
+    const folder = CORE_TEAM_MOCK_FOLDERS.find((f) => f.name === coreTeamPickerFolder)
+    const file = folder?.files.find((f) => f.name === coreTeamPickerSelected)
+    if (!file) return
+    setCoreTeamPickerUploading(true)
+    setCoreTeamPickerProgress(0)
+    let progress = 0
+    const interval = setInterval(() => {
+      progress += 14
+      if (progress >= 100) {
+        clearInterval(interval)
+        setCoreTeamPickerProgress(100)
+        setTimeout(() => {
+          setCoreTeamPickerUploading(false)
+          setShowCoreTeamFilePicker(false)
+          setCoreTeamUploadStage("done")
+          setCoreTeamFileSize(file.size)
+          setIsCoreTeamSummaryGenerating(true)
+          setTimeout(() => {
+            setIsCoreTeamSummaryGenerating(false)
+            setCoreTeamSummaryText(
+              "本文件收录公司创始人及核心管理团队成员的完整职业履历，包含各成员的教育背景（学历层次、毕业院校及专业方向）、历任重要职位及主要业绩贡献，并附有与核心技术研发、业务拓展及团队管理直接相关的项目经验摘要。材料涵盖CTO等关键技术岗位负责人在AI/ML领域的论文发表记录、行业任职情况及社会影响力评估，可直接用于支撑团队能力假设的验证，并为董事会席位条款及信息权条款的谈判提供客观人才背景参考。"
+            )
+          }, 2500)
+        }, 500)
+      } else {
+        setCoreTeamPickerProgress(progress)
+      }
+    }, 150)
+  }
+
+  function handleSubmitCoreTeamMaterial() {
+    // Derive material name from selected file: strip extension (e.g. "团队成员资料合集.pdf" → "团队成员资料合集")
+    const materialName = coreTeamPickerSelected
+      ? coreTeamPickerSelected.replace(/\.[^.]+$/, "")
+      : "团队成员资料合集"
+    const pendingMaterial: PendingProjectMaterial = {
+      id: `pending-project-material-${Date.now()}`,
+      projectId,
+      projectName,
+      material: {
+        name: materialName,
+        format: "PDF",
+        size: coreTeamFileSize,
+        category: "人员简历",
+        description: coreTeamSummaryText,
+        collectReason: "当前阶段假设清单中包含多项团队能力相关假设，核心团队履历可直接用于验证上述假设，并为董事会席位条款谈判提供人才质量的客观依据。",
+      },
+      changeId: `CR-PM-${Date.now().toString().slice(-6)}`,
+      changeName: `上传项目材料: ${materialName}`,
+      changeType: "collect",
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    }
+    onCreatePendingProjectMaterial?.(pendingMaterial)
+    setShowCoreTeamDialog(false)
   }
 
   function handleSubmitMaterial() {
@@ -1168,7 +1739,6 @@ export function Workflow({
     }
     onCreatePendingProjectMaterial?.(pendingMaterial)
     handleCloseMaterialCreateDialog()
-    handleCloseFullPageView()
   }
 
   function handleStartTermGeneration() {
@@ -1287,6 +1857,10 @@ export function Workflow({
   }
 
   function handleUploadAiResearchMaterial(material: AiResearchMaterial) {
+    // Resolve size: prefer the value on the material object, fall back to the
+    // canonical map (handles sessions where the state was hydrated from data
+    // generated before the size field was introduced)
+    const resolvedSize = material.size || AI_RESEARCH_MATERIAL_SIZES[material.id] || ""
     const pendingMaterial: PendingProjectMaterial = {
       id: `pending-project-material-${Date.now()}`,
       projectId,
@@ -1294,6 +1868,7 @@ export function Workflow({
       material: {
         name: material.name,
         format: material.format,
+        size: resolvedSize,
         category: material.category,
         description: material.description,
         collectReason: `AI调研生成，来源：${material.source}`,
@@ -1351,6 +1926,7 @@ export function Workflow({
                   category: "行业报告",
                   format: "PDF",
                   name: "2024年AI大模型行业市场规模报告",
+                  size: "4.8 MB",
                   description: "涵盖全球及中国AI大模型市场规模、CAGR预测、细分赛道分布及主要驱动因素分析",
                   source: "IDC / 艾瑞咨询",
                   isUploaded: false,
@@ -1360,6 +1936,7 @@ export function Workflow({
                   category: "行业报告",
                   format: "PDF",
                   name: "企业级AI应用市场趋势分析",
+                  size: "3.2 MB",
                   description: "聚焦企业级AI应用渗透率、典型采购路径、客户决策因素及未来增长预测",
                   source: "Gartner / 麦肯锡",
                   isUploaded: false,
@@ -1376,6 +1953,7 @@ export function Workflow({
                   category: "竞品分析",
                   format: "PDF",
                   name: "核心竞争对手产品对比分析",
+                  size: "5.1 MB",
                   description: "对标企业的产品功能矩阵、定价策略、客户覆盖及技术差异化分析",
                   source: "公开信息 / AI综合分析",
                   isUploaded: false,
@@ -1385,6 +1963,7 @@ export function Workflow({
                   category: "竞品分析",
                   format: "XLSX",
                   name: "赛道融资事件数据库",
+                  size: "1.6 MB",
                   description: "近3年赛道内融资事件汇总，含轮次、金额、估值倍数及领投机构信息",
                   source: "IT桔子 / 36氪",
                   isUploaded: false,
@@ -1401,6 +1980,7 @@ export function Workflow({
                   category: "工商信息",
                   format: "PDF",
                   name: "目标公司工商登记及股权结构摘要",
+                  size: "2.3 MB",
                   description: "企业注册信息、历史股权变更、对外投资关系及经营范围摘要",
                   source: "天眼查 / 企查查",
                   isUploaded: false,
@@ -1410,6 +1990,7 @@ export function Workflow({
                   category: "媒体报道",
                   format: "PDF",
                   name: "创始团队公开信息汇编",
+                  size: "3.7 MB",
                   description: "创始人及核心高管的公开演讲、媒体采访、学术背景及社会关系梳理",
                   source: "公开媒体 / AI综合整理",
                   isUploaded: false,
@@ -1458,7 +2039,7 @@ export function Workflow({
             {
               id: "gms1",
               title: "补充核心团队背景材料",
-              content: "当前项目缺少对创始团队专业背景的系统性佐证材料。建议收集创始人简历、核心团队履历及期权安排文件，以支撑团队能力相关假设的验证。",
+              content: "当前项目缺少对核心管理团队专业背景的系统性佐证材料。建议分别收集核心团队履历、期权安排文件及关键岗位招聘计划，以全面评估团队执行能力与人才梯队建设情况，支撑团队能力相关假设的验证。",
               linkedHypotheses: [
                 { id: "h1", name: "创始人具有扎实的人工智能学术背景" },
               ],
@@ -1467,21 +2048,30 @@ export function Workflow({
               ],
               materials: [
                 {
-                  id: "sm1-1",
+                  id: "sm1-核心团队",
                   category: "人员简历",
                   format: "PDF",
-                  name: "创始人闫俊杰个人简历",
-                  description: "包含学历背景、工作经历、核心成就及行业影响力的完整个人简历",
-                  collectReason: "验证创始人AI学术背景假设，支撑董事会席位条款谈判依据",
+                  name: "核心团队履历",
+                  description: "核心管理团队成员的详细个人履历，包括教育背景、历任职位及主要业绩贡献",
+                  collectReason: "全面评估团队执行能力，验证团队能力相关假设，支撑董事会席位条款谈判依据",
                   isExisting: false,
                 },
                 {
-                  id: "sm1-2",
-                  category: "人员简历",
+                  id: "sm1-期权安排",
+                  category: "人员激励",
                   format: "PDF",
-                  name: "核心团队履历及期权安排",
-                  description: "核心技术团队成员的详细履历及股权激励方案说明",
-                  collectReason: "全面评估团队构成，验证技术执行能力",
+                  name: "团队成员期权安排",
+                  description: "核心团队的股权激励方案，包含期权池规模、归属计划及核心成员持股比例",
+                  collectReason: "评估团队利益绑定程度，验证核心成员稳定性，为股权条款谈判提供参考",
+                  isExisting: false,
+                },
+                {
+                  id: "sm1-招聘",
+                  category: "人才规划",
+                  format: "PDF",
+                  name: "关键岗位招聘计划",
+                  description: "未来6-12个月核心岗位招募规划，含职位设置、能力要求及预算安排",
+                  collectReason: "评估团队补强方向与扩张节奏，验证团队梯队建设相关假设",
                   isExisting: false,
                 },
               ],
@@ -1489,12 +2079,12 @@ export function Workflow({
             {
               id: "gms2",
               title: "完善财务尽调材料",
-              content: "现有财务材料不足以支撑单位经济模型健康的假设验证。建议补充详细的财务预测模型和单位经济分析，以验证盈利能力假设并支撑相关条款谈判。",
+              content: "现有财务材料不足以支撑单位经济模型健康的假设验证。建议补充详细的财务预测模型、单位经济分析及近三年审计财务报表，以全面验证盈利能力假设并支撑相关条款谈判。",
               linkedHypotheses: [
                 { id: "h4", name: "单位经济模型健康，具备规模化盈利基础" },
               ],
               linkedTerms: [
-                { id: "t2", name: "采用加权平均反稀释保��机制" },
+                { id: "t2", name: "采用加权平均反稀释保护机制" },
               ],
               materials: [
                 {
@@ -1515,12 +2105,21 @@ export function Workflow({
                   collectReason: "量化验证盈利能力假设，支持信息权条款中财务报告要求的合理性",
                   isExisting: false,
                 },
+                {
+                  id: "sm2-3",
+                  category: "财务材料",
+                  format: "PDF",
+                  name: "近三年审计财务报表",
+                  description: "经会计师事务所审计的近三个完整财务年度资产负债表、利润表及现金流量表",
+                  collectReason: "核实历史财务数据真实性，支撑估值模型的历史基准，是机构投资人的标准尽调要求",
+                  isExisting: false,
+                },
               ],
             },
             {
               id: "gms3",
               title: "加强技术壁垒验证材料",
-              content: "当前材料库缺少对公司核心技术壁垒的客观评估材料。建议收集第三方技术评估报告和专利清单，以强化技术竞争力相关假设的可信度。",
+              content: "当前材料库缺少对公司核心技术壁垒的客观评估材料。建议收集技术架构说明书、专利清单及第三方技术评估报告，以强化技术竞争力相关假设的可信度。",
               linkedHypotheses: [
                 { id: "h2", name: "核心技术具备可验证的技术壁垒" },
                 { id: "h3", name: "市场规模足够支撑高速增长" },
@@ -1543,6 +2142,92 @@ export function Workflow({
                   name: "专利及知识产权清单",
                   description: "已授权专利、申请中专利及核心技术的知识产权保护状态",
                   collectReason: "量化评估技术壁垒的可持续性，支撑对应的假设和条款",
+                  isExisting: false,
+                },
+                {
+                  id: "sm3-3",
+                  category: "技术评估",
+                  format: "PDF",
+                  name: "第三方技术评估报告",
+                  description: "由独立技术顾问或机构出具的核心技术可行性、先进性及市场应用评估报告",
+                  collectReason: "提供客观的第三方技术验证背书，增强技术壁垒假设的可信度",
+                  isExisting: false,
+                },
+              ],
+            },
+            {
+              id: "gms4",
+              title: "深化市场与客户验证",
+              content: "当前缺少足够的外部市场验证材料。建议补充目标市场调研报告、重点客户访谈记录及竞争对手案例分析，以全面支撑市场规模与客户需求相关假设。",
+              linkedHypotheses: [
+                { id: "h3", name: "市场规模足够支撑高速增长" },
+              ],
+              linkedTerms: [],
+              materials: [
+                {
+                  id: "sm4-市场",
+                  category: "市场研究",
+                  format: "PDF",
+                  name: "目标市场调研报告",
+                  description: "目标市场规模、增速预测、细分赛道分析及目标客户画像的系统性研究报告",
+                  collectReason: "提供市场规模假设的外部数据支撑，为投资决策委员会提供市场验证依据",
+                  isExisting: false,
+                },
+                {
+                  id: "sm4-访谈",
+                  category: "客户验证",
+                  format: "PDF",
+                  name: "重点客户访谈记录",
+                  description: "5-10家目标客户或现有客户的深度访谈纪要，涵盖需求痛点、采购决策路径及付费意愿",
+                  collectReason: "直接验证客户需求与产品价值主张假设，增强商业模式可行性的说服力",
+                  isExisting: false,
+                },
+                {
+                  id: "sm4-竞争",
+                  category: "竞品分析",
+                  format: "PDF",
+                  name: "竞争对手案例分析",
+                  description: "主要竞争对手的产品功能、市场定价、客户策略及融资历程的对比分析报告",
+                  collectReason: "明确差异化竞争优势，支撑市场份额增长假设，为反稀释条款估值参考提供市场对标依据",
+                  isExisting: false,
+                },
+              ],
+            },
+            {
+              id: "gms5",
+              title: "完善法律合规与股权结构",
+              content: "公司法律合规文件和股权结构是机构投资人尽调的必备材料。建议收集公司注册文件、完整股权结构图及历史融资协议摘要，确保投资决策所需的法律合规信息完整齐备。",
+              linkedHypotheses: [],
+              linkedTerms: [
+                { id: "t1", name: "创始人股权分配细则" },
+                { id: "t2", name: "采用加权平均反稀释保护机制" },
+              ],
+              materials: [
+                {
+                  id: "sm5-注册",
+                  category: "法律文件",
+                  format: "PDF",
+                  name: "公司注册文件与营业执照",
+                  description: "公司章程、营业执照、工商登记信息及历次变更记录，确认主体合法性",
+                  collectReason: "验证投资主体的合法性与注册信息准确性，是所有机构投资人必要的基础合规材料",
+                  isExisting: false,
+                },
+                {
+                  id: "sm5-股权",
+                  category: "股权结构",
+                  format: "PDF",
+                  name: "股权结构图（Cap Table）",
+                  description: "现有股东名册、各轮次融资后完全稀释股权比例及期权池详情的完整股权结构表",
+                  collectReason: "明确投资人入股后的股权比例及稀释情况，是反稀释和清算优先权条款谈判的核心参考",
+                  isExisting: false,
+                },
+                {
+                  id: "sm5-融资",
+                  category: "法律文件",
+                  format: "PDF",
+                  name: "历史融资协议摘要",
+                  description: "已完成融资轮次的主要条款摘要，包括优先权设置、反稀释条款及重要限制性条款",
+                  collectReason: "了解现有投资人权益安排，确保本轮投资条款与历史协议兼容，避免条款冲突风险",
                   isExisting: false,
                 },
               ],
@@ -1865,6 +2550,87 @@ export function Workflow({
           onSaveSuggestions?.(suggestions)
           setIsGenerating(false)
           setGenerationComplete(true)
+        }, 500)
+      }
+    }, 800)
+  }
+
+  function handleStartTracking() {
+    setIsTrackingGenerating(true)
+    setTrackingGenerationComplete(false)
+
+    const steps: ThinkingStep[] = [
+      { id: "tk1", label: "读取假设清单及验证情况...", status: "waiting" },
+      { id: "tk2", label: "读取条款清单及落实情况...", status: "waiting" },
+      { id: "tk3", label: "对比预期目标与实际进展...", status: "waiting" },
+      { id: "tk4", label: "识别偏差与风险点...", status: "waiting" },
+      { id: "tk5", label: "生成跟踪情况汇总...", status: "waiting" },
+    ]
+    setTrackingThinkingSteps(steps)
+
+    let currentStep = 0
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setTrackingThinkingSteps((prev) =>
+          prev.map((step, idx) => ({
+            ...step,
+            status: idx < currentStep ? "completed" : idx === currentStep ? "active" : "waiting",
+          }))
+        )
+        currentStep++
+      } else {
+        clearInterval(interval)
+        setTrackingThinkingSteps((prev) =>
+          prev.map((step) => ({ ...step, status: "completed" }))
+        )
+
+        setTimeout(() => {
+          const hypotheses: TrackingItem[] = [
+            {
+              id: "th1",
+              name: "AI基础设施市场规模快速增长",
+              progress: "已通过市场调研验证，2024年市场增速达38%，符合预期。Q3营收同比增长42%，客户续约率达91%，核心指标持续超预期。",
+              nextAction: "建议在下一阶段重新评估市场天花板，补充新兴场景数据，以支持更激进的增长假设。",
+            },
+            {
+              id: "th2",
+              name: "公司在AI推理优化领域具备核心技术壁垒",
+              progress: "技术壁垒假设部分验证。推理效率较业界平均水平提升40%，但竞争对手发布了类似技术方案，差异化优势有所收窄。",
+              nextAction: "建议重点跟踪竞对技术进展，并推动公司加快专利布局，重点围绕低延迟推理算法申请保护性专利。",
+            },
+            {
+              id: "th3",
+              name: "创始团队具备商业化落地能力",
+              progress: "已签署3家大型企业客户，平均合同金额超预期约20%，商业化进展良好。但销售团队规模扩张速度低于计划，存在执行缺口。",
+              nextAction: "建议督促管理层加快销售团队招聘，并关注近两个季度的新增签约情况是否回归正轨。",
+            },
+          ]
+
+          const terms: TrackingItem[] = [
+            {
+              id: "tt1",
+              name: "反稀释条款",
+              progress: "公司已完成B轮融资，融资估值较A轮上涨65%，触发加权平均反稀释机制，本基金已按条款完成份额调整，落实完毕，符合预期。",
+              nextAction: "无需立即行动。建议在C轮前提前确认条款优先级及执行机制，避免后续轮次出现争议。",
+            },
+            {
+              id: "tt2",
+              name: "信息权与检查权",
+              progress: "公司本季度财报延迟3周交付，月度经营数据报送频率不达标（实际每季度1次，约定每月1次），条款落实情况待改善。",
+              nextAction: "建议发送正式函件要求公司按约定频率提供信息，必要时启动董事会层面协调，强化信息权落实。",
+            },
+            {
+              id: "tt3",
+              name: "创始人股权锁定条款",
+              progress: "锁定期内创始人股权结构保持稳定，无转让记录，条款正常落实中。",
+              nextAction: "继续监控股权变动情况，并在锁定期到期前6个月启动续约谈判，确保核心创始人稳定性。",
+            },
+          ]
+
+          setGeneratedTrackingHypotheses(hypotheses)
+          setGeneratedTrackingTerms(terms)
+          setIsTrackingGenerating(false)
+          setTrackingGenerationComplete(true)
         }, 500)
       }
     }, 800)
@@ -2358,6 +3124,11 @@ ${logs}
                                     <Pencil className="h-3 w-3" />
                                     修改该假设
                                   </button>
+                                ) : createdSuggestionHypothesisIds.has(hypothesis.id) ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] shrink-0">
+                                    <Check className="h-3 w-3" />
+                                    已创建
+                                  </span>
                                 ) : (
                                   <button
                                     onClick={() => handleCreateFromHypothesis(hypothesis)}
@@ -2899,6 +3670,11 @@ ${logs}
                                     <Pencil className="h-3 w-3" />
                                     修改该条款
                                   </button>
+                                ) : createdSuggestionTermIds.has(term.id) ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] shrink-0">
+                                    <Check className="h-3 w-3" />
+                                    已创建
+                                  </span>
                                 ) : (
                                   <button
                                     onClick={() => handleCreateFromTerm(term)}
@@ -3270,7 +4046,7 @@ ${logs}
                                   </Badge>
                                   <span className="text-sm text-[#374151] truncate">{material.name}</span>
                                 </div>
-                                {material.isExisting ? (
+                                {material.isExisting || collectedSuggestionMaterialIds.has(material.id) ? (
                                   <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] shrink-0">
                                     <Check className="h-3 w-3" />
                                     已收集
@@ -3417,6 +4193,252 @@ ${logs}
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Core Team Material Collect Dialog */}
+        <Dialog open={showCoreTeamDialog} onOpenChange={(open) => { if (!open) setShowCoreTeamDialog(false) }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50">
+                  <FolderSearch className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-[#111827]">收集项目材料</div>
+                </div>
+              </DialogTitle>
+              <DialogDescription className="text-sm text-[#6B7280]">
+                AI已生成材料分析，请上传对应材料完成收集申请
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-5 mt-4">
+              {/* 材料概述 - AI generated, read-only */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-blue-50/40">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-600">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    AI生成
+                  </div>
+                  <span className="text-sm font-semibold text-[#111827]">材料概述</span>
+                </div>
+                <p className="text-sm text-[#374151] leading-relaxed">
+                  核心团队履历收录创始人及管理层成员的教育背景、工作经历与核心成就，是评估团队能力与执行力的基础性文件。材料涵盖学历证明、历任职位说明及主要业绩佐证，为投资尽调提供系统性的人才评估依据。
+                </p>
+              </div>
+
+              {/* 推荐理由 - AI generated, read-only */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4 bg-amber-50/40">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    AI生成
+                  </div>
+                  <span className="text-sm font-semibold text-[#111827]">推荐理由</span>
+                </div>
+                <p className="text-sm text-[#374151] leading-relaxed">
+                  当前阶段假设清单中包含"创始人具有扎实的人工智能学术背景"等多项团队能力相关假设，但缺乏系统性的人才背景材料支撑。收集核心团队履历可直接用于验证上述假设，并在董事会席位条款谈判中提供人才质量的客观依据。此外，投资方在后续融资轮次和退出谈判中，管理团队的专业背景往往是估值乘数的重要参考因素，系统性的团队材料将显著提升项目的可信度与吸引力。
+                </p>
+              </div>
+
+              {/* 上传材料 */}
+              <div className="rounded-lg border border-[#E5E7EB] p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-[#111827]">上传材料</span>
+                  {coreTeamUploadStage === "idle" && (
+                    <button
+                      onClick={openCoreTeamFilePicker}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-[#2563EB] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      上传材料
+                    </button>
+                  )}
+                </div>
+
+                {coreTeamUploadStage === "idle" && (
+                  <p className="text-sm text-[#9CA3AF]">请上传核心团队履历文件（支持 PDF、DOCX、PPTX 格式）</p>
+                )}
+
+                {coreTeamUploadStage === "uploading" && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 text-sm text-[#374151]">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                      <span>正在上传...</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F3F4F6]">
+                      <div
+                        className="h-full rounded-full bg-amber-500 transition-all duration-150"
+                        style={{ width: `${coreTeamUploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[#9CA3AF]">{coreTeamUploadProgress}%</p>
+                  </div>
+                )}
+
+                {coreTeamUploadStage === "done" && (
+                  <div className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50">
+                      <FileText className="h-5 w-5 text-red-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#111827] truncate">团队成员资料合集.pdf</p>
+                      <p className="text-xs text-[#6B7280]">{coreTeamFileSize}</p>
+                    </div>
+                    <Check className="h-4 w-4 shrink-0 text-emerald-500" />
+                  </div>
+                )}
+              </div>
+
+              {/* 材料简介 - appears after upload done */}
+              {coreTeamUploadStage === "done" && (
+                <div className="rounded-lg border border-[#E5E7EB] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-semibold text-[#111827]">材料简介</span>
+                    {isCoreTeamSummaryGenerating && (
+                      <div className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
+                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#D1D5DB] border-t-transparent" />
+                        AI正在生成材料简介...
+                      </div>
+                    )}
+                  </div>
+                  {isCoreTeamSummaryGenerating ? (
+                    <div className="flex items-center justify-center gap-1 py-6 text-[#9CA3AF] text-sm">
+                      <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
+                    </div>
+                  ) : (
+                    <textarea
+                      readOnly
+                      value={coreTeamSummaryText}
+                      className="w-full resize-none rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151] focus:outline-none"
+                      rows={5}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-[#E5E7EB]">
+                <Button variant="outline" onClick={() => setShowCoreTeamDialog(false)}>
+                  取消
+                </Button>
+                <Button
+                  onClick={handleSubmitCoreTeamMaterial}
+                  className="bg-amber-500 hover:bg-amber-600"
+                  disabled={coreTeamUploadStage !== "done" || isCoreTeamSummaryGenerating}
+                >
+                  上传
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Core Team Material File Picker Dialog */}
+        <Dialog
+          open={showCoreTeamFilePicker}
+          onOpenChange={(open) => { if (!open && !coreTeamPickerUploading) setShowCoreTeamFilePicker(false) }}
+        >
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-[#6B7280]" />
+                <span>选择本地文件</span>
+              </DialogTitle>
+              <DialogDescription>
+                {coreTeamPickerFolder ? `本机文档 > ${coreTeamPickerFolder}` : "本机文档"}
+              </DialogDescription>
+            </DialogHeader>
+
+            {coreTeamPickerUploading ? (
+              <div className="space-y-3 py-4">
+                <div className="flex items-center gap-2 text-sm text-[#374151]">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                  <span>正在上传 {coreTeamPickerSelected}...</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F3F4F6]">
+                  <div
+                    className="h-full rounded-full bg-amber-500 transition-all duration-150"
+                    style={{ width: `${coreTeamPickerProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-[#9CA3AF]">{coreTeamPickerProgress}%</p>
+              </div>
+            ) : coreTeamPickerFolder === null ? (
+              /* Folder list view */
+              <div className="space-y-1 py-2">
+                {CORE_TEAM_MOCK_FOLDERS.map((folder) => (
+                  <button
+                    key={folder.name}
+                    onClick={() => setCoreTeamPickerFolder(folder.name)}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[#F3F4F6]"
+                  >
+                    <FolderOpen className="h-5 w-5 text-amber-400 shrink-0" />
+                    <span className="text-sm text-[#111827]">{folder.name}</span>
+                    <ChevronRight className="h-4 w-4 text-[#9CA3AF] ml-auto" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              /* File list inside selected folder */
+              <div className="space-y-1 py-2">
+                <button
+                  onClick={() => { setCoreTeamPickerFolder(null); setCoreTeamPickerSelected(null) }}
+                  className="flex items-center gap-1.5 mb-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+                >
+                  <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                  返回
+                </button>
+                {CORE_TEAM_MOCK_FOLDERS.find((f) => f.name === coreTeamPickerFolder)?.files.map((file) => (
+                  <button
+                    key={file.name}
+                    onClick={() => setCoreTeamPickerSelected(coreTeamPickerSelected === file.name ? null : file.name)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+                      coreTeamPickerSelected === file.name
+                        ? "bg-blue-50 border border-blue-200"
+                        : "hover:bg-[#F3F4F6]"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+                        coreTeamPickerSelected === file.name
+                          ? "border-blue-500 bg-blue-500"
+                          : "border-[#D1D5DB]"
+                      )}
+                    >
+                      {coreTeamPickerSelected === file.name && (
+                        <Check className="h-3 w-3 text-white" />
+                      )}
+                    </div>
+                    <FileText className="h-4 w-4 text-red-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#111827] truncate">{file.name}</p>
+                      <p className="text-xs text-[#6B7280]">{file.size}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!coreTeamPickerUploading && (
+              <div className="flex justify-end gap-3 pt-3 border-t border-[#E5E7EB]">
+                <Button variant="outline" onClick={() => setShowCoreTeamFilePicker(false)}>
+                  取消
+                </Button>
+                <Button
+                  onClick={handleCoreTeamPickerConfirm}
+                  disabled={!coreTeamPickerSelected}
+                  className="bg-[#2563EB] hover:bg-[#1D4ED8]"
+                >
+                  上传
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -3546,16 +4568,25 @@ ${logs}
                                 key={material.id}
                                 className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3"
                               >
-                                <div className="flex items-center justify-between gap-4 mb-2">
-                                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                                    <Badge className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] shrink-0">
-                                      {material.category}
-                                    </Badge>
-                                    <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] shrink-0">
-                                      {material.format}
-                                    </Badge>
-                                    <span className="text-sm font-medium text-[#374151] truncate">{material.name}</span>
-                                  </div>
+                                {/* Header: badges + size + name */}
+                                <div className="flex items-center gap-2 flex-wrap mb-2">
+                                  <Badge className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] shrink-0">
+                                    {material.category}
+                                  </Badge>
+                                  <Badge className="bg-gray-50 text-gray-600 border-gray-200 text-[10px] shrink-0">
+                                    {material.format}
+                                  </Badge>
+                                  <span className="text-[10px] text-[#9CA3AF] shrink-0">{material.size}</span>
+                                  <span className="text-sm font-medium text-[#374151] truncate">{material.name}</span>
+                                </div>
+                                {/* Source & description */}
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-xs text-[#9CA3AF] shrink-0">来源:</span>
+                                  <span className="text-xs text-[#6B7280]">{material.source}</span>
+                                </div>
+                                <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">{material.description}</p>
+                                {/* Action buttons */}
+                                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-[#E5E7EB]">
                                   {isUploaded ? (
                                     <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#6B7280] shrink-0">
                                       <Check className="h-3 w-3" />
@@ -3570,12 +4601,15 @@ ${logs}
                                       上传该材料
                                     </button>
                                   )}
+                                  <button className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#374151] transition-colors hover:bg-[#F3F4F6] shrink-0">
+                                    <Eye className="h-3 w-3" />
+                                    查看该材料
+                                  </button>
+                                  <button className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#374151] transition-colors hover:bg-[#F3F4F6] shrink-0">
+                                    <Pencil className="h-3 w-3" />
+                                    编辑该材料
+                                  </button>
                                 </div>
-                                <div className="flex items-start gap-1.5 mt-1">
-                                  <span className="text-xs text-[#9CA3AF] shrink-0">来源:</span>
-                                  <span className="text-xs text-[#6B7280]">{material.source}</span>
-                                </div>
-                                <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">{material.description}</p>
                               </div>
                             )
                           })}
@@ -3600,6 +4634,200 @@ ${logs}
                   >
                     <Check className="h-4 w-4" />
                     完成并返回
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show full page tracking summary view
+  if (fullPageView === "tracking-generation") {
+    const totalItems = generatedTrackingHypotheses.length + generatedTrackingTerms.length
+    return (
+      <div className="flex h-full flex-col bg-[#F9FAFB]">
+        {/* Header */}
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-8 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleCloseFullPageView}
+                className="flex items-center gap-2 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+              >
+                <ArrowRight className="h-4 w-4 rotate-180" />
+                返回工作流
+              </button>
+              <div className="h-6 w-px bg-[#E5E7EB]" />
+              <div>
+                <h1 className="text-xl font-bold text-[#111827]">跟踪情况汇总</h1>
+                <p className="text-sm text-[#6B7280]">{currentPhase?.fullLabel || "存续期 - 阶段1"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-4xl">
+            {!isTrackingGenerating && !trackingGenerationComplete && (
+              /* Start State */
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-teal-100 to-teal-50 ring-8 ring-teal-50/50">
+                  <ClipboardList className="h-10 w-10 text-teal-600" />
+                </div>
+                <h2 className="text-xl font-semibold text-[#111827] mb-2">AI跟踪情况汇总生成</h2>
+                <p className="text-sm text-[#6B7280] text-center max-w-md mb-8">
+                  基于当前存续期阶段的假设验证情况与条款落实情况，AI将为您生成全面的投后跟踪汇总，并提供下一步行动建议。
+                </p>
+                <button
+                  onClick={handleStartTracking}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all hover:from-teal-600 hover:to-emerald-600 hover:shadow-xl"
+                >
+                  <Brain className="h-5 w-5" />
+                  开始汇总
+                </button>
+              </div>
+            )}
+
+            {isTrackingGenerating && (
+              /* Thinking Animation */
+              <div className="py-12">
+                <div className="mb-8 text-center">
+                  <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm text-blue-700">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                    AI正在深度思考...
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm">
+                  <div className="space-y-4">
+                    {trackingThinkingSteps.map((step, idx) => (
+                      <div key={step.id} className="flex items-center gap-4">
+                        <div className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300",
+                          step.status === "completed" ? "bg-emerald-100" :
+                            step.status === "active" ? "bg-blue-100 animate-pulse" :
+                              "bg-gray-100"
+                        )}>
+                          {step.status === "completed" ? (
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          ) : step.status === "active" ? (
+                            <div className="h-3 w-3 rounded-full bg-blue-500 animate-ping" />
+                          ) : (
+                            <span className="text-xs text-gray-400">{idx + 1}</span>
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-sm transition-colors duration-300",
+                          step.status === "completed" ? "text-emerald-700 font-medium" :
+                            step.status === "active" ? "text-blue-700 font-medium" :
+                              "text-gray-400"
+                        )}>
+                          {step.label}
+                        </span>
+                        {step.status === "active" && (
+                          <div className="flex-1">
+                            <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full w-1/2 bg-blue-500 animate-pulse rounded-full" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {trackingGenerationComplete && (
+              /* Results */
+              <div className="space-y-8">
+                {/* Summary header */}
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                    <Check className="h-5 w-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-[#111827]">汇总完成</h2>
+                    <p className="text-sm text-[#6B7280]">共生成 {totalItems} 条跟踪情况</p>
+                  </div>
+                </div>
+
+                {/* Section 1 — Hypothesis tracking */}
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100">
+                      <Lightbulb className="h-4 w-4 text-amber-600" />
+                    </div>
+                    <h3 className="text-base font-semibold text-[#111827]">假设跟踪情况</h3>
+                    <span className="text-sm text-[#6B7280]">({generatedTrackingHypotheses.length} 条)</span>
+                  </div>
+                  <div className="space-y-4">
+                    {generatedTrackingHypotheses.map((item, idx) => (
+                      <div key={item.id} className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-sm font-semibold text-amber-700">
+                            {idx + 1}
+                          </div>
+                          <h4 className="text-base font-semibold text-[#111827] leading-snug">{item.name}</h4>
+                        </div>
+                        <div className="ml-12 space-y-3">
+                          <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] p-4">
+                            <p className="text-xs font-medium text-[#6B7280] mb-1.5">当前进展</p>
+                            <p className="text-sm text-[#374151] leading-relaxed">{item.progress}</p>
+                          </div>
+                          <div className="rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4">
+                            <p className="text-xs font-medium text-[#2563EB] mb-1.5">下一步行动建议</p>
+                            <p className="text-sm text-[#1E3A5F] leading-relaxed">{item.nextAction}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Section 2 — Term tracking */}
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100">
+                      <FileText className="h-4 w-4 text-violet-600" />
+                    </div>
+                    <h3 className="text-base font-semibold text-[#111827]">条款跟踪情况</h3>
+                    <span className="text-sm text-[#6B7280]">({generatedTrackingTerms.length} 条)</span>
+                  </div>
+                  <div className="space-y-4">
+                    {generatedTrackingTerms.map((item, idx) => (
+                      <div key={item.id} className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-sm font-semibold text-violet-700">
+                            {idx + 1}
+                          </div>
+                          <h4 className="text-base font-semibold text-[#111827] leading-snug">{item.name}</h4>
+                        </div>
+                        <div className="ml-12 space-y-3">
+                          <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] p-4">
+                            <p className="text-xs font-medium text-[#6B7280] mb-1.5">当前进展</p>
+                            <p className="text-sm text-[#374151] leading-relaxed">{item.progress}</p>
+                          </div>
+                          <div className="rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] p-4">
+                            <p className="text-xs font-medium text-[#2563EB] mb-1.5">下一步行动建议</p>
+                            <p className="text-sm text-[#1E3A5F] leading-relaxed">{item.nextAction}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Footer action */}
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={handleCloseFullPageView}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    返回工作流
                   </button>
                 </div>
               </div>
@@ -3812,6 +5040,7 @@ ${logs}
   // Show empty state for new projects with no phases started
   if (isNewProject && projectPhases.length === 0) {
     return (
+      <>
       <div className="flex h-full items-center justify-center bg-[#F9FAFB]">
         <div className="text-center max-w-md px-6">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#EFF6FF]">
@@ -3822,14 +5051,99 @@ ${logs}
             这是一个新创建的项目，工作流尚未启动。点击下方按钮启动项目的第一个阶段。
           </p>
           <button
-            onClick={handleStartFirstPhase}
+            onClick={handleLiXiang}
             className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
           >
             <Plus className="h-4 w-4" />
-            启动设立期 - 阶段1
+            立项
           </button>
         </div>
       </div>
+
+      {/* 立项 Dialog (must be here since this is an early-return branch) */}
+      <Dialog open={showLiXiangDialog} onOpenChange={setShowLiXiangDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+                <GitBranch className="h-4 w-4 text-blue-600" />
+              </div>
+              立项
+            </DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
+              填写立项说明并选择负责人，提交后将发起变更请求。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">立项详情</Label>
+              <Textarea
+                value={liXiangDetailsInput}
+                onChange={(e) => setLiXiangDetailsInput(e.target.value)}
+                placeholder="请填写本次立项的说明、目标及背景..."
+                rows={4}
+                className="resize-none text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-[#374151]">负责人</Label>
+              <div className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                {/* Search input */}
+                <div className="relative border-b border-[#E5E7EB]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="text"
+                    value={liXiangOwnerSearch}
+                    onChange={(e) => setLiXiangOwnerSearch(e.target.value)}
+                    placeholder="搜索负责人..."
+                    className="w-full py-2.5 pl-9 pr-3 text-sm text-[#374151] placeholder:text-[#9CA3AF] outline-none bg-white"
+                  />
+                </div>
+                {/* Owner list */}
+                <div className="max-h-[220px] overflow-y-auto">
+                  {LIXIANG_OWNERS
+                    .filter((o) => o.name.includes(liXiangOwnerSearch) || o.title.includes(liXiangOwnerSearch))
+                    .map((owner) => (
+                    <label
+                      key={owner.id}
+                      htmlFor={`lixiang-owner-empty-${owner.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <Checkbox
+                        id={`lixiang-owner-empty-${owner.id}`}
+                        checked={liXiangSelectedOwners.has(owner.id)}
+                        onCheckedChange={(checked) => {
+                          setLiXiangSelectedOwners((prev) => {
+                            const next = new Set(prev)
+                            if (checked) next.add(owner.id)
+                            else next.delete(owner.id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-medium ${owner.color}`}>
+                        {owner.initials}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-[#111827] leading-tight">{owner.name}</span>
+                        <span className="text-xs text-[#6B7280] leading-tight">{owner.title}</span>
+                      </div>
+                    </label>
+                  ))}
+                  {LIXIANG_OWNERS.filter((o) => o.name.includes(liXiangOwnerSearch) || o.title.includes(liXiangOwnerSearch)).length === 0 && (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">未找到匹配的负责人</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowLiXiangDialog(false)}>取消</Button>
+            <Button onClick={handleSubmitLiXiang}>立项</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      </>
     )
   }
 
@@ -3847,7 +5161,62 @@ ${logs}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {/* Show different buttons based on project state - no phase limits */}
+              {/* ── New investment lifecycle buttons ── */}
+              {isNewProject && currentPreInvestmentPhase > 0 && !isInMidInvestment && !isInPostInvestment && (
+                <>
+                  <button
+                    onClick={handleStartNextPreInvestmentPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleTouJue}
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                    投决
+                  </button>
+                </>
+              )}
+              {isNewProject && isInMidInvestment && !isInPostInvestment && (
+                <>
+                  <button
+                    onClick={handleStartNextMidInvestmentPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleDiKuan}
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#F59E0B] bg-white px-4 py-2.5 text-sm font-medium text-[#D97706] transition-colors hover:bg-[#FFFBEB]"
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    划款
+                  </button>
+                </>
+              )}
+              {isNewProject && isInPostInvestment && !isExited && (
+                <>
+                  <button
+                    onClick={handleStartNextPostInvestmentPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleTuiChu}
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#EF4444] bg-white px-4 py-2.5 text-sm font-medium text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    退出
+                  </button>
+                </>
+              )}
+              {/* ── Legacy 设立期/存续期 buttons (existing new-project system) ── */}
               {isNewProject && !isInDuration && currentSetupPhase > 0 && (
                 <>
                   <button
@@ -3900,6 +5269,23 @@ ${logs}
           // Full timeline view
           <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden">
             <div className="flex items-start gap-4 p-6 min-w-max h-full">
+              {/* 已立项 badge — shown before 投前期-阶段一 when 立项 has been approved */}
+              {liXiangRecord && isNewProject && projectPhases.length > 0 && (
+                <div className="flex items-center shrink-0">
+                  <div className="flex flex-col items-center">
+                    {/* spacer matching group-header row height */}
+                    <div className="mb-3 h-[22px]" />
+                    <button
+                      onClick={() => setShowLiXiangInfoDialog(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 whitespace-nowrap shadow-sm"
+                    >
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      已立项
+                    </button>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-[#9CA3AF] mt-[33px]" />
+                </div>
+              )}
               {projectPhases.map((phase, idx) => {
                 const isSelected = selectedPhase === phase.id
                 const sc = statusConfig[phase.status]
@@ -3907,14 +5293,54 @@ ${logs}
                 lastGroup = phase.groupLabel
                 const isLastInGroup = idx < projectPhases.length - 1 ? projectPhases[idx + 1].groupLabel !== phase.groupLabel : true
                 const isSetup = phase.groupLabel === "设立期"
+                  || phase.groupLabel === "投前期"
+                  || phase.groupLabel === "投中期"
 
                 return (
                   <div key={phase.id} className="flex items-start shrink-0">
+                    {/* 已投决 badge between 投前期 and 投中期 */}
+                    {/* 已投决 badge between 投前期 and 投中期 */}
+                    {touJueRecord && showGroupHeader && phase.groupLabel === "投中期" && (
+                      <div className="flex items-center shrink-0">
+                        <div className="flex flex-col items-center">
+                          <div className="mb-3 h-[22px]" />
+                          <button
+                            onClick={() => setShowTouJueInfoDialog(true)}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 whitespace-nowrap shadow-sm"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            已投决
+                          </button>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-[#9CA3AF] mt-[33px]" />
+                      </div>
+                    )}
+                    {/* 已划款 badge between 投中期 and 投后期 */}
+                    {huaKuanRecord && showGroupHeader && phase.groupLabel === "投后期" && (
+                      <div className="flex items-center shrink-0">
+                        <div className="flex flex-col items-center">
+                          <div className="mb-3 h-[22px]" />
+                          <button
+                            onClick={() => setShowHuaKuanInfoDialog(true)}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 whitespace-nowrap shadow-sm"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            已划款
+                          </button>
+                        </div>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-[#9CA3AF] mt-[33px]" />
+                      </div>
+                    )}
                     {/* Group header + card */}
                     <div className="flex flex-col">
                       {showGroupHeader && (
                         <div className="mb-3 flex items-center gap-2">
-                          <span className={cn("h-2.5 w-2.5 rounded-full", isSetup ? "bg-violet-500" : "bg-teal-500")} />
+                          <span className={cn("h-2.5 w-2.5 rounded-full",
+                            phase.groupLabel === "投前期" ? "bg-blue-500"
+                            : phase.groupLabel === "投中期" ? "bg-amber-500"
+                            : phase.groupLabel === "投后期" ? "bg-teal-500"
+                            : isSetup ? "bg-violet-500" : "bg-teal-500"
+                          )} />
                           <span className="text-sm font-semibold text-[#374151]">{phase.groupLabel}</span>
                         </div>
                       )}
@@ -4076,6 +5502,28 @@ ${logs}
                   </div>
                 )
               })}
+              {/* 已退出 badge at the end of timeline */}
+              {tuiChuRecord && isExited && (
+                <div className="flex items-center shrink-0">
+                  <div className="flex items-center self-center mt-6 px-1">
+                    <div className="flex items-center gap-1">
+                      <div className="h-px w-4 bg-[#D1D5DB]" />
+                      <ChevronRight className="h-4 w-4 text-[#9CA3AF]" />
+                      <div className="h-px w-4 bg-[#D1D5DB]" />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="mb-3 h-[22px]" />
+                    <button
+                      onClick={() => setShowTuiChuInfoDialog(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 whitespace-nowrap shadow-sm"
+                    >
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      已退出
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -4190,6 +5638,525 @@ ${logs}
           )}
         </div>
       )}
+
+      {/* ── 立项 Dialog ───────────────────────────────── */}
+      <Dialog open={showLiXiangDialog} onOpenChange={setShowLiXiangDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+                <GitBranch className="h-4 w-4 text-blue-600" />
+              </div>
+              立项
+            </DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
+              填写立项说明并选择负责人，提交后将发起变更请求。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">立项详情</Label>
+              <Textarea
+                value={liXiangDetailsInput}
+                onChange={(e) => setLiXiangDetailsInput(e.target.value)}
+                placeholder="请填写本次立项的说明、目标及背景..."
+                rows={4}
+                className="resize-none text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-[#374151]">负责人</Label>
+              <div className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                {/* Search input */}
+                <div className="relative border-b border-[#E5E7EB]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="text"
+                    value={liXiangOwnerSearch}
+                    onChange={(e) => setLiXiangOwnerSearch(e.target.value)}
+                    placeholder="搜索负责人..."
+                    className="w-full py-2.5 pl-9 pr-3 text-sm text-[#374151] placeholder:text-[#9CA3AF] outline-none bg-white"
+                  />
+                </div>
+                {/* Owner list */}
+                <div className="max-h-[220px] overflow-y-auto">
+                  {LIXIANG_OWNERS
+                    .filter((o) => o.name.includes(liXiangOwnerSearch) || o.title.includes(liXiangOwnerSearch))
+                    .map((owner) => (
+                    <label
+                      key={owner.id}
+                      htmlFor={`lixiang-owner-${owner.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <Checkbox
+                        id={`lixiang-owner-${owner.id}`}
+                        checked={liXiangSelectedOwners.has(owner.id)}
+                        onCheckedChange={(checked) => {
+                          setLiXiangSelectedOwners((prev) => {
+                            const next = new Set(prev)
+                            if (checked) next.add(owner.id)
+                            else next.delete(owner.id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-medium ${owner.color}`}>
+                        {owner.initials}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-[#111827] leading-tight">{owner.name}</span>
+                        <span className="text-xs text-[#6B7280] leading-tight">{owner.title}</span>
+                      </div>
+                    </label>
+                  ))}
+                  {LIXIANG_OWNERS.filter((o) => o.name.includes(liXiangOwnerSearch) || o.title.includes(liXiangOwnerSearch)).length === 0 && (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">未找到匹配的负责人</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowLiXiangDialog(false)}>取消</Button>
+            <Button onClick={handleSubmitLiXiang}>立项</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 已立项 Info Dialog ─────────────────────────── */}
+      <Dialog open={showLiXiangInfoDialog} onOpenChange={setShowLiXiangInfoDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-green-200 bg-green-50">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+              </div>
+              立项信息
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">立项详情</p>
+              <p className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151]">
+                {liXiangRecord?.details || "—"}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-[#6B7280]">负责人</p>
+              <div className="flex flex-wrap gap-2">
+                {liXiangRecord?.owners && liXiangRecord.owners.length > 0 ? (
+                  liXiangRecord.owners.map((o) => (
+                    <Badge key={o.id} className="bg-blue-50 text-blue-700 border-blue-200">
+                      {o.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-[#9CA3AF]">—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">立项时间</p>
+              <p className="text-sm text-[#374151]">{liXiangRecord?.time || "—"}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 投决 Dialog ───────────────────────────────── */}
+      <Dialog open={showTouJueDialog} onOpenChange={setShowTouJueDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+                <ArrowRight className="h-4 w-4 text-amber-600" />
+              </div>
+              投决
+            </DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
+              填写投决说明并选择负责人，提交后将发起变更请求。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">投决详情</Label>
+              <Textarea
+                value={touJueDetailsInput}
+                onChange={(e) => setTouJueDetailsInput(e.target.value)}
+                placeholder="请填写本次投决的说明、决策依据及备注..."
+                rows={4}
+                className="resize-none text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-[#374151]">负责人</Label>
+              <div className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                <div className="relative border-b border-[#E5E7EB]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="text"
+                    value={touJueOwnerSearch}
+                    onChange={(e) => setTouJueOwnerSearch(e.target.value)}
+                    placeholder="搜索负责人..."
+                    className="w-full py-2.5 pl-9 pr-3 text-sm text-[#374151] placeholder:text-[#9CA3AF] outline-none bg-white"
+                  />
+                </div>
+                <div className="max-h-[220px] overflow-y-auto">
+                  {LIXIANG_OWNERS
+                    .filter((o) => o.name.includes(touJueOwnerSearch) || o.title.includes(touJueOwnerSearch))
+                    .map((owner) => (
+                    <label
+                      key={owner.id}
+                      htmlFor={`toujue-owner-${owner.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <Checkbox
+                        id={`toujue-owner-${owner.id}`}
+                        checked={touJueSelectedOwners.has(owner.id)}
+                        onCheckedChange={(checked) => {
+                          setTouJueSelectedOwners((prev) => {
+                            const next = new Set(prev)
+                            if (checked) next.add(owner.id)
+                            else next.delete(owner.id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-medium ${owner.color}`}>
+                        {owner.initials}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-[#111827] leading-tight">{owner.name}</span>
+                        <span className="text-xs text-[#6B7280] leading-tight">{owner.title}</span>
+                      </div>
+                    </label>
+                  ))}
+                  {LIXIANG_OWNERS.filter((o) => o.name.includes(touJueOwnerSearch) || o.title.includes(touJueOwnerSearch)).length === 0 && (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">未找到匹配的负责人</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowTouJueDialog(false)}>取消</Button>
+            <Button onClick={handleSubmitTouJue} className="bg-amber-600 hover:bg-amber-700">投决</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 已投决 Info Dialog ─────────────────────────── */}
+      <Dialog open={showTouJueInfoDialog} onOpenChange={setShowTouJueInfoDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-200 bg-amber-50">
+                <CheckCircle className="h-4 w-4 text-amber-600" />
+              </div>
+              投决信息
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">投决详情</p>
+              <p className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151]">
+                {touJueRecord?.details || "—"}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-[#6B7280]">负责人</p>
+              <div className="flex flex-wrap gap-2">
+                {touJueRecord?.owners && touJueRecord.owners.length > 0 ? (
+                  touJueRecord.owners.map((o) => (
+                    <Badge key={o.id} className="bg-amber-50 text-amber-700 border-amber-200">
+                      {o.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-[#9CA3AF]">—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">投决时间</p>
+              <p className="text-sm text-[#374151]">{touJueRecord?.time || "—"}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 划款 Dialog ───────────────────────────────── */}
+      <Dialog open={showHuaKuanDialog} onOpenChange={setShowHuaKuanDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-50">
+                <CreditCard className="h-4 w-4 text-orange-600" />
+              </div>
+              划款
+            </DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
+              填写划款说明、金额并选择负责人，提交后将发起变更请求。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">划款详情</Label>
+              <Textarea
+                value={huaKuanDetailsInput}
+                onChange={(e) => setHuaKuanDetailsInput(e.target.value)}
+                placeholder="请填写本次划款的说明、用途及备注..."
+                rows={3}
+                className="resize-none text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">划款金额</Label>
+              <div className="flex gap-2">
+                <select
+                  value={huaKuanCurrencyInput}
+                  onChange={(e) => setHuaKuanCurrencyInput(e.target.value)}
+                  className="h-9 rounded-md border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#374151] outline-none focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] shrink-0"
+                >
+                  {CURRENCY_OPTIONS.map((c) => (
+                    <option key={c.value} value={c.value}>{c.symbol} {c.label}</option>
+                  ))}
+                </select>
+                <Input
+                  type="text"
+                  value={huaKuanAmountInput}
+                  onChange={(e) => setHuaKuanAmountInput(e.target.value)}
+                  placeholder="请输入划款金额"
+                  className="text-sm flex-1"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-[#374151]">负责人</Label>
+              <div className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                <div className="relative border-b border-[#E5E7EB]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="text"
+                    value={huaKuanOwnerSearch}
+                    onChange={(e) => setHuaKuanOwnerSearch(e.target.value)}
+                    placeholder="搜索负责人..."
+                    className="w-full py-2.5 pl-9 pr-3 text-sm text-[#374151] placeholder:text-[#9CA3AF] outline-none bg-white"
+                  />
+                </div>
+                <div className="max-h-[220px] overflow-y-auto">
+                  {LIXIANG_OWNERS
+                    .filter((o) => o.name.includes(huaKuanOwnerSearch) || o.title.includes(huaKuanOwnerSearch))
+                    .map((owner) => (
+                    <label
+                      key={owner.id}
+                      htmlFor={`huakuan-owner-${owner.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <Checkbox
+                        id={`huakuan-owner-${owner.id}`}
+                        checked={huaKuanSelectedOwners.has(owner.id)}
+                        onCheckedChange={(checked) => {
+                          setHuaKuanSelectedOwners((prev) => {
+                            const next = new Set(prev)
+                            if (checked) next.add(owner.id)
+                            else next.delete(owner.id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-medium ${owner.color}`}>
+                        {owner.initials}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-[#111827] leading-tight">{owner.name}</span>
+                        <span className="text-xs text-[#6B7280] leading-tight">{owner.title}</span>
+                      </div>
+                    </label>
+                  ))}
+                  {LIXIANG_OWNERS.filter((o) => o.name.includes(huaKuanOwnerSearch) || o.title.includes(huaKuanOwnerSearch)).length === 0 && (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">未找到匹配的负责人</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowHuaKuanDialog(false)}>取消</Button>
+            <Button onClick={handleSubmitHuaKuan} className="bg-orange-600 hover:bg-orange-700">划款</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 已划款 Info Dialog ─────────────────────────── */}
+      <Dialog open={showHuaKuanInfoDialog} onOpenChange={setShowHuaKuanInfoDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-orange-200 bg-orange-50">
+                <CheckCircle className="h-4 w-4 text-orange-600" />
+              </div>
+              划款信息
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">划款详情</p>
+              <p className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151]">
+                {huaKuanRecord?.details || "—"}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">划款金额</p>
+              <p className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm font-semibold text-[#374151]">
+                {huaKuanRecord?.amount
+                  ? `${CURRENCY_OPTIONS.find((c) => c.value === huaKuanRecord.currency)?.symbol ?? "$"}${huaKuanRecord.amount} ${CURRENCY_OPTIONS.find((c) => c.value === huaKuanRecord.currency)?.label ?? ""}`
+                  : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-[#6B7280]">负责人</p>
+              <div className="flex flex-wrap gap-2">
+                {huaKuanRecord?.owners && huaKuanRecord.owners.length > 0 ? (
+                  huaKuanRecord.owners.map((o) => (
+                    <Badge key={o.id} className="bg-orange-50 text-orange-700 border-orange-200">
+                      {o.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-[#9CA3AF]">—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">划款时间</p>
+              <p className="text-sm text-[#374151]">{huaKuanRecord?.time || "—"}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 退出 Dialog ───────────────────────────────── */}
+      <Dialog open={showTuiChuDialog} onOpenChange={setShowTuiChuDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
+                <LogOut className="h-4 w-4 text-red-600" />
+              </div>
+              退出
+            </DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
+              填写退出说明并选择负责人，提交后将发起变更请求。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">退出详情</Label>
+              <Textarea
+                value={tuiChuDetailsInput}
+                onChange={(e) => setTuiChuDetailsInput(e.target.value)}
+                placeholder="请填写本次退出的原因、方式及备注..."
+                rows={4}
+                className="resize-none text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-[#374151]">负责人</Label>
+              <div className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                <div className="relative border-b border-[#E5E7EB]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="text"
+                    value={tuiChuOwnerSearch}
+                    onChange={(e) => setTuiChuOwnerSearch(e.target.value)}
+                    placeholder="搜索负责人..."
+                    className="w-full py-2.5 pl-9 pr-3 text-sm text-[#374151] placeholder:text-[#9CA3AF] outline-none bg-white"
+                  />
+                </div>
+                <div className="max-h-[220px] overflow-y-auto">
+                  {LIXIANG_OWNERS
+                    .filter((o) => o.name.includes(tuiChuOwnerSearch) || o.title.includes(tuiChuOwnerSearch))
+                    .map((owner) => (
+                    <label
+                      key={owner.id}
+                      htmlFor={`tuichu-owner-${owner.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <Checkbox
+                        id={`tuichu-owner-${owner.id}`}
+                        checked={tuiChuSelectedOwners.has(owner.id)}
+                        onCheckedChange={(checked) => {
+                          setTuiChuSelectedOwners((prev) => {
+                            const next = new Set(prev)
+                            if (checked) next.add(owner.id)
+                            else next.delete(owner.id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-medium ${owner.color}`}>
+                        {owner.initials}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-[#111827] leading-tight">{owner.name}</span>
+                        <span className="text-xs text-[#6B7280] leading-tight">{owner.title}</span>
+                      </div>
+                    </label>
+                  ))}
+                  {LIXIANG_OWNERS.filter((o) => o.name.includes(tuiChuOwnerSearch) || o.title.includes(tuiChuOwnerSearch)).length === 0 && (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">未找到匹配的负责人</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowTuiChuDialog(false)}>取消</Button>
+            <Button onClick={handleSubmitTuiChu} className="bg-red-600 hover:bg-red-700">退出</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 已退出 Info Dialog ─────────────────────────── */}
+      <Dialog open={showTuiChuInfoDialog} onOpenChange={setShowTuiChuInfoDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-red-50">
+                <CheckCircle className="h-4 w-4 text-red-600" />
+              </div>
+              退出信息
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">退出详情</p>
+              <p className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151]">
+                {tuiChuRecord?.details || "—"}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-[#6B7280]">负责人</p>
+              <div className="flex flex-wrap gap-2">
+                {tuiChuRecord?.owners && tuiChuRecord.owners.length > 0 ? (
+                  tuiChuRecord.owners.map((o) => (
+                    <Badge key={o.id} className="bg-red-50 text-red-700 border-red-200">
+                      {o.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-[#9CA3AF]">—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">退出时间</p>
+              <p className="text-sm text-[#374151]">{tuiChuRecord?.time || "—"}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

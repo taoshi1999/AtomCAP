@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { PendingStrategy, PendingHypothesis, PendingTerm, PendingMaterial } from "./strategies-grid"
 import type { PendingProject } from "./projects-grid"
-import type { PendingPhase, PendingProjectHypothesis, PendingProjectTerm, PendingProjectMaterial, PendingCommitteeDecision } from "./workflow"
+import type { PendingPhase, PendingProjectHypothesis, PendingProjectTerm, PendingProjectMaterial, PendingCommitteeDecision, PendingNegotiationDecision, PendingVerification, PendingImplementationStatus } from "./workflow"
 
 type PendingRequest =
   | { type: "strategy"; data: PendingStrategy }
@@ -25,8 +25,11 @@ type PendingRequest =
   | { type: "committee-decision"; data: PendingCommitteeDecision }
   | { type: "term"; data: PendingTerm }
   | { type: "project-term"; data: PendingProjectTerm }
+  | { type: "negotiation-decision"; data: PendingNegotiationDecision }
   | { type: "material"; data: PendingMaterial }
   | { type: "project-material"; data: PendingProjectMaterial }
+  | { type: "verification"; data: PendingVerification }
+  | { type: "implementation-status"; data: PendingImplementationStatus }
 
 interface ChangeRequestsProps {
   pendingStrategies: PendingStrategy[]
@@ -37,6 +40,7 @@ interface ChangeRequestsProps {
   pendingCommitteeDecisions: PendingCommitteeDecision[]
   pendingTerms: PendingTerm[]
   pendingProjectTerms: PendingProjectTerm[]
+  pendingNegotiationDecisions: PendingNegotiationDecision[]
   pendingMaterials: PendingMaterial[]
   pendingProjectMaterials: PendingProjectMaterial[]
   onApproveStrategy: (id: string) => void
@@ -55,10 +59,18 @@ interface ChangeRequestsProps {
   onRejectTerm: (id: string) => void
   onApproveProjectTerm: (id: string) => void
   onRejectProjectTerm: (id: string) => void
+  onApproveNegotiationDecision: (id: string) => void
+  onRejectNegotiationDecision: (id: string) => void
   onApproveMaterial: (id: string) => void
   onRejectMaterial: (id: string) => void
   onApproveProjectMaterial: (id: string) => void
   onRejectProjectMaterial: (id: string) => void
+  pendingVerifications: PendingVerification[]
+  onApproveVerification: (id: string) => void
+  onRejectVerification: (id: string) => void
+  pendingImplementationStatuses: PendingImplementationStatus[]
+  onApproveImplementationStatus: (id: string) => void
+  onRejectImplementationStatus: (id: string) => void
 }
 
 export function ChangeRequests({
@@ -70,6 +82,7 @@ export function ChangeRequests({
   pendingCommitteeDecisions,
   pendingTerms,
   pendingProjectTerms,
+  pendingNegotiationDecisions,
   pendingMaterials,
   pendingProjectMaterials,
   onApproveStrategy,
@@ -88,10 +101,18 @@ export function ChangeRequests({
   onRejectTerm,
   onApproveProjectTerm,
   onRejectProjectTerm,
+  onApproveNegotiationDecision,
+  onRejectNegotiationDecision,
   onApproveMaterial,
   onRejectMaterial,
   onApproveProjectMaterial,
   onRejectProjectMaterial,
+  pendingVerifications,
+  onApproveVerification,
+  onRejectVerification,
+  pendingImplementationStatuses,
+  onApproveImplementationStatus,
+  onRejectImplementationStatus,
 }: ChangeRequestsProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [detailOpen, setDetailOpen] = useState(false)
@@ -108,8 +129,11 @@ export function ChangeRequests({
     ...pendingCommitteeDecisions.map((c) => ({ type: "committee-decision" as const, data: c })),
     ...pendingTerms.map((t) => ({ type: "term" as const, data: t })),
     ...pendingProjectTerms.map((t) => ({ type: "project-term" as const, data: t })),
+    ...pendingNegotiationDecisions.map((n) => ({ type: "negotiation-decision" as const, data: n })),
     ...pendingMaterials.map((m) => ({ type: "material" as const, data: m })),
     ...pendingProjectMaterials.map((m) => ({ type: "project-material" as const, data: m })),
+    ...pendingVerifications.map((v) => ({ type: "verification" as const, data: v })),
+    ...pendingImplementationStatuses.map((is) => ({ type: "implementation-status" as const, data: is })),
   ].sort((a, b) => new Date(b.data.initiatedAt).getTime() - new Date(a.data.initiatedAt).getTime())
 
   const filteredRequests = allRequests.filter((r) => {
@@ -119,7 +143,8 @@ export function ChangeRequests({
     const matchesType =
       filterType === "all" ||
       r.type === filterType ||
-      (filterType === "hypothesis" && (r.type === "project-hypothesis" || r.type === "committee-decision"))
+      (filterType === "hypothesis" && (r.type === "project-hypothesis" || r.type === "committee-decision" || r.type === "verification")) ||
+      (filterType === "term" && (r.type === "negotiation-decision" || r.type === "implementation-status"))
     return matchesSearch && matchesType
   })
 
@@ -127,9 +152,9 @@ export function ChangeRequests({
   const strategyCount = pendingStrategies.length
   const projectCount = pendingProjects.length
   const phaseCount = pendingPhases.length
-  const hypothesisCount = pendingHypotheses.length + pendingProjectHypotheses.length + pendingCommitteeDecisions.length
+  const hypothesisCount = pendingHypotheses.length + pendingProjectHypotheses.length + pendingCommitteeDecisions.length + pendingVerifications.length
   const projectHypothesisCount = pendingProjectHypotheses.length
-  const termCount = pendingTerms.length + pendingProjectTerms.length
+  const termCount = pendingTerms.length + pendingProjectTerms.length + pendingNegotiationDecisions.length + pendingImplementationStatuses.length
   const materialCount = pendingMaterials.length + pendingProjectMaterials.length
 
   function handleViewDetail(request: PendingRequest) {
@@ -154,8 +179,14 @@ export function ChangeRequests({
       onApproveTerm(request.data.id)
     } else if (request.type === "project-term") {
       onApproveProjectTerm(request.data.id)
+    } else if (request.type === "negotiation-decision") {
+      onApproveNegotiationDecision(request.data.id)
     } else if (request.type === "project-material") {
       onApproveProjectMaterial(request.data.id)
+    } else if (request.type === "verification") {
+      onApproveVerification(request.data.id)
+    } else if (request.type === "implementation-status") {
+      onApproveImplementationStatus(request.data.id)
     } else {
       onApproveMaterial(request.data.id)
     }
@@ -178,8 +209,14 @@ export function ChangeRequests({
       onRejectTerm(request.data.id)
     } else if (request.type === "project-term") {
       onRejectProjectTerm(request.data.id)
+    } else if (request.type === "negotiation-decision") {
+      onRejectNegotiationDecision(request.data.id)
     } else if (request.type === "project-material") {
       onRejectProjectMaterial(request.data.id)
+    } else if (request.type === "verification") {
+      onRejectVerification(request.data.id)
+    } else if (request.type === "implementation-status") {
+      onRejectImplementationStatus(request.data.id)
     } else {
       onRejectMaterial(request.data.id)
     }
@@ -378,9 +415,9 @@ export function ChangeRequests({
                         ? "bg-blue-50 text-blue-700 border-blue-200"
                         : request.type === "project"
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : request.type === "hypothesis" || request.type === "project-hypothesis" || request.type === "committee-decision"
+                          : request.type === "hypothesis" || request.type === "project-hypothesis" || request.type === "committee-decision" || request.type === "verification"
                             ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : request.type === "term" || request.type === "project-term"
+                            : request.type === "term" || request.type === "project-term" || request.type === "negotiation-decision" || request.type === "implementation-status"
                               ? "bg-violet-50 text-violet-700 border-violet-200"
                               : request.type === "material"
                                 ? "bg-teal-50 text-teal-700 border-teal-200"
@@ -393,11 +430,14 @@ export function ChangeRequests({
                           : request.type === "hypothesis" ? "假设"
                             : request.type === "project-hypothesis" ? "项目假设"
                               : request.type === "committee-decision" ? "审议结果"
-                                : request.type === "term" ? "条款"
-                                  : request.type === "project-term" ? "项目条款"
-                                    : request.type === "material" ? "材料"
-                                      : request.type === "project-material" ? "项目材料"
-                                        : "工作流"}
+                                : request.type === "verification" ? "验证情况"
+                                  : request.type === "term" ? "条款"
+                                    : request.type === "project-term" ? "项目条款"
+                                      : request.type === "negotiation-decision" ? "谈判结果"
+                                        : request.type === "implementation-status" ? "落实情况"
+                                          : request.type === "material" ? "材料"
+                                            : request.type === "project-material" ? "项目材料"
+                                              : "工作流"}
                     </Badge>
                   </div>
 
@@ -421,15 +461,21 @@ export function ChangeRequests({
                               ? `项目: ${(request.data as PendingProjectHypothesis).projectName} / 方向: ${(request.data as PendingProjectHypothesis).hypothesis.direction}`
                               : request.type === "committee-decision"
                                 ? `项目: ${(request.data as PendingCommitteeDecision).projectName} / 假设: ${(request.data as PendingCommitteeDecision).hypothesisName}`
-                                : request.type === "term"
+                                : request.type === "verification"
+                                  ? `项目: ${(request.data as PendingVerification).projectName} / 假设: ${(request.data as PendingVerification).hypothesisName}`
+                                  : request.type === "implementation-status"
+                                    ? `项目: ${(request.data as PendingImplementationStatus).projectName} / 条款: ${(request.data as PendingImplementationStatus).termName}`
+                                    : request.type === "term"
                                   ? `条款方向: ${(request.data as PendingTerm).term.direction}`
                                   : request.type === "project-term"
                                     ? `项目: ${(request.data as PendingProjectTerm).projectName} / 方向: ${(request.data as PendingProjectTerm).term.direction}`
-                                    : request.type === "material"
-                                      ? `材料类别: ${(request.data as PendingMaterial).category}`
-                                      : request.type === "project-material"
-                                        ? `项目: ${(request.data as PendingProjectMaterial).projectName} / 分类: ${(request.data as PendingProjectMaterial).material.category}`
-                                        : `项目: ${(request.data as PendingPhase).projectName}`
+                                    : request.type === "negotiation-decision"
+                                      ? `项目: ${(request.data as PendingNegotiationDecision).projectName} / 条款: ${(request.data as PendingNegotiationDecision).termName}`
+                                      : request.type === "material"
+                                        ? `材料类别: ${(request.data as PendingMaterial).category}`
+                                        : request.type === "project-material"
+                                          ? `项目: ${(request.data as PendingProjectMaterial).projectName} / 分类: ${(request.data as PendingProjectMaterial).material.category}`
+                                          : `项目: ${(request.data as PendingPhase).projectName}`
                       }
                     </p>
                   </div>
@@ -517,9 +563,9 @@ export function ChangeRequests({
                       ? "bg-blue-50 text-blue-700 border-blue-200"
                       : selectedRequest.type === "project"
                         ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : selectedRequest.type === "hypothesis" || selectedRequest.type === "project-hypothesis" || selectedRequest.type === "committee-decision"
+                        : selectedRequest.type === "hypothesis" || selectedRequest.type === "project-hypothesis" || selectedRequest.type === "committee-decision" || selectedRequest.type === "verification"
                           ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : selectedRequest.type === "term" || selectedRequest.type === "project-term"
+                          : selectedRequest.type === "term" || selectedRequest.type === "project-term" || selectedRequest.type === "negotiation-decision" || selectedRequest.type === "implementation-status"
                             ? "bg-violet-50 text-violet-700 border-violet-200"
                             : selectedRequest.type === "material"
                               ? "bg-teal-50 text-teal-700 border-teal-200"
@@ -532,11 +578,14 @@ export function ChangeRequests({
                         : selectedRequest.type === "hypothesis" ? "假设"
                           : selectedRequest.type === "project-hypothesis" ? "项目假设"
                             : selectedRequest.type === "committee-decision" ? "审议结果"
-                              : selectedRequest.type === "term" ? "条款"
-                                : selectedRequest.type === "project-term" ? "项目条款"
-                                  : selectedRequest.type === "material" ? "材料"
-                                    : selectedRequest.type === "project-material" ? "项目材料"
-                                      : "工作流"}
+                              : selectedRequest.type === "verification" ? "验证情况"
+                                : selectedRequest.type === "implementation-status" ? "落实情况"
+                                  : selectedRequest.type === "term" ? "条款"
+                                    : selectedRequest.type === "project-term" ? "项目条款"
+                                      : selectedRequest.type === "negotiation-decision" ? "谈判结果"
+                                      : selectedRequest.type === "material" ? "材料"
+                                        : selectedRequest.type === "project-material" ? "项目材料"
+                                          : "工作流"}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
@@ -684,6 +733,121 @@ export function ChangeRequests({
                         {(selectedRequest.data as PendingProjectTerm).term.category}
                       </Badge>
                     </div>
+                  </>
+                ) : selectedRequest.type === "negotiation-decision" ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">所属项目</span>
+                      <span className="text-sm font-medium text-[#111827]">
+                        {(selectedRequest.data as PendingNegotiationDecision).projectName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">相关条款</span>
+                      <span className="text-sm font-medium text-[#111827] text-right max-w-[240px] leading-snug">
+                        {(selectedRequest.data as PendingNegotiationDecision).termName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">谈判结果</span>
+                      <Badge className={
+                        (selectedRequest.data as PendingNegotiationDecision).decision.conclusion === "通过"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-xs"
+                          : "bg-red-50 text-red-700 border-red-200 text-xs"
+                      }>
+                        {(selectedRequest.data as PendingNegotiationDecision).decision.conclusion}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-sm text-[#6B7280] mb-1">谈判内容</p>
+                      <p className="text-sm bg-[#F9FAFB] rounded-lg p-2.5 text-[#374151]">
+                        {(selectedRequest.data as PendingNegotiationDecision).decision.content}
+                      </p>
+                    </div>
+                  </>
+                ) : selectedRequest.type === "verification" ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">所属项目</span>
+                      <span className="text-sm font-medium text-[#111827]">
+                        {(selectedRequest.data as PendingVerification).projectName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">相关假设</span>
+                      <span className="text-sm font-medium text-[#111827] text-right max-w-[240px] leading-snug">
+                        {(selectedRequest.data as PendingVerification).hypothesisName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">验证结果</span>
+                      <Badge className={
+                        (selectedRequest.data as PendingVerification).data.conclusion === "符合预期"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-xs"
+                          : "bg-red-50 text-red-700 border-red-200 text-xs"
+                      }>
+                        {(selectedRequest.data as PendingVerification).data.conclusion}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-sm text-[#6B7280] mb-1">验证内容</p>
+                      <p className="text-sm bg-[#F9FAFB] rounded-lg p-2.5 text-[#374151]">
+                        {(selectedRequest.data as PendingVerification).data.content}
+                      </p>
+                    </div>
+                    {(selectedRequest.data as PendingVerification).data.responsibles.length > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-[#6B7280]">负责人</span>
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          {(selectedRequest.data as PendingVerification).data.responsibles.map((r, i) => (
+                            <Badge key={i} className="bg-purple-50 text-purple-700 border-purple-200 text-xs">{r.name}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : selectedRequest.type === "implementation-status" ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">所属项目</span>
+                      <span className="text-sm font-medium text-[#111827]">
+                        {(selectedRequest.data as PendingImplementationStatus).projectName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">相关条款</span>
+                      <span className="text-sm font-medium text-[#111827] text-right max-w-[240px] leading-snug">
+                        {(selectedRequest.data as PendingImplementationStatus).termName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">落实结果</span>
+                      <Badge className={
+                        (selectedRequest.data as PendingImplementationStatus).data.conclusion === "符合预期"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-xs"
+                          : (selectedRequest.data as PendingImplementationStatus).data.conclusion === "待定"
+                            ? "bg-amber-50 text-amber-700 border-amber-200 text-xs"
+                            : "bg-red-50 text-red-700 border-red-200 text-xs"
+                      }>
+                        {(selectedRequest.data as PendingImplementationStatus).data.conclusion}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-sm text-[#6B7280] mb-1">落实内容</p>
+                      <p className="text-sm bg-[#F9FAFB] rounded-lg p-2.5 text-[#374151]">
+                        {(selectedRequest.data as PendingImplementationStatus).data.content}
+                      </p>
+                    </div>
+                    {(selectedRequest.data as PendingImplementationStatus).data.responsibles.length > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-[#6B7280]">负责人</span>
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          {(selectedRequest.data as PendingImplementationStatus).data.responsibles.map((r, i) => (
+                            <Badge key={i} className="bg-purple-50 text-purple-700 border-purple-200 text-xs">{r.name}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : selectedRequest.type === "material" ? (
                   <>
