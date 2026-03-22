@@ -838,11 +838,8 @@ export function Workflow({
 
   // Track which suggestion items have been acted upon in the current session
   const [createdSuggestionHypothesisIds, setCreatedSuggestionHypothesisIds] = useState<Set<string>>(new Set())
-  const [creatingFromHypothesisId, setCreatingFromHypothesisId] = useState<string | null>(null)
   const [createdSuggestionTermIds, setCreatedSuggestionTermIds] = useState<Set<string>>(new Set())
-  const [creatingFromTermId, setCreatingFromTermId] = useState<string | null>(null)
   const [collectedSuggestionMaterialIds, setCollectedSuggestionMaterialIds] = useState<Set<string>>(new Set())
-  const [creatingFromMaterialId, setCreatingFromMaterialId] = useState<string | null>(null)
 
   // Tracking summary generation state (duration period)
   const [isTrackingGenerating, setIsTrackingGenerating] = useState(false)
@@ -1281,11 +1278,8 @@ export function Workflow({
     setUploadedAiResearchMaterialIds(new Set())
     // Also reset suggestion acted-upon tracking
     setCreatedSuggestionHypothesisIds(new Set())
-    setCreatingFromHypothesisId(null)
     setCreatedSuggestionTermIds(new Set())
-    setCreatingFromTermId(null)
     setCollectedSuggestionMaterialIds(new Set())
-    setCreatingFromMaterialId(null)
     // Also reset tracking state
     setIsTrackingGenerating(false)
     setTrackingGenerationComplete(false)
@@ -1297,7 +1291,7 @@ export function Workflow({
   }
 
   function handleCreateFromHypothesis(hypothesis: SuggestionHypothesis) {
-    setCreatingFromHypothesisId(hypothesis.id)
+    setCreatedSuggestionHypothesisIds((prev) => new Set([...prev, hypothesis.id]))
     // Pre-fill form with hypothesis data including pre-selected materials
     setFormData({
       direction: hypothesis.direction,
@@ -1411,16 +1405,12 @@ export function Workflow({
     }
 
     onCreatePendingProjectHypothesis?.(pendingHypothesis)
-    if (creatingFromHypothesisId) {
-      setCreatedSuggestionHypothesisIds((prev) => new Set([...prev, creatingFromHypothesisId]))
-      setCreatingFromHypothesisId(null)
-    }
     handleCloseCreateDialog()
   }
 
   // Term creation handlers
   function handleCreateFromTerm(term: SuggestionTerm) {
-    setCreatingFromTermId(term.id)
+    setCreatedSuggestionTermIds((prev) => new Set([...prev, term.id]))
     setTermFormData({
       direction: term.direction,
       category: term.category,
@@ -1467,16 +1457,12 @@ export function Workflow({
       ],
     }
     onCreatePendingProjectTerm?.(pendingTerm)
-    if (creatingFromTermId) {
-      setCreatedSuggestionTermIds((prev) => new Set([...prev, creatingFromTermId]))
-      setCreatingFromTermId(null)
-    }
     handleCloseTermCreateDialog()
   }
 
   // Material creation handlers
   function handleCreateFromMaterial(material: SuggestionMaterial) {
-    setCreatingFromMaterialId(material.id)
+    setCollectedSuggestionMaterialIds((prev) => new Set([...prev, material.id]))
     if (material.id === "sm1-核心团队") {
       // Open the special core team collect dialog
       setCoreTeamUploadStage("idle")
@@ -1578,7 +1564,6 @@ export function Workflow({
       ],
     }
     onCreatePendingProjectMaterial?.(pendingMaterial)
-    setCollectedSuggestionMaterialIds((prev) => new Set([...prev, "sm1-核心团队"]))
     setShowCoreTeamDialog(false)
   }
 
@@ -1599,10 +1584,6 @@ export function Workflow({
       ],
     }
     onCreatePendingProjectMaterial?.(pendingMaterial)
-    if (creatingFromMaterialId) {
-      setCollectedSuggestionMaterialIds((prev) => new Set([...prev, creatingFromMaterialId]))
-      setCreatingFromMaterialId(null)
-    }
     handleCloseMaterialCreateDialog()
   }
 
