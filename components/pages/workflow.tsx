@@ -86,6 +86,12 @@ export interface HuaKuanRecord {
   time: string
 }
 
+export interface TuiChuRecord {
+  details: string
+  owners: { id: string; name: string }[]
+  time: string
+}
+
 export interface PendingPhase {
   id: string
   projectId: string
@@ -109,6 +115,9 @@ export interface PendingPhase {
   huaKuanDetails?: string
   huaKuanAmount?: string
   huaKuanOwners?: { id: string; name: string }[]
+  // 退出-specific payload
+  tuiChuDetails?: string
+  tuiChuOwners?: { id: string; name: string }[]
 }
 
 type SidebarType =
@@ -679,6 +688,7 @@ interface WorkflowProps {
   liXiangRecord?: LiXiangRecord
   touJueRecord?: TouJueRecord
   huaKuanRecord?: HuaKuanRecord
+  tuiChuRecord?: TuiChuRecord
 }
 
 /* ─── New Project Phase Template ─────────────── */
@@ -803,6 +813,7 @@ export function Workflow({
   liXiangRecord,
   touJueRecord,
   huaKuanRecord,
+  tuiChuRecord,
 }: WorkflowProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -915,6 +926,14 @@ export function Workflow({
   const [huaKuanOwnerSearch, setHuaKuanOwnerSearch] = useState("")
   // 已划款 info dialog state
   const [showHuaKuanInfoDialog, setShowHuaKuanInfoDialog] = useState(false)
+
+  // 退出 dialog state
+  const [showTuiChuDialog, setShowTuiChuDialog] = useState(false)
+  const [tuiChuDetailsInput, setTuiChuDetailsInput] = useState("")
+  const [tuiChuSelectedOwners, setTuiChuSelectedOwners] = useState<Set<string>>(new Set())
+  const [tuiChuOwnerSearch, setTuiChuOwnerSearch] = useState("")
+  // 已退出 info dialog state
+  const [showTuiChuInfoDialog, setShowTuiChuInfoDialog] = useState(false)
 
   // Tracking summary generation state (duration period)
   const [isTrackingGenerating, setIsTrackingGenerating] = useState(false)
@@ -1199,7 +1218,15 @@ export function Workflow({
   }
 
   function handleTuiChu() {
+    setTuiChuDetailsInput("")
+    setTuiChuSelectedOwners(new Set())
+    setTuiChuOwnerSearch("")
+    setShowTuiChuDialog(true)
+  }
+
+  function handleSubmitTuiChu() {
     const newPhase = createPhase(1, "退出")
+    const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => tuiChuSelectedOwners.has(o.id))
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1207,6 +1234,8 @@ export function Workflow({
       changeId: `CR-P-${Date.now().toString().slice(-6)}`,
       changeName: "退出 - 项目退出申请",
       changeType: "退出",
+      tuiChuDetails: tuiChuDetailsInput,
+      tuiChuOwners: selectedOwnerObjects,
       initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
       initiatedAt: new Date().toISOString().split("T")[0],
       reviewers: [
@@ -1214,6 +1243,7 @@ export function Workflow({
         { id: "lisi", name: "李四", initials: "李四" },
       ],
     })
+    setShowTuiChuDialog(false)
   }
 
   // Notify parent of initial phase on mount
@@ -5458,6 +5488,28 @@ ${logs}
                   </div>
                 )
               })}
+              {/* 已退出 badge at the end of timeline */}
+              {tuiChuRecord && isExited && (
+                <div className="flex items-center shrink-0">
+                  <div className="flex items-center self-center mt-6 px-1">
+                    <div className="flex items-center gap-1">
+                      <div className="h-px w-4 bg-[#D1D5DB]" />
+                      <ChevronRight className="h-4 w-4 text-[#9CA3AF]" />
+                      <div className="h-px w-4 bg-[#D1D5DB]" />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="mb-3 h-[22px]" />
+                    <button
+                      onClick={() => setShowTuiChuInfoDialog(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 whitespace-nowrap shadow-sm"
+                    >
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      已退出
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -5955,6 +6007,128 @@ ${logs}
             <div>
               <p className="mb-1 text-xs font-medium text-[#6B7280]">划款时间</p>
               <p className="text-sm text-[#374151]">{huaKuanRecord?.time || "—"}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 退出 Dialog ───────────────────────────────── */}
+      <Dialog open={showTuiChuDialog} onOpenChange={setShowTuiChuDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
+                <LogOut className="h-4 w-4 text-red-600" />
+              </div>
+              退出
+            </DialogTitle>
+            <DialogDescription className="text-[#6B7280]">
+              填写退出说明并选择负责人，提交后将发起变更请求。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-[#374151]">退出详情</Label>
+              <Textarea
+                value={tuiChuDetailsInput}
+                onChange={(e) => setTuiChuDetailsInput(e.target.value)}
+                placeholder="请填写本次退出的原因、方式及备注..."
+                rows={4}
+                className="resize-none text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-[#374151]">负责人</Label>
+              <div className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                <div className="relative border-b border-[#E5E7EB]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="text"
+                    value={tuiChuOwnerSearch}
+                    onChange={(e) => setTuiChuOwnerSearch(e.target.value)}
+                    placeholder="搜索负责人..."
+                    className="w-full py-2.5 pl-9 pr-3 text-sm text-[#374151] placeholder:text-[#9CA3AF] outline-none bg-white"
+                  />
+                </div>
+                <div className="max-h-[220px] overflow-y-auto">
+                  {LIXIANG_OWNERS
+                    .filter((o) => o.name.includes(tuiChuOwnerSearch) || o.title.includes(tuiChuOwnerSearch))
+                    .map((owner) => (
+                    <label
+                      key={owner.id}
+                      htmlFor={`tuichu-owner-${owner.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <Checkbox
+                        id={`tuichu-owner-${owner.id}`}
+                        checked={tuiChuSelectedOwners.has(owner.id)}
+                        onCheckedChange={(checked) => {
+                          setTuiChuSelectedOwners((prev) => {
+                            const next = new Set(prev)
+                            if (checked) next.add(owner.id)
+                            else next.delete(owner.id)
+                            return next
+                          })
+                        }}
+                      />
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white text-xs font-medium ${owner.color}`}>
+                        {owner.initials}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-[#111827] leading-tight">{owner.name}</span>
+                        <span className="text-xs text-[#6B7280] leading-tight">{owner.title}</span>
+                      </div>
+                    </label>
+                  ))}
+                  {LIXIANG_OWNERS.filter((o) => o.name.includes(tuiChuOwnerSearch) || o.title.includes(tuiChuOwnerSearch)).length === 0 && (
+                    <div className="px-3 py-4 text-center text-sm text-[#9CA3AF]">未找到匹配的负责人</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowTuiChuDialog(false)}>取消</Button>
+            <Button onClick={handleSubmitTuiChu} className="bg-red-600 hover:bg-red-700">退出</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── 已退出 Info Dialog ─────────────────────────── */}
+      <Dialog open={showTuiChuInfoDialog} onOpenChange={setShowTuiChuInfoDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-red-50">
+                <CheckCircle className="h-4 w-4 text-red-600" />
+              </div>
+              退出信息
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">退出详情</p>
+              <p className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-sm text-[#374151]">
+                {tuiChuRecord?.details || "—"}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-[#6B7280]">负责人</p>
+              <div className="flex flex-wrap gap-2">
+                {tuiChuRecord?.owners && tuiChuRecord.owners.length > 0 ? (
+                  tuiChuRecord.owners.map((o) => (
+                    <Badge key={o.id} className="bg-red-50 text-red-700 border-red-200">
+                      {o.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-[#9CA3AF]">—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[#6B7280]">退出时间</p>
+              <p className="text-sm text-[#374151]">{tuiChuRecord?.time || "—"}</p>
             </div>
           </div>
         </DialogContent>

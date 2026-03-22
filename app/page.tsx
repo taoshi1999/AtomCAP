@@ -10,7 +10,7 @@ import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
 import { Login } from "@/components/pages/login"
-import type { Phase, PendingPhase, LiXiangRecord, TouJueRecord, HuaKuanRecord, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData, PendingNegotiationDecision, NegotiationDecisionFormData, PendingVerification, VerificationFormData, PendingImplementationStatus, ImplementationStatusFormData } from "@/components/pages/workflow"
+import type { Phase, PendingPhase, LiXiangRecord, TouJueRecord, HuaKuanRecord, TuiChuRecord, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData, PendingNegotiationDecision, NegotiationDecisionFormData, PendingVerification, VerificationFormData, PendingImplementationStatus, ImplementationStatusFormData } from "@/components/pages/workflow"
 import { type HypothesisTableItem, type HypothesisDetail, type ValuePoint, type RiskPoint, getTemplateHypothesesForStrategy } from "@/components/pages/hypothesis-checklist"
 import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
@@ -42,6 +42,8 @@ export default function Page() {
   const [touJueRecords, setTouJueRecords] = useState<Record<string, TouJueRecord>>({})
   // 划款 record per new project (set when a 划款 pending phase is approved)
   const [huaKuanRecords, setHuaKuanRecords] = useState<Record<string, HuaKuanRecord>>({})
+  // 退出 record per new project (set when a 退出 pending phase is approved)
+  const [tuiChuRecords, setTuiChuRecords] = useState<Record<string, TuiChuRecord>>({})
   // Strategy hypotheses state - keyed by strategyId
   const [strategyHypotheses, setStrategyHypotheses] = useState<Record<string, StrategyHypothesis[]>>({})
   const [pendingHypotheses, setPendingHypotheses] = useState<PendingHypothesis[]>([])
@@ -324,6 +326,14 @@ export default function Page() {
       if (changeType === "退出") {
         setProjectPhases({ ...projectPhases, [projectId]: updatedPhases })
         setExitedProjects((prev) => ({ ...prev, [projectId]: true }))
+        setTuiChuRecords((prev) => ({
+          ...prev,
+          [projectId]: {
+            details: pending.tuiChuDetails || "",
+            owners: pending.tuiChuOwners || [],
+            time: new Date().toISOString().split("T")[0],
+          },
+        }))
         setPendingPhases(pendingPhases.filter((p) => p.id !== id))
         setView({ type: "project-detail", projectId })
         return
@@ -1226,6 +1236,7 @@ export default function Page() {
   liXiangRecord={liXiangRecords[view.projectId]}
   touJueRecord={touJueRecords[view.projectId]}
   huaKuanRecord={huaKuanRecords[view.projectId]}
+  tuiChuRecord={tuiChuRecords[view.projectId]}
   />
         )}
         {view.type === "strategy-detail" && (
