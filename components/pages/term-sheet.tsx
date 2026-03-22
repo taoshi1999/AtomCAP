@@ -290,7 +290,7 @@ const termDetails: Record<string, TermDetail> = {
     },
     implementationStatus: {
       status: "implemented",
-      content: "该条款已在投资协议正式条款中体现（第5.2条），并于2024年2月15日完成签署。张伟已正式被任命为公司董事，参加了2024年3月的首次董事会会议。保密协议已于2024年2月20日签署完毕，相关备案手续已完成。",
+      content: "该条款已在投资协议正式条款中体现（第5.2条），并于2024年2月15日完��签署。张伟已正式被任命为公司董事，参加了2024年3月的首次董事会会议。保密协议已于2024年2月20日签署完毕，相关备案手续已完成。",
       creator: PEOPLE.zhangwei,
       reviewers: [PEOPLE.zhaoliu],
       createdAt: "2024-03-01",
@@ -331,32 +331,32 @@ const emptyImplementation: ImplementationStatus = {
   comments: [],
 }
 
-;["ai-t1", "ai-t2", "ai-t3", "ai-t4", "ai-t5", "ai-t6"].forEach((tid, i) => {
-  const item = [
-    { name: "投资方有权获取被投企业月度财务报告", termId: "TM-2026-001", createdAt: "2026-01-10" },
-    { name: "投资方有权对重大技术决策进行知情和建议", termId: "TM-2026-002", createdAt: "2026-01-12" },
-    { name: "采用完全棘轮反稀释条款保护投资方权益", termId: "TM-2026-003", createdAt: "2026-01-15" },
-    { name: "投资方有权委派一名董事参与公司董事会", termId: "TM-2026-004", createdAt: "2026-01-18" },
-    { name: "对核心技术IP转让和授权享有一票否决权", termId: "TM-2026-005", createdAt: "2026-01-20" },
-    { name: "若公司未能在5年内实现IPO，投资方有权要求回购", termId: "TM-2026-006", createdAt: "2026-01-22" },
-  ][i]
-  termDetails[tid] = {
-    id: tid,
-    title: item.name,
-    termId: item.termId,
-    createdAt: item.createdAt,
-    updatedAt: item.createdAt,
-    status: "pending",
-    creator: PEOPLE.zhangwei,
-    ourDemand: emptySection(PEOPLE.zhangwei),
-    ourBasis: emptySection(PEOPLE.zhangwei),
-    bilateralConflict: emptySection(PEOPLE.lisi),
-    ourBottomLine: emptySection(PEOPLE.wangwu),
-    compromiseSpace: emptySection(PEOPLE.zhangwei),
-    negotiationResult: emptyNegotiation,
-    implementationStatus: emptyImplementation,
-  }
-})
+  ;["ai-t1", "ai-t2", "ai-t3", "ai-t4", "ai-t5", "ai-t6"].forEach((tid, i) => {
+    const item = [
+      { name: "投资方有权获取被投企业月度财务报告", termId: "TM-2026-001", createdAt: "2026-01-10" },
+      { name: "投资方有权对重大技术决策进行知情和建议", termId: "TM-2026-002", createdAt: "2026-01-12" },
+      { name: "采用完全棘轮反稀释条款保护投资方权益", termId: "TM-2026-003", createdAt: "2026-01-15" },
+      { name: "投资方有权委派一名董事参与公司董事会", termId: "TM-2026-004", createdAt: "2026-01-18" },
+      { name: "对核心技术IP转让和授权享有一票否决权", termId: "TM-2026-005", createdAt: "2026-01-20" },
+      { name: "若公司未能在5年内实现IPO，投资方有权要求回购", termId: "TM-2026-006", createdAt: "2026-01-22" },
+    ][i]
+    termDetails[tid] = {
+      id: tid,
+      title: item.name,
+      termId: item.termId,
+      createdAt: item.createdAt,
+      updatedAt: item.createdAt,
+      status: "pending",
+      creator: PEOPLE.zhangwei,
+      ourDemand: emptySection(PEOPLE.zhangwei),
+      ourBasis: emptySection(PEOPLE.zhangwei),
+      bilateralConflict: emptySection(PEOPLE.lisi),
+      ourBottomLine: emptySection(PEOPLE.wangwu),
+      compromiseSpace: emptySection(PEOPLE.zhangwei),
+      negotiationResult: emptyNegotiation,
+      implementationStatus: emptyImplementation,
+    }
+  })
 
 /* ------------------------------------------------------------------ */
 /*  AI基础设施策略模板条款数据                                          */
@@ -425,6 +425,82 @@ const aiInfrastructureTerms: TermTableItem[] = [
 ]
 
 /* ------------------------------------------------------------------ */
+/*  Mid-investment terms (added when 投决 is approved)                 */
+/* ------------------------------------------------------------------ */
+export const midInvestmentTerms: TermTableItem[] = [
+  {
+    id: "mid-t1",
+    direction: "资本安全与下行保护",
+    category: "优先清偿权",
+    name: "在公司发生任何清算事件时，优先股股东有权就公司可依法分配的资产，优先获得相当于其所持 A 轮优先股原始发行价格 100%的清偿金额",
+    owner: "张伟",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "approved",
+  },
+  {
+    id: "mid-t2",
+    direction: "资本安全与下行保护",
+    category: "优先清偿权",
+    name: "每一名 A 轮优先股股东均有权自行选择放弃其优先清偿金额，并按其所持优先股视同转换为普通股后的比例参与公司资产分配",
+    owner: "李四",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "approved",
+  },
+  {
+    id: "mid-t3",
+    direction: "资本安全与下行保护",
+    category: "股权安排",
+    name: "股利为投资额百分比10%；A 轮优先股股东有权按照其原始投资额的年化 10%，享有优先股股利的分配权利。A 轮优先股股东每年最多可以拿到的股利上限，原始投资额 × 10%温和数字",
+    owner: "张伟",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "approved",
+  },
+  {
+    id: "mid-t4",
+    direction: "资本安全与下行保护",
+    category: "股权安排",
+    name: "非自动股利。前述股利仅在董事会依法宣告并决定分配股利的情况下方可支付，公司未宣告分配股利的，任何股东均不得主张强制支付",
+    owner: "王五",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "approved",
+  },
+  {
+    id: "mid-t5",
+    direction: "资本安全与下行保护",
+    category: "股权安排",
+    name: "非累计股利。若公司在任何会计年度未宣告或未支付股利，则该年度未支付的股利不予累计，亦不计入后续年度的股利计算基础。失败不被复利惩罚，成功不被事后剥夺",
+    owner: "李四",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "rejected",
+  },
+  {
+    id: "mid-t6",
+    direction: "资本安全与下行保护",
+    category: "防稀释条款",
+    name: "股份数量不变。防稀释调整仅涉及 A 轮优先股的转换价格及转换比例，并不导致 A 轮优先股股份数量的增加",
+    owner: "张伟",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "rejected",
+  },
+  {
+    id: "mid-t7",
+    direction: "资本安全与下行保护",
+    category: "防稀释条款",
+    name: "在后续融资中，A 轮优先股股东依法享有优先购买权；其行使或不行使优先购买权，不影响其依本条款享有的防稀释调整权利",
+    owner: "王五",
+    createdAt: "2026-03-10",
+    updatedAt: "2026-03-10",
+    status: "pending",
+  },
+]
+
+/* ------------------------------------------------------------------ */
 /*  Template helper                                                    */
 /* ------------------------------------------------------------------ */
 /** 返回指定策略模板的条款列表，全部状态重置为"待审批" */
@@ -439,9 +515,9 @@ export function getTemplateTermsForStrategy(strategyId: string): TermTableItem[]
 /*  Status helpers                                                     */
 /* ------------------------------------------------------------------ */
 const statusConfig = {
-  approved: { label: "已批准", color: "bg-[#DCFCE7] text-[#166534]" },
+  approved: { label: "通过", color: "bg-[#DCFCE7] text-[#166534]" },
   pending: { label: "待审批", color: "bg-[#FEF3C7] text-[#92400E]" },
-  rejected: { label: "已拒绝", color: "bg-[#FEE2E2] text-[#991B1B]" },
+  rejected: { label: "否决", color: "bg-[#FEE2E2] text-[#991B1B]" },
 }
 
 /* ------------------------------------------------------------------ */
@@ -563,15 +639,20 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
       : termTableData
 
   // Filter data
-  const filteredData = sourceData.filter((item) => {
-    const query = searchQuery.toLowerCase()
-    return (
-      item.direction.toLowerCase().includes(query) ||
-      item.category.toLowerCase().includes(query) ||
-      item.name.toLowerCase().includes(query) ||
-      item.owner.toLowerCase().includes(query)
-    )
-  })
+  const filteredData = sourceData
+    .filter((item) => {
+      const query = searchQuery.toLowerCase()
+      return (
+        item.direction.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query) ||
+        item.name.toLowerCase().includes(query) ||
+        item.owner.toLowerCase().includes(query)
+      )
+    })
+    .sort((a, b) => {
+      const order: Record<string, number> = { approved: 0, rejected: 1, pending: 2 }
+      return (order[a.status] ?? 2) - (order[b.status] ?? 2)
+    })
 
   // Get detail for selected item — extraDetails takes priority over built-in mock data
   const selectedDetail = selectedId
@@ -1086,7 +1167,7 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
                         {selectedDetail.implementationStatus.conclusion ||
                           (selectedDetail.implementationStatus.status === "implemented" ? "已落实"
                             : selectedDetail.implementationStatus.status === "in-progress" ? "执行中"
-                            : "未开始")}
+                              : "未开始")}
                       </Badge>
                       {isNewProject && !isInDuration && (
                         <div className="flex items-center gap-1">
@@ -1398,8 +1479,8 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
             </thead>
             <tbody>
               {filteredData.map((item, index) => (
-                <tr 
-                  key={item.id} 
+                <tr
+                  key={item.id}
                   className={cn(
                     "border-b border-[#E5E7EB] hover:bg-[#F9FAFB] transition-colors",
                     index % 2 === 1 && "bg-[#F9FAFB]"
@@ -1449,7 +1530,7 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
               ))}
             </tbody>
           </table>
-          
+
           {filteredData.length === 0 && (
             <div className="py-12 text-center">
               <FileText className="mx-auto h-12 w-12 text-[#D1D5DB]" />

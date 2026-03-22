@@ -12,7 +12,7 @@ import { ChangeRequests } from "@/components/pages/change-requests"
 import { Login } from "@/components/pages/login"
 import type { Phase, PendingPhase, LiXiangRecord, TouJueRecord, HuaKuanRecord, TuiChuRecord, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData, PendingNegotiationDecision, NegotiationDecisionFormData, PendingVerification, VerificationFormData, PendingImplementationStatus, ImplementationStatusFormData } from "@/components/pages/workflow"
 import { type HypothesisTableItem, type HypothesisDetail, type ValuePoint, type RiskPoint, getTemplateHypothesesForStrategy, midInvestmentHypotheses } from "@/components/pages/hypothesis-checklist"
-import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy } from "@/components/pages/term-sheet"
+import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy, midInvestmentTerms } from "@/components/pages/term-sheet"
 import { getTemplateMaterialsForStrategy } from "@/components/pages/project-materials"
 import { getTrackStrategyHypothesisTemplate } from "@/components/pages/strategy-hypotheses"
 import { getTrackStrategyTermTemplate } from "@/components/pages/strategy-terms"
@@ -384,6 +384,16 @@ export default function Page() {
           status: (idx < 18 ? "verified" : "risky") as "verified" | "pending" | "risky",
         }))
         setProjectHypotheses((prev) => ({ ...prev, [projectId]: withStatuses }))
+        // Add mid-investment terms (资本安全与下行保护条款) when entering 投中期
+        // statuses are pre-set: 4 approved, 2 rejected, 1 pending
+        const currentTerms = projectTerms[projectId] || []
+        const hasAlreadyAdded = currentTerms.some((t) => t.id.startsWith("mid-t"))
+        if (!hasAlreadyAdded) {
+          setProjectTerms((prev) => ({
+            ...prev,
+            [projectId]: [...currentTerms, ...midInvestmentTerms],
+          }))
+        }
       }
       // When a 划款 phase is approved, store the 划款 record for display in the workflow
       if (changeType === "划款") {
