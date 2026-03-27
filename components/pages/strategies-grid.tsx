@@ -682,29 +682,34 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
       <div className="px-8 py-8">
         {/* Page Header */}
         <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white">
-              <Briefcase className="h-5 w-5" />
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#7C3AED] shadow-lg shadow-blue-200/50">
+              <Briefcase className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[#111827]">策略列表</h1>
-              <p className="text-sm text-[#6B7280]">共 {strategies.length} 个投资策略</p>
+              <h1 className="text-xl font-bold text-[#111827]">策略中心</h1>
+              <p className="mt-0.5 text-sm text-[#6B7280]">
+                构建投资策略，可用于投资项目的初始化
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2">
-              <Search className="h-4 w-4 text-[#9CA3AF]" />
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
               <input
                 type="text"
                 placeholder="搜索策略..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 bg-transparent text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF]"
+                className="w-52 rounded-lg border border-[#E5E7EB] bg-white pl-9 pr-3 py-2 text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
               />
             </div>
+            <span className="text-sm text-[#6B7280]">
+              共 <span className="font-medium text-[#111827]">{filteredStrategies.length}</span> 个策略
+            </span>
             <button
               onClick={() => setView("create")}
-              className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+              className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-blue-200/50 transition-colors hover:bg-[#1D4ED8]"
             >
               <Plus className="h-4 w-4" />
               新建策略
@@ -744,16 +749,15 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
                 </div>
 
                 {/* Info */}
-                <h3 className="text-base font-semibold text-[#111827] mb-1">
+                <h3 className="text-base font-semibold text-[#111827] mb-2">
                   {strategy.name}
                 </h3>
-                {strategy.frameworkName && (
-                  <div className="mb-2">
-                    <span className="inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                      {strategy.frameworkName}
-                    </span>
-                  </div>
-                )}
+                <div className="mb-2">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                    {strategy.frameworkName || "暂无框架"}
+                  </span>
+                </div>
                 <p className="text-xs text-[#6B7280] mb-3 leading-relaxed">
                   {strategy.description}
                 </p>
