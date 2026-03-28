@@ -686,7 +686,7 @@ const FRAMEWORK_MOCK_FILES = [
   { id: "fm5", name: "单位经济模型验证清单.xlsx", size: "0.9 MB", type: "XLSX", description: "商业模式验证的关键指标清单：客户获取成本、留存率、LTV等核心公式" },
   { id: "fm6", name: "创始团队评估矩阵.pdf", size: "2.1 MB", type: "PDF", description: "��技赛道创始人评估框架：技术背景、商业化能力、团队完整度评分表" },
   { id: "fm7", name: "科技投资IC流程标准.pdf", size: "4.5 MB", type: "PDF", description: "投委会上会标准流程、材料要求及决策机制，含否决条件清单" },
-  { id: "fm8", name: "历史项目复盘报告汇编.pdf", size: "8.3 MB", type: "PDF", description: "���三年科技赛道投资项目复���：成功案例、失败教训及经验提炼" },
+  { id: "fm8", name: "历史项目复盘报告汇编.pdf", size: "8.3 MB", type: "PDF", description: "���三年科技赛道投资���目复���：成功案例、失败教训及经验提炼" },
 ]
 
 function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => void; onBackToList: () => void; onNext: () => void }) {
@@ -698,6 +698,37 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
   const [showFileBrowser, setShowFileBrowser] = useState(false)
   const [selectedBrowserFiles, setSelectedBrowserFiles] = useState<string[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  
+  // AI analysis animation state
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisStep, setAnalysisStep] = useState(0)
+  
+  const AI_ANALYSIS_STEPS = [
+    { label: "解析方法论描述", icon: "parse" },
+    { label: "提取核心概念", icon: "extract" },
+    { label: "匹配分析模式", icon: "match" },
+    { label: "生成维度结构", icon: "generate" },
+  ]
+  
+  function handleStartAnalysis() {
+    setIsAnalyzing(true)
+    setAnalysisStep(0)
+    
+    // Animate through steps
+    let currentStep = 0
+    const interval = setInterval(() => {
+      currentStep++
+      if (currentStep < AI_ANALYSIS_STEPS.length) {
+        setAnalysisStep(currentStep)
+      } else {
+        clearInterval(interval)
+        setTimeout(() => {
+          setIsAnalyzing(false)
+          onNext()
+        }, 400)
+      }
+    }, 700)
+  }
 
   function removeFile(index: number) {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index))
@@ -1051,14 +1082,81 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
             返回上一步
           </button>
           <button
-            onClick={onNext}
-            className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+            onClick={handleStartAnalysis}
+            disabled={isAnalyzing}
+            className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827] disabled:opacity-70 disabled:cursor-not-allowed"
           >
             <Sparkles className="h-4 w-4" />
-            AI 生成分析维度
+            下一步：AI生成分析维度
           </button>
         </div>
       </div>
+      
+      {/* AI Analysis Animation Overlay */}
+      {isAnalyzing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
+            {/* Animated AI Icon */}
+            <div className="flex flex-col items-center mb-8">
+              <div className="relative mb-4">
+                <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-lg shadow-blue-300/40">
+                  <Sparkles className="h-8 w-8 text-white" />
+                </div>
+                <div className="absolute -inset-3 rounded-3xl border-2 border-[#2563EB]/30 animate-ping" />
+                <div className="absolute -inset-5 rounded-3xl border border-[#7C3AED]/20 animate-pulse" />
+              </div>
+              <h2 className="text-lg font-semibold text-[#111827]">AI 正在分析</h2>
+              <p className="text-sm text-[#6B7280] mt-1">基于方法论生成分析维度结构</p>
+            </div>
+            
+            {/* Analysis Steps */}
+            <div className="space-y-3">
+              {AI_ANALYSIS_STEPS.map((step, idx) => (
+                <div
+                  key={step.label}
+                  className={`flex items-center gap-3 rounded-xl border p-3 transition-all duration-300 ${
+                    idx < analysisStep ? "border-[#10B981] bg-emerald-50" :
+                    idx === analysisStep ? "border-[#2563EB] bg-blue-50" :
+                    "border-[#E5E7EB] bg-white opacity-50"
+                  }`}
+                >
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                    idx < analysisStep ? "bg-[#10B981] text-white" :
+                    idx === analysisStep ? "bg-[#2563EB] text-white" :
+                    "bg-[#F3F4F6] text-[#9CA3AF]"
+                  }`}>
+                    {idx < analysisStep ? (
+                      <Check className="h-4 w-4" />
+                    ) : idx === analysisStep ? (
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    ) : (
+                      <span className="text-xs font-medium">{idx + 1}</span>
+                    )}
+                  </div>
+                  <span className={`text-sm font-medium ${
+                    idx <= analysisStep ? "text-[#111827]" : "text-[#9CA3AF]"
+                  }`}>
+                    {step.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+            
+            {/* Progress bar */}
+            <div className="mt-6">
+              <div className="h-1.5 w-full rounded-full bg-[#E5E7EB] overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-[#2563EB] to-[#7C3AED] rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${((analysisStep + 1) / AI_ANALYSIS_STEPS.length) * 100}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
