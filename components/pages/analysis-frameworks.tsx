@@ -33,6 +33,7 @@ import {
   Square,
   CheckSquare,
   AlertTriangle,
+  Folder,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -522,18 +523,16 @@ function FrameworkDetail({ onBack, data }: { onBack: () => void; data?: Framewor
                     <div>
                       <div className="flex items-center gap-2 mb-0.5">
                         <h3 className="text-sm font-semibold text-[#111827]">{s.name}</h3>
-                        <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-                          s.type === "主题策略"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-violet-50 text-violet-700 border-violet-200"
-                        }`}>
+                        <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${s.type === "主题策略"
+                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                          : "bg-violet-50 text-violet-700 border-violet-200"
+                          }`}>
                           {s.type}
                         </span>
-                        <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-                          s.status === "active"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : "bg-gray-100 text-gray-500 border-gray-200"
-                        }`}>
+                        <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${s.status === "active"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : "bg-gray-100 text-gray-500 border-gray-200"
+                          }`}>
                           {s.status === "active" ? "运行中" : "已暂停"}
                         </span>
                       </div>
@@ -582,11 +581,10 @@ function CreateFrameworkPicker({ onBack, onNext }: { onBack: () => void; onNext:
           {/* AI 辅助创建 */}
           <button
             onClick={() => setSelected("ai")}
-            className={`relative flex flex-col rounded-xl border-2 bg-white p-6 text-left transition-all ${
-              selected === "ai"
-                ? "border-[#2563EB] shadow-lg shadow-blue-100/50"
-                : "border-[#E5E7EB] hover:border-[#D1D5DB]"
-            }`}
+            className={`relative flex flex-col rounded-xl border-2 bg-white p-6 text-left transition-all ${selected === "ai"
+              ? "border-[#2563EB] shadow-lg shadow-blue-100/50"
+              : "border-[#E5E7EB] hover:border-[#D1D5DB]"
+              }`}
           >
             {/* Selection indicator */}
             {selected === "ai" && (
@@ -603,7 +601,7 @@ function CreateFrameworkPicker({ onBack, onNext }: { onBack: () => void; onNext:
             </div>
             <h3 className="text-lg font-bold text-[#111827] mb-2">AI 辅助创建</h3>
             <p className="text-sm text-[#6B7280] leading-relaxed mb-6">
-              用自然语言描述你的投资方法论，AI 自动拆解为结构化的分析维度、判断指标和输出规范，你再逐一审核修改。
+              ���自然语言描述你的投资方法论，AI 自动拆解为结构化的分析维度、判断指标和输出规范，你再逐一审核修改。
             </p>
             <p className="mt-auto text-xs text-[#9CA3AF]">适合：心里有方法论但不想从零填表的用户</p>
           </button>
@@ -611,11 +609,10 @@ function CreateFrameworkPicker({ onBack, onNext }: { onBack: () => void; onNext:
           {/* 手动创建 */}
           <button
             onClick={() => setSelected("manual")}
-            className={`relative flex flex-col rounded-xl border-2 bg-white p-6 text-left transition-all ${
-              selected === "manual"
-                ? "border-[#2563EB] shadow-lg shadow-blue-100/50"
-                : "border-[#E5E7EB] hover:border-[#D1D5DB]"
-            }`}
+            className={`relative flex flex-col rounded-xl border-2 bg-white p-6 text-left transition-all ${selected === "manual"
+              ? "border-[#2563EB] shadow-lg shadow-blue-100/50"
+              : "border-[#E5E7EB] hover:border-[#D1D5DB]"
+              }`}
           >
             {selected === "manual" && (
               <div className="absolute top-4 right-4">
@@ -680,15 +677,87 @@ const SAMPLE_DESCRIPTION = `我们投科技项目主要看这几个方面：
 
 最后看团队，科技赛道对创始人的技术背景要求高，但也需要有商业化能力的合伙人。`
 
+// Mock files for "科技成长型框架材料" directory
+const FRAMEWORK_MOCK_FILES = [
+  { id: "fm1", name: "科技投资方法论手册_v2.pdf", size: "5.2 MB", type: "PDF", description: "内部科技赛道投资方法论总结，涵盖产业阶段判断、技术成熟度评估等核心维度" },
+  { id: "fm2", name: "产业阶段判断标准与案例集.pdf", size: "3.8 MB", type: "PDF", description: "科技赛道产业阶段判断的量化标准和历史投资案例分析，含盈利拐点识别方法" },
+  { id: "fm3", name: "技术成熟度评估模型.xlsx", size: "1.2 MB", type: "XLSX", description: "基于TRL框架的技术成熟度评估量表，含性能瓶颈、迭代速度等关键指标" },
+  { id: "fm4", name: "竞争格局分析框架.docx", size: "2.4 MB", type: "DOCX", description: "CR5计算方法、融资密度分析及竞争态势判断指南，附红海蓝海判定标准" },
+  { id: "fm5", name: "单位经济模型验证清单.xlsx", size: "0.9 MB", type: "XLSX", description: "商业模式验证的关键指标清单：客户获取成本、留存率、LTV等核心公式" },
+  { id: "fm6", name: "创始团队评估矩阵.pdf", size: "2.1 MB", type: "PDF", description: "��技赛道创始人评估框架：技术背景、商业化能力、团队完整度评分表" },
+  { id: "fm7", name: "科技投资IC流程标准.pdf", size: "4.5 MB", type: "PDF", description: "投委会上会标准流程、材料要求及决策机制，含否决条件清单" },
+  { id: "fm8", name: "历史项目复盘报告汇编.pdf", size: "8.3 MB", type: "PDF", description: "���三年科技赛道投资���目复���：成功案例、失败教训及经验提炼" },
+]
+
 function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => void; onBackToList: () => void; onNext: () => void }) {
   const [frameworkName, setFrameworkName] = useState("")
   const [description, setDescription] = useState(SAMPLE_DESCRIPTION)
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; type: string }[]>([
-    { name: "投资分析SOP_v3.pdf", type: "PDF" },
-  ])
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string; type: string; description: string }[]>([])
+
+  // File browser modal state
+  const [showFileBrowser, setShowFileBrowser] = useState(false)
+  const [selectedBrowserFiles, setSelectedBrowserFiles] = useState<string[]>([])
+  const [isUploading, setIsUploading] = useState(false)
+
+  // AI analysis animation state
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisStep, setAnalysisStep] = useState(0)
+
+  const AI_ANALYSIS_STEPS = [
+    { label: "解析方法论描述", icon: "parse" },
+    { label: "提取核心概念", icon: "extract" },
+    { label: "匹配分析模式", icon: "match" },
+    { label: "生成维度结构", icon: "generate" },
+  ]
+
+  function handleStartAnalysis() {
+    setIsAnalyzing(true)
+    setAnalysisStep(0)
+
+    // Animate through steps
+    let currentStep = 0
+    const interval = setInterval(() => {
+      currentStep++
+      if (currentStep < AI_ANALYSIS_STEPS.length) {
+        setAnalysisStep(currentStep)
+      } else {
+        clearInterval(interval)
+        setTimeout(() => {
+          setIsAnalyzing(false)
+          onNext()
+        }, 400)
+      }
+    }, 700)
+  }
 
   function removeFile(index: number) {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function handleSelectAllFiles() {
+    if (selectedBrowserFiles.length === FRAMEWORK_MOCK_FILES.length) {
+      setSelectedBrowserFiles([])
+    } else {
+      setSelectedBrowserFiles(FRAMEWORK_MOCK_FILES.map((f) => f.id))
+    }
+  }
+
+  function handleConfirmUpload() {
+    if (selectedBrowserFiles.length === 0) return
+    setIsUploading(true)
+    // Simulate upload animation
+    setTimeout(() => {
+      const newFiles = FRAMEWORK_MOCK_FILES.filter((f) => selectedBrowserFiles.includes(f.id)).map((f) => ({
+        name: f.name,
+        size: f.size,
+        type: f.type,
+        description: f.description,
+      }))
+      setUploadedFiles((prev) => [...prev, ...newFiles])
+      setSelectedBrowserFiles([])
+      setIsUploading(false)
+      setShowFileBrowser(false)
+    }, 1200)
   }
 
   return (
@@ -718,20 +787,18 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
                 {idx > 0 && <div className={`mx-2 h-px w-10 ${step.num <= 2 ? "bg-[#2563EB]" : "bg-[#D1D5DB]"}`} />}
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-                      isCompleted
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${isCompleted
+                      ? "bg-[#2563EB] text-white"
+                      : isActive
                         ? "bg-[#2563EB] text-white"
-                        : isActive
-                          ? "bg-[#2563EB] text-white"
-                          : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
-                    }`}
+                        : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
+                      }`}
                   >
                     {isCompleted ? <Check className="h-3.5 w-3.5" /> : step.num}
                   </div>
                   <span
-                    className={`text-sm font-medium ${
-                      isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
-                    }`}
+                    className={`text-sm font-medium ${isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
+                      }`}
                   >
                     {step.label}
                   </span>
@@ -756,7 +823,7 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
             <div className="mb-6">
               <label className="block text-sm font-medium text-[#374151] mb-2">框架名称</label>
               <Input
-                placeholder="如：科技成长型框架"
+                placeholder="科技成长型框架"
                 value={frameworkName}
                 onChange={(e) => setFrameworkName(e.target.value)}
                 className="bg-white border-[#E5E7EB]"
@@ -777,36 +844,194 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
 
             {/* 参考文档 */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-[#374151] mb-2">参考文档（可选）</label>
-              <div className="rounded-lg border-2 border-dashed border-[#D1D5DB] bg-white px-6 py-8 text-center hover:border-[#2563EB] transition-colors cursor-pointer">
-                <Upload className="mx-auto h-6 w-6 text-[#9CA3AF] mb-2" />
-                <p className="text-sm font-medium text-[#374151]">拖拽文件到此处或点击上传</p>
-                <p className="mt-1 text-xs text-[#9CA3AF]">
-                  支持 PDF、Word、PPT 格式，如内部投资手册、IC 流程文档等
-                </p>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-[#374151]">参考文档（可选）</label>
+                {uploadedFiles.length > 0 && (
+                  <span className="text-xs text-[#6B7280]">已上传 {uploadedFiles.length} 个文件</span>
+                )}
               </div>
+
+              {/* Upload card - always visible */}
+              <button
+                onClick={() => setShowFileBrowser(true)}
+                className="w-full rounded-xl border-2 border-dashed border-[#D1D5DB] bg-white px-6 py-6 text-center hover:border-[#2563EB] hover:bg-blue-50/30 transition-all group cursor-pointer"
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F3F4F6] group-hover:bg-blue-100 transition-colors">
+                    <Upload className="h-5 w-5 text-[#9CA3AF] group-hover:text-[#2563EB] transition-colors" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[#374151] group-hover:text-[#2563EB] transition-colors">
+                      {uploadedFiles.length === 0 ? "拖拽文件到此处或点击上传" : "点击上传更多文件"}
+                    </p>
+                    <p className="mt-1 text-xs text-[#9CA3AF]">
+                      支持 PDF、Word、PPT 格式，如内部投资手册、IC 流程文档等
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Horizontally scrollable uploaded files list */}
               {uploadedFiles.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  {uploadedFiles.map((file, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2"
-                    >
-                      <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
-                        {file.type}
-                      </span>
-                      <span className="text-sm text-[#374151] truncate">{file.name}</span>
-                      <button
-                        onClick={() => removeFile(idx)}
-                        className="ml-auto shrink-0 rounded p-0.5 text-[#9CA3AF] hover:text-[#374151] transition-colors"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+                <div className="mt-4">
+                  <div className="relative">
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-[#E5E7EB] scrollbar-track-transparent">
+                      {uploadedFiles.map((file, idx) => (
+                        <div
+                          key={idx}
+                          className="flex-shrink-0 w-64 rounded-xl border border-[#E5E7EB] bg-white p-3 hover:border-[#D1D5DB] transition-colors group"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${file.type === "PDF" ? "bg-red-50 text-red-600" :
+                                file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                  file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                    file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
+                                      "bg-gray-50 text-gray-600"
+                              }`}>
+                              {file.type}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-[#111827] truncate pr-6">{file.name}</p>
+                              {file.description && (
+                                <p className="text-[11px] text-[#6B7280] line-clamp-2 mt-0.5 leading-relaxed">{file.description}</p>
+                              )}
+                              <p className="text-[10px] text-[#9CA3AF] mt-1">{file.size}</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); removeFile(idx) }}
+                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex h-6 w-6 items-center justify-center rounded-md text-[#9CA3AF] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-all"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                    {/* Fade hint for scroll */}
+                    {uploadedFiles.length > 2 && (
+                      <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#F3F4F6] to-transparent" />
+                    )}
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* File Browser Modal */}
+            {showFileBrowser && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-[#111827]">选择参考文档</h2>
+                      <p className="text-xs text-[#6B7280] mt-0.5">从框架材料库中选择相关文件</p>
+                    </div>
+                    <button
+                      onClick={() => { setShowFileBrowser(false); setSelectedBrowserFiles([]) }}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] transition-colors"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  {/* Directory */}
+                  <div className="px-6 py-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Folder className="h-5 w-5 text-[#F59E0B]" />
+                      <span className="text-sm font-medium text-[#111827]">科技成长型框架材料</span>
+                      <span className="text-xs text-[#9CA3AF]">({FRAMEWORK_MOCK_FILES.length} 个文件)</span>
+                    </div>
+
+                    {/* Select All */}
+                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#E5E7EB]">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedBrowserFiles.length === FRAMEWORK_MOCK_FILES.length}
+                          onChange={handleSelectAllFiles}
+                          className="h-4 w-4 rounded border-[#D1D5DB] text-[#2563EB] focus:ring-[#2563EB]"
+                        />
+                        <span className="text-sm font-medium text-[#374151]">全选</span>
+                      </label>
+                      <span className="text-xs text-[#6B7280]">
+                        已选 <span className="font-medium text-[#2563EB]">{selectedBrowserFiles.length}</span> 个
+                      </span>
+                    </div>
+
+                    {/* File List */}
+                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                      {FRAMEWORK_MOCK_FILES.map((file) => {
+                        const isSelected = selectedBrowserFiles.includes(file.id)
+                        return (
+                          <label
+                            key={file.id}
+                            className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-all ${isSelected
+                                ? "border-[#2563EB] bg-blue-50/50"
+                                : "border-[#E5E7EB] bg-white hover:border-[#D1D5DB]"
+                              }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedBrowserFiles(selectedBrowserFiles.filter((id) => id !== file.id))
+                                } else {
+                                  setSelectedBrowserFiles([...selectedBrowserFiles, file.id])
+                                }
+                              }}
+                              className="mt-1 h-4 w-4 rounded border-[#D1D5DB] text-[#2563EB] focus:ring-[#2563EB]"
+                            />
+                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${file.type === "PDF" ? "bg-red-50 text-red-600" :
+                                file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                  file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                    "bg-gray-50 text-gray-600"
+                              }`}>
+                              {file.type}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-[#111827] truncate">{file.name}</p>
+                              <p className="text-xs text-[#6B7280] line-clamp-1 mt-0.5">{file.description}</p>
+                              <p className="text-[10px] text-[#9CA3AF] mt-0.5">{file.size}</p>
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4 bg-[#F9FAFB]">
+                    <button
+                      onClick={() => { setShowFileBrowser(false); setSelectedBrowserFiles([]) }}
+                      className="rounded-lg border border-[#D1D5DB] bg-white px-4 py-2 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleConfirmUpload}
+                      disabled={selectedBrowserFiles.length === 0 || isUploading}
+                      className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isUploading ? (
+                        <>
+                          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          上传中...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-4 w-4" />
+                          确认上传 ({selectedBrowserFiles.length})
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right: writing tips */}
@@ -854,14 +1079,77 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
             返回上一步
           </button>
           <button
-            onClick={onNext}
-            className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+            onClick={handleStartAnalysis}
+            disabled={isAnalyzing}
+            className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827] disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <Sparkles className="h-4 w-4" />
-            AI 生成分析维度
+            下一步：AI生成分析维度
           </button>
         </div>
       </div>
+
+      {/* AI Analysis Animation Overlay */}
+      {isAnalyzing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
+            {/* Animated AI Icon */}
+            <div className="flex flex-col items-center mb-8">
+              <div className="relative mb-4">
+                <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-lg shadow-blue-300/40">
+                  <Sparkles className="h-8 w-8 text-white" />
+                </div>
+                <div className="absolute -inset-3 rounded-3xl border-2 border-[#2563EB]/30 animate-ping" />
+                <div className="absolute -inset-5 rounded-3xl border border-[#7C3AED]/20 animate-pulse" />
+              </div>
+              <h2 className="text-lg font-semibold text-[#111827]">AI 正在分析</h2>
+              <p className="text-sm text-[#6B7280] mt-1">基于方法论生成分析维度结构</p>
+            </div>
+
+            {/* Analysis Steps */}
+            <div className="space-y-3">
+              {AI_ANALYSIS_STEPS.map((step, idx) => (
+                <div
+                  key={step.label}
+                  className={`flex items-center gap-3 rounded-xl border p-3 transition-all duration-300 ${idx < analysisStep ? "border-[#10B981] bg-emerald-50" :
+                      idx === analysisStep ? "border-[#2563EB] bg-blue-50" :
+                        "border-[#E5E7EB] bg-white opacity-50"
+                    }`}
+                >
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${idx < analysisStep ? "bg-[#10B981] text-white" :
+                      idx === analysisStep ? "bg-[#2563EB] text-white" :
+                        "bg-[#F3F4F6] text-[#9CA3AF]"
+                    }`}>
+                    {idx < analysisStep ? (
+                      <Check className="h-4 w-4" />
+                    ) : idx === analysisStep ? (
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    ) : (
+                      <span className="text-xs font-medium">{idx + 1}</span>
+                    )}
+                  </div>
+                  <span className={`text-sm font-medium ${idx <= analysisStep ? "text-[#111827]" : "text-[#9CA3AF]"
+                    }`}>
+                    {step.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Progress bar */}
+            <div className="mt-6">
+              <div className="h-1.5 w-full rounded-full bg-[#E5E7EB] overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-[#2563EB] to-[#7C3AED] rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${((analysisStep + 1) / AI_ANALYSIS_STEPS.length) * 100}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -965,7 +1253,7 @@ const INITIAL_DIMENSIONS: ConfigDimension[] = [
   {
     id: "d3",
     name: "竞争格局分析",
-    description: "分析市场竞争态势、市场集中度和融资热度，判断竞争风险",
+    description: "分析市场竞争态势、市���集中度和融资热度，判断竞争风险",
     priority: "medium",
     indicators: [
       {
@@ -1087,20 +1375,18 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
                 {idx > 0 && <div className={`mx-2 h-px w-10 ${step.num <= 3 ? "bg-[#2563EB]" : "bg-[#D1D5DB]"}`} />}
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-                      isCompleted
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${isCompleted
+                      ? "bg-[#2563EB] text-white"
+                      : isActive
                         ? "bg-[#2563EB] text-white"
-                        : isActive
-                          ? "bg-[#2563EB] text-white"
-                          : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
-                    }`}
+                        : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
+                      }`}
                   >
                     {isCompleted ? <Check className="h-3.5 w-3.5" /> : step.num}
                   </div>
                   <span
-                    className={`text-sm font-medium ${
-                      isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
-                    }`}
+                    className={`text-sm font-medium ${isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
+                      }`}
                   >
                     {step.label}
                   </span>
@@ -1129,11 +1415,10 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
               <button
                 key={d.id}
                 onClick={() => setActiveDimId(d.id)}
-                className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  d.id === activeDimId
-                    ? "bg-[#2563EB] text-white"
-                    : "bg-[#F9FAFB] text-[#374151] hover:bg-[#F3F4F6]"
-                }`}
+                className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${d.id === activeDimId
+                  ? "bg-[#2563EB] text-white"
+                  : "bg-[#F9FAFB] text-[#374151] hover:bg-[#F3F4F6]"
+                  }`}
               >
                 <p className={`text-sm font-medium ${d.id === activeDimId ? "text-white" : "text-[#111827]"}`}>
                   {d.name}
@@ -1444,20 +1729,18 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
                 {idx > 0 && <div className={`mx-2 h-px w-10 ${step.num <= 4 ? "bg-[#2563EB]" : "bg-[#D1D5DB]"}`} />}
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-                      isCompleted
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${isCompleted
+                      ? "bg-[#2563EB] text-white"
+                      : isActive
                         ? "bg-[#2563EB] text-white"
-                        : isActive
-                          ? "bg-[#2563EB] text-white"
-                          : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
-                    }`}
+                        : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
+                      }`}
                   >
                     {isCompleted ? <Check className="h-3.5 w-3.5" /> : step.num}
                   </div>
                   <span
-                    className={`text-sm font-medium ${
-                      isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
-                    }`}
+                    className={`text-sm font-medium ${isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
+                      }`}
                   >
                     {step.label}
                   </span>
@@ -1650,20 +1933,18 @@ function ConfirmSave({ onBack, onBackToList, onSave }: { onBack: () => void; onB
                 {idx > 0 && <div className="mx-2 h-px w-10 bg-[#2563EB]" />}
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-                      isCompleted
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${isCompleted
+                      ? "bg-[#2563EB] text-white"
+                      : isActive
                         ? "bg-[#2563EB] text-white"
-                        : isActive
-                          ? "bg-[#2563EB] text-white"
-                          : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
-                    }`}
+                        : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
+                      }`}
                   >
                     {isCompleted ? <Check className="h-3.5 w-3.5" /> : step.num}
                   </div>
                   <span
-                    className={`text-sm font-medium ${
-                      isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
-                    }`}
+                    className={`text-sm font-medium ${isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
+                      }`}
                   >
                     {step.label}
                   </span>

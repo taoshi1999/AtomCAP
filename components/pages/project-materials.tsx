@@ -217,7 +217,8 @@ function getMatchingFileIds(category: string): string[] {
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
-export function getFormatIcon(format: string) {
+export function getFormatIcon(format: string | undefined) {
+  if (!format) return File
   switch (format.toUpperCase()) {
     case "PDF":
     case "DOCX":
@@ -233,7 +234,8 @@ export function getFormatIcon(format: string) {
   }
 }
 
-export function getFormatColor(format: string) {
+export function getFormatColor(format: string | undefined) {
+  if (!format) return "bg-gray-50 text-gray-700 border-gray-200"
   switch (format.toUpperCase()) {
     case "PDF":
       return "bg-red-50 text-red-700 border-red-200"

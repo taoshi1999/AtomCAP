@@ -115,8 +115,6 @@ const aiRecommendedMaterials = [
 // Default strategy info for existing strategies (fallback)
 const defaultStrategyInfo = {
   name: "AI基础设施",
-  type: "主题策略",
-  typeColor: "bg-blue-50 text-blue-700 border-blue-200",
   description:
     "聚焦AI算力、模型训练框架和基础软件生态投资。本策略围绕人工智能产业的底层基础设施进行布局，涵盖GPU/TPU算力芯片、分布式训练框架、模型推理优化、数据标注平台、MLOps工具链等核心领域，旨在捕捉AI产业爆发期的底层价值。",
   createdAt: "2023-06-15",
@@ -293,8 +291,6 @@ export function StrategyOverview({
   
   const info = strategy ? {
     name: strategy.name,
-    type: strategy.type,
-    typeColor: strategy.typeColor,
     description: strategy.description,
     createdAt: strategy.createdAt,
     updatedAt: strategy.createdAt, // Same as createdAt for new strategies
@@ -326,9 +322,6 @@ export function StrategyOverview({
                 <h2 className="text-xl font-bold text-[#111827]">
                   {info.name}
                 </h2>
-                <Badge className={`${info.typeColor} hover:bg-blue-50`}>
-                  {info.type}
-                </Badge>
               </div>
               <p className="mt-2 text-sm leading-relaxed text-[#6B7280]">
                 {info.description}

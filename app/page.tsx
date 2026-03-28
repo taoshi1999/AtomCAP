@@ -121,11 +121,65 @@ export default function Page() {
   function handleApproveStrategy(id: string) {
     const pending = pendingStrategies.find((p) => p.id === id)
     if (pending) {
+      const newStrategyId = `new-${Date.now()}`
       const newStrategy: Strategy = {
-        id: `new-${Date.now()}`,
+        id: newStrategyId,
         ...pending.strategy,
       }
       setStrategies([newStrategy, ...strategies])
+      
+      // Initialize hypotheses for the new strategy if generated during creation
+      if (pending.generatedHypotheses && pending.generatedHypotheses.length > 0) {
+        const newHypotheses: StrategyHypothesis[] = pending.generatedHypotheses.map((h, idx) => ({
+          id: `sh-${newStrategyId}-${idx}`,
+          strategyId: newStrategyId,
+          direction: h.direction,
+          category: h.category,
+          name: h.name,
+          content: "",
+          reason: "",
+          status: "pending" as const,
+          owner: "AI生成",
+          createdAt: new Date().toISOString().split("T")[0],
+          updatedAt: new Date().toISOString().split("T")[0],
+        }))
+        setStrategyHypotheses((prev) => ({ ...prev, [newStrategyId]: newHypotheses }))
+      }
+      
+      // Initialize terms for the new strategy if generated during creation
+      if (pending.generatedTerms && pending.generatedTerms.length > 0) {
+        const newTerms: StrategyTerm[] = pending.generatedTerms.map((t, idx) => ({
+          id: `st-${newStrategyId}-${idx}`,
+          strategyId: newStrategyId,
+          direction: t.direction,
+          category: t.category,
+          name: t.name,
+          content: "",
+          reason: "",
+          status: "pending" as const,
+          owner: "AI生成",
+          createdAt: new Date().toISOString().split("T")[0],
+          updatedAt: new Date().toISOString().split("T")[0],
+        }))
+        setStrategyTerms((prev) => ({ ...prev, [newStrategyId]: newTerms }))
+      }
+      
+      // Initialize materials for the new strategy from uploaded files during creation
+      if (pending.uploadedMaterials && pending.uploadedMaterials.length > 0) {
+        const newMaterials: StrategyMaterial[] = pending.uploadedMaterials.map((m, idx) => ({
+          id: `sm-${newStrategyId}-${idx}`,
+          strategyId: newStrategyId,
+          name: m.name.replace(/\.[^.]+$/, ""), // strip file extension
+          format: m.type || "PDF", // map type to format, default to PDF if undefined
+          size: m.size,
+          description: m.description || "",
+          category: "通用材料",
+          owner: "张伟",
+          createdAt: new Date().toISOString().split("T")[0],
+        }))
+        setStrategyMaterials((prev) => ({ ...prev, [newStrategyId]: newMaterials }))
+      }
+      
       setPendingStrategies(pendingStrategies.filter((p) => p.id !== id))
     }
   }
@@ -244,7 +298,7 @@ export default function Page() {
       const uploadedAtCreation: StrategyMaterial[] = (pending.uploadedFiles || []).map((f) => ({
         id: `uploaded-${f.id}-${Date.now()}`,
         strategyId: sid,
-        name: f.name.replace(/\.[^.]+$/, ""), // strip file extension (e.g. "闫俊杰_CV.pdf" → "闫俊杰_CV")
+        name: f.name.replace(/\.[^.]+$/, ""), // strip file extension (e.g. "���俊杰_CV.pdf" → "闫俊杰_CV")
         format: f.format,
         size: f.size,
         category: "",
@@ -678,7 +732,7 @@ export default function Page() {
                 conclusion: "",
                 status: "pending" as const,
                 content: "",
-                creator: { name: "张伟", role: "投资经理" },
+                creator: { name: "张伟", role: "投资经���" },
                 reviewers: [],
                 createdAt: "",
                 comments: [],

@@ -184,10 +184,10 @@ interface StrategyHypothesesProps {
   onCreatePendingHypothesis: (pending: import("./strategies-grid").PendingHypothesis) => void
 }
 
-export function StrategyHypotheses({ 
+export function StrategyHypotheses({
   strategyId,
-  isNewStrategy = false, 
-  prefillData, 
+  isNewStrategy = false,
+  prefillData,
   onPrefillUsed,
   strategyType,
   parentStrategyName,
@@ -201,8 +201,8 @@ export function StrategyHypotheses({
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
-  
-  // 弹窗创建表单���态
+
+  // 弹窗创建表单状态
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [formTitle, setFormTitle] = useState("")
   const [formDirection, setFormDirection] = useState("")
@@ -266,7 +266,7 @@ export function StrategyHypotheses({
   function handleDelete(id: string) {
     console.log("[v0] Delete strategy hypothesis:", id)
   }
-  
+
   function resetForm() {
     setFormTitle("")
     setFormDirection("")
@@ -275,7 +275,7 @@ export function StrategyHypotheses({
     setFormReason("")
     setFormMaterials([])
   }
-  
+
   function handleCreateSubmit() {
     // 创建变更请求
     const pending: import("./strategies-grid").PendingHypothesis = {
@@ -298,13 +298,13 @@ export function StrategyHypotheses({
       initiatedAt: new Date().toISOString().split("T")[0],
       reviewers: [{ id: "lisi", name: "李四", initials: "李四" }],
     }
-    
+
     // 关闭弹窗，跳转到变更请求页面
     setShowCreateDialog(false)
     resetForm()
     onCreatePendingHypothesis(pending)
   }
-  
+
   function toggleMaterial(materialId: string) {
     setFormMaterials((prev) =>
       prev.includes(materialId)
@@ -446,7 +446,7 @@ export function StrategyHypotheses({
             </button>
           </div>
         )}
-        
+
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-[#111827]">假设清单</h1>
@@ -538,7 +538,7 @@ export function StrategyHypotheses({
           )}
         </div>
       </div>
-      
+
       {/* 创建假设弹窗 */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -553,7 +553,7 @@ export function StrategyHypotheses({
               </div>
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-4 mt-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -575,7 +575,7 @@ export function StrategyHypotheses({
                 />
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-[#374151] mb-1.5">假设名称</label>
               <Input
@@ -585,7 +585,7 @@ export function StrategyHypotheses({
                 className="h-10"
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-[#374151] mb-1.5">假设简介</label>
               <textarea
@@ -596,7 +596,7 @@ export function StrategyHypotheses({
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-[#374151] mb-1.5">推荐理由</label>
               <textarea
@@ -607,7 +607,7 @@ export function StrategyHypotheses({
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-[#374151] mb-2">
                 <div className="flex items-center gap-2">
@@ -648,7 +648,7 @@ export function StrategyHypotheses({
                 </p>
               )}
             </div>
-            
+
             <div className="flex justify-end gap-3 pt-4 border-t border-[#E5E7EB]">
               <Button
                 variant="outline"
@@ -659,7 +659,7 @@ export function StrategyHypotheses({
               >
                 取消
               </Button>
-              <Button 
+              <Button
                 className="bg-[#2563EB] hover:bg-[#1D4ED8]"
                 onClick={handleCreateSubmit}
                 disabled={!formTitle.trim() || !formDirection.trim()}
