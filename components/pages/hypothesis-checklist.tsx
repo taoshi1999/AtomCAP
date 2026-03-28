@@ -773,7 +773,7 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
   },
   "tam": {
     id: "tam",
-    title: "中国大���型市场总规模在2025年将达到500亿元",
+    title: "中国大中型市场总规模在2025年将达到500亿元",
     qaId: "QA-2024-006",
     createdAt: "2026-01-20",
     updatedAt: "2026-02-25",

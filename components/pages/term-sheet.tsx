@@ -290,7 +290,7 @@ const termDetails: Record<string, TermDetail> = {
     },
     implementationStatus: {
       status: "implemented",
-      content: "该条款已在投资协议正式条款中体现（第5.2条），并于2024年2月15日完��签署。张伟已正式被任命为公司董事，参加了2024年3月的首次董事会会议。保密协议已于2024年2月20日签署完毕，相关备案手续已完成。",
+      content: "该条款已在投资协议正式条款中体现（第5.2条），并于2024年2月15日完成签署。张伟已正式被任命为公司董事，参加了2024年3月的首次董事会会议。保密协议已于2024年2月20日签署完毕，相关备案手续已完成。",
       creator: PEOPLE.zhangwei,
       reviewers: [PEOPLE.zhaoliu],
       createdAt: "2024-03-01",
@@ -776,7 +776,7 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
           </p>
           <button className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
             <Plus className="h-4 w-4" />
-            创建第一个���款
+            创建第一个条款
           </button>
         </div>
       </div>
@@ -851,7 +851,7 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
               </div>
               <span>创建: {section.creator.name}</span>
             </div>
-            <span>���批:</span>
+            <span>审批:</span>
             {section.reviewers.map((r, idx) => (
               <div key={idx} className="flex items-center gap-1">
                 <div className="h-5 w-5 rounded-full bg-[#6B7280] flex items-center justify-center">

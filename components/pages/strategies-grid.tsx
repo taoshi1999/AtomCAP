@@ -456,7 +456,7 @@ function CreateStrategyStep1({
                   )}
                   <h4 className="text-sm font-semibold text-[#111827] mb-2 pr-6">{ref.name}</h4>
                   <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium mb-2", fw?.color || "bg-gray-50 border-gray-200 text-gray-600")}>
-                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" /></svg>
                     {ref.framework}
                   </span>
                   <p className="text-[11px] text-[#6B7280]">
@@ -643,20 +643,18 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                 {idx > 0 && <div className={`mx-2 h-px w-10 ${s.num <= step ? "bg-[#2563EB]" : "bg-[#D1D5DB]"}`} />}
                 <div className="flex items-center gap-2">
                   <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-                      isCompleted
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${isCompleted
                         ? "bg-[#2563EB] text-white"
                         : isActive
                           ? "bg-[#2563EB] text-white"
                           : "border border-[#D1D5DB] bg-white text-[#9CA3AF]"
-                    }`}
+                      }`}
                   >
                     {isCompleted ? <Check className="h-3.5 w-3.5" /> : s.num}
                   </div>
                   <span
-                    className={`text-sm font-medium ${
-                      isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
-                    }`}
+                    className={`text-sm font-medium ${isActive ? "text-[#2563EB]" : isCompleted ? "text-[#111827]" : "text-[#9CA3AF]"
+                      }`}
                   >
                     {s.label}
                   </span>
@@ -726,10 +724,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                           <div className={cn(
                             "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
                             file.type === "PDF" ? "bg-red-50 text-red-600" :
-                            file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
-                            file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
-                            file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
-                            "bg-gray-50 text-gray-600"
+                              file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                  file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
+                                    "bg-gray-50 text-gray-600"
                           )}>
                             {file.type}
                           </div>
@@ -852,9 +850,9 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                               <div className={cn(
                                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold",
                                 file.type === "PDF" ? "bg-red-50 text-red-600" :
-                                file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
-                                file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
-                                "bg-gray-50 text-gray-600"
+                                  file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                    file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                      "bg-gray-50 text-gray-600"
                               )}>
                                 {file.type}
                               </div>
@@ -1003,7 +1001,7 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
               <Briefcase className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-[#111827]">策略��心</h1>
+              <h1 className="text-xl font-bold text-[#111827]">策略中心</h1>
               <p className="mt-0.5 text-sm text-[#6B7280]">
                 构建投资策略，可用于投资项目的初始化
               </p>
@@ -1071,7 +1069,7 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
                 {strategy.frameworkName && (
                   <div className="mb-2">
                     <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-[11px] font-medium text-blue-700">
-                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" /></svg>
                       依托分析框架：{strategy.frameworkName}
                     </span>
                   </div>
