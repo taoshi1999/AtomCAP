@@ -164,6 +164,21 @@ export default function Page() {
         setStrategyTerms((prev) => ({ ...prev, [newStrategyId]: newTerms }))
       }
       
+      // Initialize materials for the new strategy from uploaded files during creation
+      if (pending.uploadedMaterials && pending.uploadedMaterials.length > 0) {
+        const newMaterials: StrategyMaterial[] = pending.uploadedMaterials.map((m, idx) => ({
+          id: `sm-${newStrategyId}-${idx}`,
+          strategyId: newStrategyId,
+          name: m.name,
+          type: m.type as "PDF" | "Word" | "Excel" | "PPT" | "其他",
+          size: m.size,
+          uploadedBy: "张伟",
+          uploadedAt: new Date().toISOString().split("T")[0],
+          category: "通用材料",
+        }))
+        setStrategyMaterials((prev) => ({ ...prev, [newStrategyId]: newMaterials }))
+      }
+      
       setPendingStrategies(pendingStrategies.filter((p) => p.id !== id))
     }
   }
@@ -716,7 +731,7 @@ export default function Page() {
                 conclusion: "",
                 status: "pending" as const,
                 content: "",
-                creator: { name: "张伟", role: "投资经理" },
+                creator: { name: "张伟", role: "投资经���" },
                 reviewers: [],
                 createdAt: "",
                 comments: [],

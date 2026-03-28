@@ -58,7 +58,6 @@ interface Strategy {
   returnRate: string                        // 回报率
   owner: { id: string; name: string; initials: string }  // 负责人
   createdAt: string                         // 创建时间
-  tags?: string[]                           // 标签
   frameworkName?: string                    // 分析框架名称
   parentStrategyId?: string                 // 父策略ID
   parentStrategyName?: string               // 父策略名称

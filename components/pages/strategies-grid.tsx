@@ -37,7 +37,6 @@ export interface Strategy {
   returnRate: string
   owner: { id: string; name: string; initials: string }
   createdAt: string
-  tags?: string[]
   frameworkName?: string
   parentStrategyId?: string
   parentStrategyName?: string
@@ -54,6 +53,7 @@ export interface PendingStrategy {
   // Generated content from AI during creation
   generatedHypotheses?: { direction: string; category: string; name: string }[]
   generatedTerms?: { direction: string; category: string; name: string }[]
+  uploadedMaterials?: { name: string; size: string; type: string }[]
 }
 
 export interface StrategyHypothesis {
@@ -143,7 +143,6 @@ export const initialStrategies: Strategy[] = [
     returnRate: "+32%",
     owner: { id: "zhangwei", name: "张伟", initials: "张伟" },
     createdAt: "2023-06-15",
-    tags: ["AI", "基础设施"],
     frameworkName: "科技成长型框架",
   },
   {
@@ -157,7 +156,6 @@ export const initialStrategies: Strategy[] = [
     returnRate: "+18%",
     owner: { id: "lisi", name: "李四", initials: "李四" },
     createdAt: "2023-07-20",
-    tags: ["大模型", "应用"],
     frameworkName: "科技成长型框架",
     parentStrategyId: "1",
     parentStrategyName: "AI基础设施",
@@ -173,7 +171,6 @@ export const initialStrategies: Strategy[] = [
     returnRate: "+25%",
     owner: { id: "wangfang", name: "王芳", initials: "王芳" },
     createdAt: "2023-02-20",
-    tags: ["企业", "数字化"],
     frameworkName: "价值投资评估框架",
   },
   {
@@ -328,31 +325,16 @@ const CREATE_STEPS = [
 /* ------------------------------------------------------------------ */
 function CreateStrategyStep1({
   name, setName, description, setDescription,
-  tags, setTags, tagInput, setTagInput,
   selectedRefStrategies, setSelectedRefStrategies,
   selectedFramework, setSelectedFramework,
   onCancel, onNext,
 }: {
   name: string; setName: (v: string) => void
   description: string; setDescription: (v: string) => void
-  tags: string[]; setTags: (v: string[]) => void
-  tagInput: string; setTagInput: (v: string) => void
   selectedRefStrategies: string[]; setSelectedRefStrategies: (v: string[]) => void
   selectedFramework: string; setSelectedFramework: (v: string) => void
   onCancel: () => void; onNext: () => void
 }) {
-  function addTag() {
-    const t = tagInput.trim()
-    if (t && !tags.includes(t)) {
-      setTags([...tags, t])
-    }
-    setTagInput("")
-  }
-
-  function removeTag(tag: string) {
-    setTags(tags.filter((t) => t !== tag))
-  }
-
   return (
     <>
       {/* 策略名称 */}
@@ -376,47 +358,6 @@ function CreateStrategyStep1({
           placeholder="聚焦基础大模型赛道，关注模型训练、推理优化和算力效率方向"
           className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-[#111827] leading-relaxed placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-y"
         />
-      </div>
-
-      {/* 标签 */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-[#374151] mb-2">标签</label>
-        <div className="flex flex-wrap items-center gap-2">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-sm text-[#374151]"
-            >
-              {tag}
-              <button onClick={() => removeTag(tag)} className="text-[#9CA3AF] hover:text-[#374151]">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-          <button
-            onClick={() => {
-              const t = tagInput.trim()
-              if (t) { addTag() } else { setTagInput(" ") }
-            }}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed border-[#D1D5DB] px-3 py-1 text-sm text-[#6B7280] hover:border-[#2563EB] hover:text-[#2563EB] transition-colors"
-          >
-            <Plus className="h-3 w-3" />
-            添加
-          </button>
-        </div>
-        {tagInput !== "" && (
-          <div className="mt-2">
-            <Input
-              value={tagInput.trim()}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag() } }}
-              placeholder="输入标签后按回车"
-              className="w-48 h-8 text-sm bg-white border-[#E5E7EB]"
-              autoFocus
-              onBlur={() => { addTag(); setTagInput("") }}
-            />
-          </div>
-        )}
       </div>
 
       {/* 参考已有策略 - 横向滚动多选 */}
@@ -564,6 +505,7 @@ export interface CreateStrategyResult {
   strategy: Omit<Strategy, "id">
   generatedHypotheses: { direction: string; category: string; name: string }[]
   generatedTerms: { direction: string; category: string; name: string }[]
+  uploadedMaterials: { name: string; size: string; type: string }[]
 }
 
 function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void; onSave: (result: CreateStrategyResult) => void; strategies: Strategy[] }) {
@@ -572,8 +514,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
   // Step 1 state
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
-  const [tags, setTags] = useState<string[]>(["AI", "基础设施", "大模型"])
-  const [tagInput, setTagInput] = useState("")
+
   const [selectedRefStrategies, setSelectedRefStrategies] = useState<string[]>(["1"])
   const [selectedFramework, setSelectedFramework] = useState("科技成长型框架")
 
@@ -698,7 +639,6 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
         returnRate: "+0%",
         owner: { id: "zhangwei", name: "张伟", initials: "张伟" },
         createdAt: new Date().toISOString().split("T")[0],
-        tags,
         frameworkName: selectedFramework,
       },
       generatedHypotheses: generatedHypotheses.map((h) => ({
@@ -711,6 +651,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
         category: t.category,
         name: t.name,
       })),
+      uploadedMaterials: uploadedFiles,
     })
   }
 
@@ -756,8 +697,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
             <CreateStrategyStep1
               name={name} setName={setName}
               description={description} setDescription={setDescription}
-              tags={tags} setTags={setTags}
-              tagInput={tagInput} setTagInput={setTagInput}
+
               selectedRefStrategies={selectedRefStrategies} setSelectedRefStrategies={setSelectedRefStrategies}
               selectedFramework={selectedFramework} setSelectedFramework={setSelectedFramework}
               onCancel={onCancel} onNext={() => setStep(2)}
@@ -1289,6 +1229,7 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
         ],
         generatedHypotheses: result.generatedHypotheses,
         generatedTerms: result.generatedTerms,
+        uploadedMaterials: result.uploadedMaterials,
       }
       onCreatePending(pendingStrategy)
     } else {
@@ -1363,18 +1304,7 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
                   >
                     <Icon className="h-5 w-5" />
                   </div>
-                  {strategy.tags && strategy.tags.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      {strategy.tags.slice(0, 2).map((tag) => (
-                        <span key={tag} className="inline-flex rounded-md border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[10px] font-medium text-[#6B7280]">
-                          {tag}
-                        </span>
-                      ))}
-                      {strategy.tags.length > 2 && (
-                        <span className="text-[10px] text-[#9CA3AF]">+{strategy.tags.length - 2}</span>
-                      )}
-                    </div>
-                  )}
+
                 </div>
 
                 {/* Info */}
