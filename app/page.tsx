@@ -143,7 +143,7 @@ export default function Page() {
           content: "",
           reason: "",
           status: "pending" as const,
-          owner: "AI生成",
+          owner: "张伟",
           createdAt: new Date().toISOString().split("T")[0],
           updatedAt: new Date().toISOString().split("T")[0],
         }))
@@ -161,7 +161,7 @@ export default function Page() {
           content: "",
           reason: "",
           status: "pending" as const,
-          owner: "AI生成",
+          owner: "张伟",
           createdAt: new Date().toISOString().split("T")[0],
           updatedAt: new Date().toISOString().split("T")[0],
         }))

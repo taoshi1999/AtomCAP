@@ -660,7 +660,7 @@ const STEPS = [
   { num: 2, label: "描述方法论" },
   { num: 3, label: "配置维度" },
   { num: 4, label: "研判规则" },
-  { num: 5, label: "策略审核" },
+  { num: 5, label: "框架审核" },
 ]
 
 const SAMPLE_DESCRIPTION = `我们投科技项目主要看这几个方面：
@@ -683,7 +683,7 @@ const FRAMEWORK_MOCK_FILES = [
   { id: "fm4", name: "竞争格局分析框架.docx", size: "2.4 MB", type: "DOCX", description: "CR5计算方法、融资密度分析及竞争态势判断指南，附红海蓝海判定标准" },
   { id: "fm5", name: "单位经济模型验证清单.xlsx", size: "0.9 MB", type: "XLSX", description: "商业模式验证的关键指标清单：客户获取成本、留存率、LTV等核心公式" },
   { id: "fm6", name: "创始团队评估矩阵.pdf", size: "2.1 MB", type: "PDF", description: "科技赛道创始人评估框架：技术背景、商业化能力、团队完整度评分表" },
-  { id: "fm7", name: "科技投资IC流程标准.pdf", size: "4.5 MB", type: "PDF", description: "投委会上会标准流程、材料要求及决策机制，含否决条件清单" },
+  { id: "fm7", name: "科技融资IC流程标准.pdf", size: "4.5 MB", type: "PDF", description: "投委会上会标准流程、材料要求及决策机制，含否决条件清单" },
   { id: "fm8", name: "历史项目复盘报告汇编.pdf", size: "8.3 MB", type: "PDF", description: "近三年科技赛道投资项目复盘：成功案例、失败教训及经验提炼" },
 ]
 
@@ -1079,7 +1079,7 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
           <button
             onClick={handleStartAnalysis}
             disabled={isAnalyzing}
-            className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827] disabled:opacity-70 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827] disabled:opacity-70 disabled:cursor-not-allowed"
           >
             下一步：AI生成分析维度
           </button>
@@ -1088,61 +1088,85 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
 
       {/* AI Analysis Animation Overlay */}
       {isAnalyzing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
-            {/* Animated AI Icon */}
-            <div className="flex flex-col items-center mb-8">
-              <div className="relative mb-4">
-                <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-lg shadow-blue-300/40">
-                  <Sparkles className="h-8 w-8 text-white" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A0F1E]/80 backdrop-blur-md">
+          {/* Animated background */}
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
+            <div className="absolute top-1/3 left-1/3 h-64 w-64 rounded-full bg-[#7C3AED]/10 blur-3xl animate-pulse" />
+            <div className="absolute bottom-1/3 right-1/3 h-48 w-48 rounded-full bg-[#2563EB]/10 blur-3xl animate-pulse" style={{ animationDelay: "0.5s" }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 rounded-full bg-[#06B6D4]/5 blur-3xl animate-pulse" style={{ animationDelay: "1s" }} />
+          </div>
+
+          <div className="relative w-full max-w-lg">
+            {/* Central AI icon */}
+            <div className="flex flex-col items-center mb-10">
+              <div className="relative mb-6">
+                <div className="absolute -inset-8 rounded-full border border-[#7C3AED]/20 animate-spin" style={{ animationDuration: "8s" }}>
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-[#7C3AED]/60" />
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#2563EB]/60" />
                 </div>
-                <div className="absolute -inset-3 rounded-3xl border-2 border-[#2563EB]/30 animate-ping" />
-                <div className="absolute -inset-5 rounded-3xl border border-[#7C3AED]/20 animate-pulse" />
+                <div className="absolute -inset-5 rounded-full border border-[#2563EB]/20 animate-spin" style={{ animationDuration: "5s", animationDirection: "reverse" }}>
+                  <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#06B6D4]/80" />
+                </div>
+                <div className="absolute -inset-3 rounded-full bg-gradient-to-r from-[#7C3AED]/20 via-[#2563EB]/20 to-[#06B6D4]/20 animate-pulse blur-sm" />
+                <div className="relative h-20 w-20 rounded-2xl bg-gradient-to-br from-[#7C3AED] via-[#4F46E5] to-[#2563EB] flex items-center justify-center shadow-2xl shadow-[#7C3AED]/30">
+                  <Sparkles className="h-10 w-10 text-white animate-pulse" />
+                </div>
               </div>
-              <h2 className="text-lg font-semibold text-[#111827]">AI 正在分析</h2>
-              <p className="text-sm text-[#6B7280] mt-1">基于方法论生成分析维度结构</p>
+              <h2 className="text-xl font-bold text-white mb-1.5 tracking-wide">AI 正在分析</h2>
+              <p className="text-sm text-[#94A3B8]">基于方法论生成分析维度结构</p>
             </div>
 
-            {/* Analysis Steps */}
-            <div className="space-y-3">
-              {AI_ANALYSIS_STEPS.map((step, idx) => (
-                <div
-                  key={step.label}
-                  className={`flex items-center gap-3 rounded-xl border p-3 transition-all duration-300 ${idx < analysisStep ? "border-[#10B981] bg-emerald-50" :
-                    idx === analysisStep ? "border-[#2563EB] bg-blue-50" :
-                      "border-[#E5E7EB] bg-white opacity-50"
-                    }`}
-                >
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${idx < analysisStep ? "bg-[#10B981] text-white" :
-                    idx === analysisStep ? "bg-[#2563EB] text-white" :
-                      "bg-[#F3F4F6] text-[#9CA3AF]"
-                    }`}>
-                    {idx < analysisStep ? (
-                      <Check className="h-4 w-4" />
-                    ) : idx === analysisStep ? (
-                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                    ) : (
-                      <span className="text-xs font-medium">{idx + 1}</span>
-                    )}
-                  </div>
-                  <span className={`text-sm font-medium ${idx <= analysisStep ? "text-[#111827]" : "text-[#9CA3AF]"
-                    }`}>
-                    {step.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Progress bar */}
-            <div className="mt-6">
-              <div className="h-1.5 w-full rounded-full bg-[#E5E7EB] overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-[#2563EB] to-[#7C3AED] rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${((analysisStep + 1) / AI_ANALYSIS_STEPS.length) * 100}%` }}
-                />
+            {/* Analysis steps */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+              <div className="space-y-3">
+                {AI_ANALYSIS_STEPS.map((step, idx) => {
+                  const isComplete = idx < analysisStep
+                  const isCurrent = idx === analysisStep
+                  return (
+                    <div
+                      key={step.label}
+                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${isComplete
+                        ? "border-emerald-500/30 bg-emerald-500/10"
+                        : isCurrent
+                          ? "border-[#7C3AED]/50 bg-[#7C3AED]/10 shadow-lg shadow-[#7C3AED]/10"
+                          : "border-white/5 bg-white/[0.02] opacity-40"
+                        }`}
+                    >
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${isComplete
+                        ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
+                        : isCurrent
+                          ? "bg-gradient-to-br from-[#7C3AED] to-[#2563EB] shadow-md shadow-[#7C3AED]/30"
+                          : "bg-white/10"
+                        }`}>
+                        {isComplete ? (
+                          <Check className="h-4.5 w-4.5 text-white" />
+                        ) : isCurrent ? (
+                          <svg className="h-4.5 w-4.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                        ) : (
+                          <span className="text-xs font-medium text-white/40">{idx + 1}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-sm font-medium transition-colors duration-300 ${isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
+                          }`}>
+                          {step.label}
+                        </span>
+                        {isCurrent && (
+                          <div className="mt-1.5 h-1 w-full rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#2563EB] animate-pulse" style={{ width: "70%" }} />
+                          </div>
+                        )}
+                      </div>
+                      {isComplete && (
+                        <span className="text-[10px] font-medium text-emerald-400/80">完成</span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>
@@ -2113,7 +2137,7 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
               disabled={isGenerating}
               className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              下一步: 生成策略并审核
+              下一步: 生成分析框架并审核
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -2227,7 +2251,7 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 5 — Strategy Review (策略审核)                                 */
+/*  Step 5 — 框架审核                                 */
 /* ------------------------------------------------------------------ */
 function ConfirmSave({ onBack, onBackToList, onCreatePending }: { onBack: () => void; onBackToList: () => void; onCreatePending: () => void }) {
   const totalDimensions = INITIAL_DIMENSIONS.length
@@ -2301,9 +2325,9 @@ function ConfirmSave({ onBack, onBackToList, onCreatePending }: { onBack: () => 
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-4xl mx-auto">
           {/* Page title */}
-          <h1 className="text-xl font-bold text-[#111827] mb-2">策略审核</h1>
+          <h1 className="text-xl font-bold text-[#111827] mb-2">框架审核</h1>
           <p className="text-sm text-[#6B7280] mb-8">
-            审核 AI 基于分析框架生成的完整策略内容，确认无误后保存
+            审核 AI 基于分析框架生成的完整框架内容，确认无误后保存
           </p>
 
           {/* Stats row */}

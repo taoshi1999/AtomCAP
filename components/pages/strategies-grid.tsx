@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Briefcase, Search, Plus, Target, TrendingUp, Building2, Cpu, Zap, Leaf, X, Check, MoreHorizontal, ChevronRight, ArrowLeft, Upload, Folder, Eye, Pencil, Trash2 } from "lucide-react"
+import { Briefcase, Search, Plus, Target, TrendingUp, Building2, Cpu, Zap, Leaf, X, Check, MoreHorizontal, ChevronRight, ArrowLeft, Upload, Folder, Eye, Pencil, Trash2, Sparkles } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
@@ -143,7 +143,7 @@ export const initialStrategies: Strategy[] = [
     returnRate: "+32%",
     owner: { id: "zhangwei", name: "张伟", initials: "张伟" },
     createdAt: "2023-06-15",
-    frameworkName: "科技成长型框架",
+    frameworkName: "早期项目筛选框架",
   },
   {
     id: "2",
@@ -156,7 +156,7 @@ export const initialStrategies: Strategy[] = [
     returnRate: "+18%",
     owner: { id: "lisi", name: "李四", initials: "李四" },
     createdAt: "2023-07-20",
-    frameworkName: "科技成长型框架",
+    frameworkName: "早期项目筛选框架",
     parentStrategyId: "1",
     parentStrategyName: "AI基础设施",
   },
@@ -234,7 +234,7 @@ export const initialStrategies: Strategy[] = [
     name: "国际贸易",
     icon: TrendingUp,
     iconBg: "bg-amber-100 text-amber-600",
-    description: "聚焦跨境贸易、全球供应链和国际化业务拓展",
+    description: "聚焦跨境贸���、全球供应链和国际化业务拓展",
     projectCount: 9,
     totalInvest: "6.3亿",
     returnRate: "+22%",
@@ -247,7 +247,7 @@ export const initialStrategies: Strategy[] = [
     name: "出海电商",
     icon: Target,
     iconBg: "bg-amber-100 text-amber-600",
-    description: "跨境电商平台、品牌出海和供应链服务生态",
+    description: "跨境电商平台���品牌出海和供应链服务生态",
     projectCount: 9,
     totalInvest: "6.3亿",
     returnRate: "+22%",
@@ -303,8 +303,8 @@ const AVAILABLE_FRAMEWORKS = [
 ]
 
 const EXISTING_STRATEGIES_REF = [
-  { id: "1", name: "AI基础设施", framework: "科技成长型框架", hypothesisCount: 12, termCount: 8 },
-  { id: "2", name: "大模型应用", framework: "科技成长型框架", hypothesisCount: 8, termCount: 6 },
+  { id: "1", name: "AI基础设施", framework: "早期项目筛选框架", hypothesisCount: 12, termCount: 8 },
+  { id: "2", name: "大模型应用", framework: "早期项目筛选框架", hypothesisCount: 8, termCount: 6 },
   { id: "7", name: "企业数字化", framework: "价值投资评估框架", hypothesisCount: 15, termCount: 10 },
   { id: "3", name: "企业服务SaaS", framework: "早期项目筛选框架", hypothesisCount: 15, termCount: 12 },
   { id: "4", name: "生物科技", framework: "早期项目筛选框架", hypothesisCount: 6, termCount: 5 },
@@ -594,25 +594,29 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
   const [analysisComplete, setAnalysisComplete] = useState(false)
   const [reviewTab, setReviewTab] = useState<"materials" | "hypotheses" | "terms">("hypotheses")
   const [reviewSearchQuery, setReviewSearchQuery] = useState("")
+  
+  // Detail view state
+  const [viewingHypothesisDetail, setViewingHypothesisDetail] = useState<string | null>(null)
+  const [viewingTermDetail, setViewingTermDetail] = useState<string | null>(null)
 
   // Generated hypotheses and terms (mirrors AI基础设施 preset)
   const [generatedHypotheses] = useState([
-    { id: "gen-h1", direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h2", direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市场将在3年内达到500亿美元规模", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h3", direction: "技术攻关", category: "模型训练框架", name: "开源大模型训练框架将成为主流技术路线", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h4", direction: "技术攻关", category: "模型训练框架", name: "分布式训练效率提升是大模型竞争关键", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h5", direction: "技术攻关", category: "基础软件生态", name: "AI编译器将成为新的基础软件投资赛道", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h6", direction: "技术攻关", category: "基础软件生态", name: "MLOps平台市场需求将快速增长", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h7", direction: "团队能力", category: "创始人", name: "创始人具备丰富的AI产品商业化经验", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h1", direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h2", direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市场将在3年内达到500亿美元规模", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h3", direction: "技术攻关", category: "模型训练框架", name: "开源大模型训练框架将成为主流技术路线", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h4", direction: "技术攻关", category: "模型训练框架", name: "分布式训练效率提升是大模型竞争关键", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h5", direction: "技术攻关", category: "基础软件生态", name: "AI编译器将成为新的基础软件投资赛道", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h6", direction: "技术攻关", category: "基础软件生态", name: "MLOps平台市场需求将快速增长", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h7", direction: "团队能力", category: "创始人", name: "创始人具备丰富的AI产品商业化经验", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
   ])
 
   const [generatedTerms] = useState([
-    { id: "gen-t1", direction: "投资保护条款", category: "信息权", name: "投资方有权获取被投企业月度财务报告", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t2", direction: "投资保护条款", category: "信息权", name: "投资方有权对重大技术决策进行知情和建议", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t3", direction: "投资保护条款", category: "反稀释条款", name: "采用完全棘轮反稀释条款保护投资方权益", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t4", direction: "控制权条款", category: "董事会席位", name: "投资方有权委派一名董事参与公司董事会", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t5", direction: "控制权条款", category: "重大事项否决权", name: "对核心技术IP转让和授权享有一票否决权", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t6", direction: "退出条款", category: "回购条款", name: "若公司未能在5年内实现IPO，投资方有权要求回购", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-t1", direction: "控制权条款", category: "董事会席位", name: "投资方有权委派一名董事参与公司董事会", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-t2", direction: "投资保护条款", category: "信息权", name: "投资方有权获取被投企业月度财务报告", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-t3", direction: "投资保护条款", category: "信息权", name: "投资方有权对重大技术决策进行知情和建议", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-t4", direction: "投资保护条款", category: "反稀释条款", name: "采用完全棘轮反稀释条款保护投资方权益", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-t5", direction: "控制权条款", category: "重大事项否决权", name: "对核心技术IP转让和授权享有一票否决权", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-t6", direction: "退出条款", category: "回购条款", name: "若公司未能在5年内实现IPO，投资方有权要求回购", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
   ])
 
   const ANALYSIS_STEPS = [
@@ -825,7 +829,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                 </button>
                 <button
                   onClick={handleGoToStep3}
-                  className="rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+                  className="rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
                 >
                   下一步: 生成策略并审核
                 </button>
@@ -957,56 +961,105 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
 
           {step === 3 && (
             <div className="min-h-[500px]">
-              {/* AI Analysis Animation */}
+              {/* AI Analysis Animation - Full screen overlay with dark theme */}
               {isAnalyzing && (
-                <div className="flex flex-col items-center justify-center py-16">
-                  <div className="relative mb-8">
-                    <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#7C3AED] flex items-center justify-center shadow-lg shadow-blue-200/50">
-                      <svg className="h-10 w-10 text-white animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                      </svg>
-                    </div>
-                    <div className="absolute -inset-4 rounded-3xl border-2 border-[#2563EB]/30 animate-ping" />
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A0F1E]/80 backdrop-blur-md">
+                  {/* Animated background */}
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
+                    <div className="absolute top-1/3 left-1/3 h-64 w-64 rounded-full bg-[#7C3AED]/10 blur-3xl animate-pulse" />
+                    <div className="absolute bottom-1/3 right-1/3 h-48 w-48 rounded-full bg-[#2563EB]/10 blur-3xl animate-pulse" style={{ animationDelay: "0.5s" }} />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 rounded-full bg-[#06B6D4]/5 blur-3xl animate-pulse" style={{ animationDelay: "1s" }} />
                   </div>
-                  <h2 className="text-lg font-semibold text-[#111827] mb-2">AI 正在生成策略</h2>
-                  <p className="text-sm text-[#6B7280] mb-8">基于分析框架和数据来源自动生成假设与条款</p>
 
-                  <div className="w-full max-w-md space-y-3">
-                    {ANALYSIS_STEPS.map((s, idx) => (
-                      <div
-                        key={s.label}
-                        className={cn(
-                          "flex items-center gap-3 rounded-xl border p-3 transition-all duration-300",
-                          idx < analysisStep ? "border-[#10B981] bg-emerald-50" :
-                            idx === analysisStep ? "border-[#2563EB] bg-blue-50 animate-pulse" :
-                              "border-[#E5E7EB] bg-white opacity-50"
-                        )}
-                      >
-                        <div className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                          idx < analysisStep ? "bg-[#10B981] text-white" :
-                            idx === analysisStep ? "bg-[#2563EB] text-white" :
-                              "bg-[#F3F4F6] text-[#9CA3AF]"
-                        )}>
-                          {idx < analysisStep ? (
-                            <Check className="h-4 w-4" />
-                          ) : idx === analysisStep ? (
-                            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                          ) : (
-                            <span className="text-xs font-medium">{idx + 1}</span>
-                          )}
+                  <div className="relative w-full max-w-lg">
+                    {/* Central AI icon */}
+                    <div className="flex flex-col items-center mb-10">
+                      <div className="relative mb-6">
+                        <div className="absolute -inset-8 rounded-full border border-[#7C3AED]/20 animate-spin" style={{ animationDuration: "8s" }}>
+                          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-[#7C3AED]/60" />
+                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#2563EB]/60" />
                         </div>
-                        <span className={cn(
-                          "text-sm font-medium",
-                          idx <= analysisStep ? "text-[#111827]" : "text-[#9CA3AF]"
-                        )}>
-                          {s.label}
-                        </span>
+                        <div className="absolute -inset-5 rounded-full border border-[#2563EB]/20 animate-spin" style={{ animationDuration: "5s", animationDirection: "reverse" }}>
+                          <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#06B6D4]/80" />
+                        </div>
+                        <div className="absolute -inset-3 rounded-full bg-gradient-to-r from-[#7C3AED]/20 via-[#2563EB]/20 to-[#06B6D4]/20 animate-pulse blur-sm" />
+                        <div className="relative h-20 w-20 rounded-2xl bg-gradient-to-br from-[#7C3AED] via-[#4F46E5] to-[#2563EB] flex items-center justify-center shadow-2xl shadow-[#7C3AED]/30">
+                          <Sparkles className="h-10 w-10 text-white animate-pulse" />
+                        </div>
                       </div>
-                    ))}
+                      <h2 className="text-xl font-bold text-white mb-1.5 tracking-wide">AI 正在生成策略</h2>
+                      <p className="text-sm text-[#94A3B8]">基于分析框架和数据来源自动生成假设与条款</p>
+                    </div>
+
+                    {/* Analysis steps */}
+                    <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+                      <div className="space-y-3">
+                        {ANALYSIS_STEPS.map((s, idx) => {
+                          const isComplete = idx < analysisStep
+                          const isCurrent = idx === analysisStep
+                          return (
+                            <div
+                              key={s.label}
+                              className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${isComplete
+                                ? "border-emerald-500/30 bg-emerald-500/10"
+                                : isCurrent
+                                  ? "border-[#7C3AED]/50 bg-[#7C3AED]/10 shadow-lg shadow-[#7C3AED]/10"
+                                  : "border-white/5 bg-white/[0.02] opacity-40"
+                                }`}
+                            >
+                              <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${isComplete
+                                ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
+                                : isCurrent
+                                  ? "bg-gradient-to-br from-[#7C3AED] to-[#2563EB] shadow-md shadow-[#7C3AED]/30"
+                                  : "bg-white/10"
+                                }`}>
+                                {isComplete ? (
+                                  <Check className="h-4.5 w-4.5 text-white" />
+                                ) : isCurrent ? (
+                                  <svg className="h-4.5 w-4.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                  </svg>
+                                ) : (
+                                  <span className="text-xs font-medium text-white/40">{idx + 1}</span>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <span className={`text-sm font-medium transition-colors duration-300 ${isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
+                                  }`}>
+                                  {s.label}
+                                </span>
+                                {isCurrent && (
+                                  <div className="mt-1.5 h-1 w-full rounded-full bg-white/10 overflow-hidden">
+                                    <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#2563EB] animate-pulse" style={{ width: "70%" }} />
+                                  </div>
+                                )}
+                              </div>
+                              {isComplete && (
+                                <span className="text-[10px] font-medium text-emerald-400/80">完成</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Overall progress */}
+                      <div className="mt-5 pt-4 border-t border-white/10">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-[#94A3B8]">总体进度</span>
+                          <span className="text-xs font-mono text-[#7C3AED]">
+                            {Math.round(((analysisStep + 1) / ANALYSIS_STEPS.length) * 100)}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] via-[#2563EB] to-[#06B6D4] transition-all duration-700 ease-out"
+                            style={{ width: `${((analysisStep + 1) / ANALYSIS_STEPS.length) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1087,7 +1140,11 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                               <p className="text-sm font-medium text-[#111827] truncate">{h.name}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" title="查看详情">
+                              <button 
+                                onClick={() => setViewingHypothesisDetail(h.id)}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" 
+                                title="查看详情"
+                              >
                                 <Eye className="h-4 w-4" />
                               </button>
                               <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
@@ -1126,7 +1183,11 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                               <p className="text-sm font-medium text-[#111827] truncate">{t.name}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" title="查看详情">
+                              <button 
+                                onClick={() => setViewingTermDetail(t.id)}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" 
+                                title="查看详情"
+                              >
                                 <Eye className="h-4 w-4" />
                               </button>
                               <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
@@ -1228,6 +1289,237 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
           )}
         </div>
       </div>
+
+      {/* Hypothesis Detail Modal */}
+      {viewingHypothesisDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-3xl max-h-[85vh] rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4 bg-gradient-to-r from-blue-50 to-violet-50">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+                  <Target className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-[#111827]">假设详情</h2>
+                  <p className="text-xs text-[#6B7280]">查看假设的完整信息</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingHypothesisDetail(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-white/80 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-140px)] p-6">
+              {(() => {
+                const h = generatedHypotheses.find(h => h.id === viewingHypothesisDetail)
+                if (!h) return null
+                
+                // Get detailed content for the specific hypothesis
+                const isAIChipHypothesis = h.name === "国产AI芯片在推理场景下可替代英伟达方案"
+                
+                return (
+                  <div className="space-y-6">
+                    {/* Basic Info */}
+                    <div>
+                      <h3 className="text-xl font-semibold text-[#111827] mb-3">{h.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-md bg-blue-50 border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-700">{h.direction}</span>
+                        <span className="rounded-md bg-violet-50 border border-violet-200 px-2.5 py-1 text-xs font-medium text-violet-700">{h.category}</span>
+                        <span className="text-xs text-[#9CA3AF]">创建于 {h.createdAt}</span>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+                      <h4 className="text-sm font-medium text-[#374151] mb-2">假设描述</h4>
+                      <p className="text-sm text-[#6B7280] leading-relaxed">
+                        {isAIChipHypothesis 
+                          ? "基于国内AI芯片产业发展现状，我们认为在推理场景（而非训练场景）下，国产AI芯片有望在特定应用领域实现对英伟达方案的替代。这一判断基于推理任务对算力精度要求相对较低、国内厂商在推理芯片领域的持续突破，以及政策对国产替代的支持力度。"
+                          : "该假设描述了在当前技术和市场环境下的核心判断，需要通过多维度验证来确认其有效性。"
+                        }
+                      </p>
+                    </div>
+
+                    {/* Verification Criteria */}
+                    <div>
+                      <h4 className="text-sm font-medium text-[#374151] mb-3">验证标准</h4>
+                      <div className="space-y-2">
+                        {(isAIChipHypothesis ? [
+                          { label: "技术性能对比", desc: "推理延迟、吞吐量达到英伟达同级产品80%以上" },
+                          { label: "成本优势", desc: "单位算力成本较英伟达方案降低30%以上" },
+                          { label: "生态成熟度", desc: "支持主流AI框架（PyTorch、TensorFlow）的原生适配" },
+                          { label: "商业化案例", desc: "至少3家规模以上客户实现生产环境部署" },
+                        ] : [
+                          { label: "定量指标", desc: "达成预设的关键性能指标阈值" },
+                          { label: "定性指标", desc: "获得行业专家或客户的正向反馈验证" },
+                          { label: "时间窗口", desc: "在设定的时间范围内完成验证" },
+                        ]).map((criterion, idx) => (
+                          <div key={idx} className="flex items-start gap-3 rounded-lg border border-[#E5E7EB] bg-white p-3">
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-600">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-[#111827]">{criterion.label}</p>
+                              <p className="text-xs text-[#6B7280] mt-0.5">{criterion.desc}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Related Materials */}
+                    <div>
+                      <h4 className="text-sm font-medium text-[#374151] mb-3">相关材料</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {(isAIChipHypothesis ? [
+                          { name: "GPU_AI芯片行业全景报告_2024.pdf", type: "PDF" },
+                          { name: "AI芯片技术路线图_GPU_TPU_NPU.pptx", type: "PPTX" },
+                        ] : [
+                          { name: "行业分析报告.pdf", type: "PDF" },
+                        ]).map((doc, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#374151]">
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${doc.type === "PDF" ? "bg-red-50 text-red-600" : "bg-orange-50 text-orange-600"}`}>
+                              {doc.type}
+                            </span>
+                            {doc.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4 bg-[#F9FAFB]">
+              <button
+                onClick={() => setViewingHypothesisDetail(null)}
+                className="rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Term Detail Modal */}
+      {viewingTermDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-3xl max-h-[85vh] rounded-2xl bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4 bg-gradient-to-r from-emerald-50 to-amber-50">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                  <Briefcase className="h-5 w-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-[#111827]">条款详情</h2>
+                  <p className="text-xs text-[#6B7280]">查看条款的完整信息</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingTermDetail(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-white/80 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-140px)] p-6">
+              {(() => {
+                const t = generatedTerms.find(t => t.id === viewingTermDetail)
+                if (!t) return null
+                
+                // Get detailed content for the specific term
+                const isBoardSeatTerm = t.name === "投资方有权委派一名董事参与公司董事会"
+                
+                return (
+                  <div className="space-y-6">
+                    {/* Basic Info */}
+                    <div>
+                      <h3 className="text-xl font-semibold text-[#111827] mb-3">{t.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700">{t.direction}</span>
+                        <span className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-medium text-amber-700">{t.category}</span>
+                        <span className="text-xs text-[#9CA3AF]">创建于 {t.createdAt}</span>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+                      <h4 className="text-sm font-medium text-[#374151] mb-2">条款描述</h4>
+                      <p className="text-sm text-[#6B7280] leading-relaxed">
+                        {isBoardSeatTerm 
+                          ? "投资方有权向公司董事会委派一名董事，参与公司重大经营决策。该董事享有与其他董事同等的投票权和知情权，公司应确保该董事能够及时获取董事会相关会议通知、议程及材料。"
+                          : "该条款明确了投资方与被投企业之间的权利义务关系，是保障投资方权益的重要法律文件组成部分。"
+                        }
+                      </p>
+                    </div>
+
+                    {/* Key Points */}
+                    <div>
+                      <h4 className="text-sm font-medium text-[#374151] mb-3">关键要点</h4>
+                      <div className="space-y-2">
+                        {(isBoardSeatTerm ? [
+                          { label: "委派权利", desc: "投资方有权指定一名符合条件的人员担任公司董事" },
+                          { label: "任期规定", desc: "董事任期与公司章程规定一致，投资方可随时更换委派人选" },
+                          { label: "权利保障", desc: "委派董事享有出席会议、审阅材料、参与表决等完整董事权利" },
+                          { label: "触发条件", desc: "投资方持股比例达到约定阈值时自动获得该权利" },
+                        ] : [
+                          { label: "适用范围", desc: "明确条款的适用场景和边界条件" },
+                          { label: "执行标准", desc: "条款执行的具体要求和流程" },
+                          { label: "例外情况", desc: "特殊情况下的处理方式" },
+                        ]).map((point, idx) => (
+                          <div key={idx} className="flex items-start gap-3 rounded-lg border border-[#E5E7EB] bg-white p-3">
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-medium text-emerald-600">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-[#111827]">{point.label}</p>
+                              <p className="text-xs text-[#6B7280] mt-0.5">{point.desc}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Standard Clause Text */}
+                    <div>
+                      <h4 className="text-sm font-medium text-[#374151] mb-3">标准条款文本</h4>
+                      <div className="rounded-xl border border-[#E5E7EB] bg-[#FFFBEB] p-4">
+                        <p className="text-sm text-[#92400E] leading-relaxed font-mono">
+                          {isBoardSeatTerm 
+                            ? "甲方（投资方）有权向公司董事会委派一（1）名董事。公司应在甲方书面通知后十五（15）个工作日内完成相关工商变更登记。甲方委派的董事享有与公司其他董事同等的权利和义务，包括但不限于出席董事会会议、参与表决、查阅公司资料等。"
+                            : "【标准条款文本将根据具体条款类型自动生成】"
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4 bg-[#F9FAFB]">
+              <button
+                onClick={() => setViewingTermDetail(null)}
+                className="rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
