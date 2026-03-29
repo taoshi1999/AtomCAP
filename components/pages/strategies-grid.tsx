@@ -234,7 +234,7 @@ export const initialStrategies: Strategy[] = [
     name: "国际贸易",
     icon: TrendingUp,
     iconBg: "bg-amber-100 text-amber-600",
-    description: "聚焦跨境贸易、全���供应链和国际化业务拓展",
+    description: "聚焦跨境贸易、全球供应链和国际化业务拓展",
     projectCount: 9,
     totalInvest: "6.3亿",
     returnRate: "+22%",
@@ -731,7 +731,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
 
           {step === 2 && (
             <div>
-              <h1 className="text-xl font-bold text-[#111827] mb-2">配��数据来源</h1>
+              <h1 className="text-xl font-bold text-[#111827] mb-2">配置数据来源</h1>
               <p className="text-sm text-[#6B7280] mb-6">
                 上传相关材料，AI 将基于这些数据生成投资策略
               </p>
