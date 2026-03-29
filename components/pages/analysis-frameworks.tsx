@@ -54,6 +54,16 @@ export interface AnalysisFramework {
   usedByStrategies: number
 }
 
+export interface PendingFramework {
+  id: string
+  framework: AnalysisFramework
+  changeId: string
+  changeName: string
+  initiator: { id: string; name: string; initials: string }
+  initiatedAt: string
+  reviewers: { id: string; name: string; initials: string }[]
+}
+
 interface DimensionDetail {
   name: string
   priority: "high" | "medium" | "low"
@@ -84,18 +94,6 @@ interface GeneratedStrategy {
 /*  Mock data — Framework list                                         */
 /* ------------------------------------------------------------------ */
 const FRAMEWORKS: AnalysisFramework[] = [
-  {
-    id: "af-1",
-    name: "科技成长型框架",
-    description: "适用于高成长性科技赛道的投资分析",
-    dimensions: ["产业阶段判断", "技术成熟度", "竞争格局", "商业模式", "团队评估"],
-    owner: { name: "张伟", initials: "张" },
-    updatedAt: "2026-03-20",
-    icon: Cpu,
-    iconBg: "bg-blue-100 text-blue-600",
-    dimensionCount: 5,
-    usedByStrategies: 3,
-  },
   {
     id: "af-2",
     name: "价值投资评估框架",
@@ -662,7 +660,7 @@ const STEPS = [
   { num: 2, label: "描述方法论" },
   { num: 3, label: "配置维度" },
   { num: 4, label: "研判规则" },
-  { num: 5, label: "确认保存" },
+  { num: 5, label: "策略审核" },
 ]
 
 const SAMPLE_DESCRIPTION = `我们投科技项目主要看这几个方面：
@@ -1333,6 +1331,49 @@ const INITIAL_DIMENSIONS: ConfigDimension[] = [
 function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => void; onBackToList: () => void; onNext: () => void }) {
   const [dimensions, setDimensions] = useState<ConfigDimension[]>(INITIAL_DIMENSIONS)
   const [activeDimId, setActiveDimId] = useState("d1")
+  const [editingDimId, setEditingDimId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState("")
+
+  // AI analysis animation state
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisPhase, setAnalysisPhase] = useState(0)
+  const [analysisDots, setAnalysisDots] = useState("")
+
+  const AI_THINK_STEPS = [
+    { label: "扫描维度配置与指标体系", icon: "scan" },
+    { label: "构建维度间关联图谱", icon: "graph" },
+    { label: "分析冲突与依赖关系", icon: "conflict" },
+    { label: "推导否决条件边界", icon: "veto" },
+    { label: "生成综合研判规则", icon: "rules" },
+  ]
+
+  function handleStartAnalysis() {
+    setIsAnalyzing(true)
+    setAnalysisPhase(0)
+
+    // Animate dots
+    let dotCount = 0
+    const dotInterval = setInterval(() => {
+      dotCount = (dotCount + 1) % 4
+      setAnalysisDots(".".repeat(dotCount))
+    }, 400)
+
+    // Animate through phases
+    let currentPhase = 0
+    const phaseInterval = setInterval(() => {
+      currentPhase++
+      if (currentPhase < AI_THINK_STEPS.length) {
+        setAnalysisPhase(currentPhase)
+      } else {
+        clearInterval(phaseInterval)
+        clearInterval(dotInterval)
+        setTimeout(() => {
+          setIsAnalyzing(false)
+          onNext()
+        }, 600)
+      }
+    }, 900)
+  }
 
   const activeDim = dimensions.find((d) => d.id === activeDimId) || dimensions[0]
 
@@ -1342,10 +1383,23 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
     )
   }
 
-  function toggleOutput(index: number) {
-    const newOutputs = [...activeDim.outputs]
-    newOutputs[index] = { ...newOutputs[index], checked: !newOutputs[index].checked }
-    updateActiveDim({ outputs: newOutputs })
+  function updateDimension(dimId: string, patch: Partial<ConfigDimension>) {
+    setDimensions((prev) =>
+      prev.map((d) => (d.id === dimId ? { ...d, ...patch } : d))
+    )
+  }
+
+  function startEditingName(dimId: string, currentName: string) {
+    setEditingDimId(dimId)
+    setEditingName(currentName)
+  }
+
+  function confirmEditingName() {
+    if (editingDimId && editingName.trim()) {
+      updateDimension(editingDimId, { name: editingName.trim() })
+    }
+    setEditingDimId(null)
+    setEditingName("")
   }
 
   return (
@@ -1411,23 +1465,57 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
         <div className="w-56 shrink-0 overflow-auto border-r border-[#E5E7EB] bg-white px-4 py-4">
           <p className="mb-3 text-xs font-medium text-[#6B7280] tracking-wide">维度列表</p>
           <div className="space-y-1.5">
-            {dimensions.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => setActiveDimId(d.id)}
-                className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${d.id === activeDimId
-                  ? "bg-[#2563EB] text-white"
-                  : "bg-[#F9FAFB] text-[#374151] hover:bg-[#F3F4F6]"
-                  }`}
-              >
-                <p className={`text-sm font-medium ${d.id === activeDimId ? "text-white" : "text-[#111827]"}`}>
-                  {d.name}
-                </p>
-                <p className={`mt-0.5 text-xs ${d.id === activeDimId ? "text-blue-100" : "text-[#9CA3AF]"}`}>
-                  {d.indicators.length} 指标 · {d.status === "configured" ? "已配置" : "待审核"}
-                </p>
-              </button>
-            ))}
+            {dimensions.map((d) => {
+              const isEditing = editingDimId === d.id
+              const isActive = d.id === activeDimId
+              return (
+                <div
+                  key={d.id}
+                  onClick={() => { if (!isEditing) setActiveDimId(d.id) }}
+                  className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer group ${isActive
+                    ? "bg-[#2563EB] text-white"
+                    : "bg-[#F9FAFB] text-[#374151] hover:bg-[#F3F4F6]"
+                    }`}
+                >
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onBlur={confirmEditingName}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); confirmEditingName() }
+                        if (e.key === "Escape") { setEditingDimId(null); setEditingName("") }
+                      }}
+                      autoFocus
+                      className="w-full bg-white text-sm font-medium text-[#111827] rounded-md border border-[#2563EB] px-2 py-1 outline-none focus:ring-1 focus:ring-[#2563EB]"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <p className={`text-sm font-medium ${isActive ? "text-white" : "text-[#111827]"}`}>
+                        {d.name}
+                      </p>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEditingName(d.id, d.name) }}
+                        className={`opacity-0 group-hover:opacity-100 shrink-0 ml-1 rounded p-0.5 transition-all ${isActive
+                          ? "text-blue-200 hover:text-white hover:bg-blue-500"
+                          : "text-[#9CA3AF] hover:text-[#2563EB] hover:bg-[#EFF6FF]"
+                          }`}
+                        title="编辑名称"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  {!isEditing && (
+                    <p className={`mt-0.5 text-xs ${isActive ? "text-blue-100" : "text-[#9CA3AF]"}`}>
+                      {d.indicators.length} 指标 · {d.status === "configured" ? "已配置" : "待审核"}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
           </div>
           <button className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#D1D5DB] py-2.5 text-xs font-medium text-[#6B7280] transition-colors hover:border-[#2563EB] hover:text-[#2563EB]">
             <Plus className="h-3.5 w-3.5" />
@@ -1440,7 +1528,29 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
           {/* Header */}
           <div className="mb-6 flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-bold text-[#111827]">{activeDim.name}</h2>
+              {editingDimId === activeDimId ? (
+                <input
+                  type="text"
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onBlur={confirmEditingName}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); confirmEditingName() }
+                    if (e.key === "Escape") { setEditingDimId(null); setEditingName("") }
+                  }}
+                  autoFocus
+                  className="text-xl font-bold text-[#111827] bg-white rounded-lg border border-[#2563EB] px-3 py-1 outline-none focus:ring-1 focus:ring-[#2563EB]"
+                />
+              ) : (
+                <h2
+                  className="text-xl font-bold text-[#111827] cursor-pointer hover:text-[#2563EB] transition-colors group flex items-center gap-2"
+                  onClick={() => startEditingName(activeDimId, activeDim.name)}
+                  title="点击编辑名称"
+                >
+                  {activeDim.name}
+                  <Pencil className="h-3.5 w-3.5 text-[#D1D5DB] group-hover:text-[#2563EB] transition-colors" />
+                </h2>
+              )}
               {activeDim.aiGenerated && (
                 <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-[#2563EB]">
                   AI 生成
@@ -1534,46 +1644,8 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
             />
           </div>
 
-          {/* 输出规范 */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-[#374151] mb-3">
-              输出规范（AI 生成策略时必须输出的内容）
-            </label>
-            <div className="space-y-2">
-              {activeDim.outputs.map((o, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => toggleOutput(idx)}
-                  className="flex items-center gap-2.5 text-sm text-[#374151] hover:text-[#111827] transition-colors"
-                >
-                  {o.checked ? (
-                    <CheckSquare className="h-4.5 w-4.5 text-[#2563EB] shrink-0" />
-                  ) : (
-                    <Square className="h-4.5 w-4.5 text-[#D1D5DB] shrink-0" />
-                  )}
-                  {o.label}
-                </button>
-              ))}
-            </div>
-            <button className="mt-2 text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition-colors">
-              + 添加输出项
-            </button>
-          </div>
-
-          {/* 与其他维度的关系 */}
-          <div className="mb-8">
-            <label className="block text-sm font-medium text-[#374151] mb-2">与其他维度的关系</label>
-            <div className="flex flex-wrap gap-2">
-              {activeDim.relations.map((r, idx) => (
-                <span
-                  key={idx}
-                  className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs text-[#374151]"
-                >
-                  {r}
-                </span>
-              ))}
-            </div>
-          </div>
+          {/* spacer */}
+          <div className="mb-8" />
         </div>
       </div>
 
@@ -1591,8 +1663,9 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
               保存草稿
             </button>
             <button
-              onClick={onNext}
-              className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+              onClick={handleStartAnalysis}
+              disabled={isAnalyzing}
+              className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-70 disabled:cursor-not-allowed"
             >
               下一步: 设定研判规则
               <ArrowRight className="h-4 w-4" />
@@ -1600,6 +1673,125 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
           </div>
         </div>
       </div>
+
+      {/* AI Deep Thinking Animation Overlay */}
+      {isAnalyzing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A0F1E]/80 backdrop-blur-md">
+          {/* Animated background particles */}
+          <div className="absolute inset-0 overflow-hidden">
+            {/* Floating grid lines */}
+            <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
+            {/* Animated orbs */}
+            <div className="absolute top-1/4 left-1/4 h-64 w-64 rounded-full bg-[#2563EB]/10 blur-3xl animate-pulse" />
+            <div className="absolute bottom-1/4 right-1/4 h-48 w-48 rounded-full bg-[#7C3AED]/10 blur-3xl animate-pulse" style={{ animationDelay: "0.5s" }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 rounded-full bg-[#06B6D4]/5 blur-3xl animate-pulse" style={{ animationDelay: "1s" }} />
+          </div>
+
+          <div className="relative w-full max-w-lg">
+            {/* Central AI brain visualization */}
+            <div className="flex flex-col items-center mb-10">
+              {/* Animated neural icon */}
+              <div className="relative mb-6">
+                {/* Outer ring - slow rotate */}
+                <div className="absolute -inset-8 rounded-full border border-[#2563EB]/20 animate-spin" style={{ animationDuration: "8s" }}>
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-[#2563EB]/60" />
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#7C3AED]/60" />
+                </div>
+                {/* Middle ring - medium rotate */}
+                <div className="absolute -inset-5 rounded-full border border-[#7C3AED]/20 animate-spin" style={{ animationDuration: "5s", animationDirection: "reverse" }}>
+                  <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#06B6D4]/80" />
+                </div>
+                {/* Inner glow ring */}
+                <div className="absolute -inset-3 rounded-full bg-gradient-to-r from-[#2563EB]/20 via-[#7C3AED]/20 to-[#06B6D4]/20 animate-pulse blur-sm" />
+                {/* Core icon */}
+                <div className="relative h-20 w-20 rounded-2xl bg-gradient-to-br from-[#2563EB] via-[#4F46E5] to-[#7C3AED] flex items-center justify-center shadow-2xl shadow-[#2563EB]/30">
+                  <svg className="h-10 w-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+                    <circle cx="12" cy="12" r="8" strokeDasharray="4 4" className="animate-spin" style={{ animationDuration: "3s" }} />
+                  </svg>
+                </div>
+              </div>
+
+              <h2 className="text-xl font-bold text-white mb-1.5 tracking-wide">AI 深度分析中{analysisDots}</h2>
+              <p className="text-sm text-[#94A3B8]">正在基于维度配置推导研判规则体系</p>
+            </div>
+
+            {/* Analysis steps with futuristic styling */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+              <div className="space-y-3">
+                {AI_THINK_STEPS.map((step, idx) => {
+                  const isComplete = idx < analysisPhase
+                  const isCurrent = idx === analysisPhase
+                  const isPending = idx > analysisPhase
+                  return (
+                    <div
+                      key={step.label}
+                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${
+                        isComplete
+                          ? "border-emerald-500/30 bg-emerald-500/10"
+                          : isCurrent
+                            ? "border-[#2563EB]/50 bg-[#2563EB]/10 shadow-lg shadow-[#2563EB]/10"
+                            : "border-white/5 bg-white/[0.02] opacity-40"
+                      }`}
+                    >
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${
+                        isComplete
+                          ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
+                          : isCurrent
+                            ? "bg-gradient-to-br from-[#2563EB] to-[#7C3AED] shadow-md shadow-[#2563EB]/30"
+                            : "bg-white/10"
+                      }`}>
+                        {isComplete ? (
+                          <Check className="h-4.5 w-4.5 text-white" />
+                        ) : isCurrent ? (
+                          <svg className="h-4.5 w-4.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                        ) : (
+                          <span className="text-xs font-medium text-white/40">{idx + 1}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-sm font-medium transition-colors duration-300 ${
+                          isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
+                        }`}>
+                          {step.label}
+                        </span>
+                        {isCurrent && (
+                          <div className="mt-1.5 h-1 w-full rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#7C3AED] animate-pulse" style={{ width: "70%" }} />
+                          </div>
+                        )}
+                      </div>
+                      {isComplete && (
+                        <span className="text-[10px] font-medium text-emerald-400/80">完成</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Overall progress */}
+              <div className="mt-5 pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-[#94A3B8]">总体进度</span>
+                  <span className="text-xs font-mono text-[#2563EB]">
+                    {Math.round(((analysisPhase + 1) / AI_THINK_STEPS.length) * 100)}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#2563EB] via-[#7C3AED] to-[#06B6D4] transition-all duration-700 ease-out"
+                    style={{ width: `${((analysisPhase + 1) / AI_THINK_STEPS.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1701,6 +1893,45 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
   const [conflictRules, setConflictRules] = useState(CONFLICT_RULES)
   const [vetoConditions, setVetoConditions] = useState(VETO_CONDITIONS)
   const [strategyGuide, setStrategyGuide] = useState(STRATEGY_GUIDE_TEXT)
+
+  // AI generation animation state
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [genPhase, setGenPhase] = useState(0)
+  const [genDots, setGenDots] = useState("")
+
+  const AI_GEN_STEPS = [
+    { label: "整合分析维度与研判规则" },
+    { label: "提取核心投资假设" },
+    { label: "推导保护性条款" },
+    { label: "生成材料需求清单" },
+    { label: "构建完整策略框架" },
+  ]
+
+  function handleStartGeneration() {
+    setIsGenerating(true)
+    setGenPhase(0)
+
+    let dotCount = 0
+    const dotInterval = setInterval(() => {
+      dotCount = (dotCount + 1) % 4
+      setGenDots(".".repeat(dotCount))
+    }, 400)
+
+    let currentPhase = 0
+    const phaseInterval = setInterval(() => {
+      currentPhase++
+      if (currentPhase < AI_GEN_STEPS.length) {
+        setGenPhase(currentPhase)
+      } else {
+        clearInterval(phaseInterval)
+        clearInterval(dotInterval)
+        setTimeout(() => {
+          setIsGenerating(false)
+          onNext()
+        }, 600)
+      }
+    }, 900)
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#F3F4F6]">
@@ -1881,30 +2112,147 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
               保存草稿
             </button>
             <button
-              onClick={onNext}
-              className="flex items-center gap-2 rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+              onClick={handleStartGeneration}
+              disabled={isGenerating}
+              className="flex items-center gap-2 rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              下一步: 确认并保存
+              下一步: 生成策略并审核
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>
       </div>
+
+      {/* AI Strategy Generation Animation Overlay */}
+      {isGenerating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A0F1E]/80 backdrop-blur-md">
+          {/* Animated background */}
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
+            <div className="absolute top-1/3 left-1/3 h-64 w-64 rounded-full bg-[#7C3AED]/10 blur-3xl animate-pulse" />
+            <div className="absolute bottom-1/3 right-1/3 h-48 w-48 rounded-full bg-[#2563EB]/10 blur-3xl animate-pulse" style={{ animationDelay: "0.5s" }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-96 w-96 rounded-full bg-[#06B6D4]/5 blur-3xl animate-pulse" style={{ animationDelay: "1s" }} />
+          </div>
+
+          <div className="relative w-full max-w-lg">
+            {/* Central AI icon */}
+            <div className="flex flex-col items-center mb-10">
+              <div className="relative mb-6">
+                <div className="absolute -inset-8 rounded-full border border-[#7C3AED]/20 animate-spin" style={{ animationDuration: "8s" }}>
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-[#7C3AED]/60" />
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#2563EB]/60" />
+                </div>
+                <div className="absolute -inset-5 rounded-full border border-[#2563EB]/20 animate-spin" style={{ animationDuration: "5s", animationDirection: "reverse" }}>
+                  <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-[#06B6D4]/80" />
+                </div>
+                <div className="absolute -inset-3 rounded-full bg-gradient-to-r from-[#7C3AED]/20 via-[#2563EB]/20 to-[#06B6D4]/20 animate-pulse blur-sm" />
+                <div className="relative h-20 w-20 rounded-2xl bg-gradient-to-br from-[#7C3AED] via-[#4F46E5] to-[#2563EB] flex items-center justify-center shadow-2xl shadow-[#7C3AED]/30">
+                  <Sparkles className="h-10 w-10 text-white animate-pulse" />
+                </div>
+              </div>
+              <h2 className="text-xl font-bold text-white mb-1.5 tracking-wide">AI 策略生成中{genDots}</h2>
+              <p className="text-sm text-[#94A3B8]">正在基于分析框架构建完整投资策略</p>
+            </div>
+
+            {/* Generation steps */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+              <div className="space-y-3">
+                {AI_GEN_STEPS.map((step, idx) => {
+                  const isComplete = idx < genPhase
+                  const isCurrent = idx === genPhase
+                  return (
+                    <div
+                      key={step.label}
+                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${
+                        isComplete
+                          ? "border-emerald-500/30 bg-emerald-500/10"
+                          : isCurrent
+                            ? "border-[#7C3AED]/50 bg-[#7C3AED]/10 shadow-lg shadow-[#7C3AED]/10"
+                            : "border-white/5 bg-white/[0.02] opacity-40"
+                      }`}
+                    >
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${
+                        isComplete
+                          ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
+                          : isCurrent
+                            ? "bg-gradient-to-br from-[#7C3AED] to-[#2563EB] shadow-md shadow-[#7C3AED]/30"
+                            : "bg-white/10"
+                      }`}>
+                        {isComplete ? (
+                          <Check className="h-4.5 w-4.5 text-white" />
+                        ) : isCurrent ? (
+                          <svg className="h-4.5 w-4.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                        ) : (
+                          <span className="text-xs font-medium text-white/40">{idx + 1}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-sm font-medium transition-colors duration-300 ${
+                          isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
+                        }`}>
+                          {step.label}
+                        </span>
+                        {isCurrent && (
+                          <div className="mt-1.5 h-1 w-full rounded-full bg-white/10 overflow-hidden">
+                            <div className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#2563EB] animate-pulse" style={{ width: "70%" }} />
+                          </div>
+                        )}
+                      </div>
+                      {isComplete && (
+                        <span className="text-[10px] font-medium text-emerald-400/80">完成</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Overall progress */}
+              <div className="mt-5 pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-[#94A3B8]">总体进度</span>
+                  <span className="text-xs font-mono text-[#7C3AED]">
+                    {Math.round(((genPhase + 1) / AI_GEN_STEPS.length) * 100)}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] via-[#2563EB] to-[#06B6D4] transition-all duration-700 ease-out"
+                    style={{ width: `${((genPhase + 1) / AI_GEN_STEPS.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 5 — Confirm & Save                                            */
+/*  Step 5 — Strategy Review (策略审核)                                 */
 /* ------------------------------------------------------------------ */
-function ConfirmSave({ onBack, onBackToList, onSave }: { onBack: () => void; onBackToList: () => void; onSave: () => void }) {
-  // Summary stats from the configured dimensions
+function ConfirmSave({ onBack, onBackToList, onCreatePending }: { onBack: () => void; onBackToList: () => void; onCreatePending: () => void }) {
   const totalDimensions = INITIAL_DIMENSIONS.length
   const totalIndicators = INITIAL_DIMENSIONS.reduce((sum, d) => sum + d.indicators.length, 0)
   const totalConflictRules = CONFLICT_RULES.length
   const totalVetoConditions = VETO_CONDITIONS.length
 
   const dimensions = INITIAL_DIMENSIONS
+
+  const [expandedDims, setExpandedDims] = useState<Set<string>>(new Set(["d1"]))
+
+  function toggleDim(id: string) {
+    setExpandedDims((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#F3F4F6]">
@@ -1959,22 +2307,22 @@ function ConfirmSave({ onBack, onBackToList, onSave }: { onBack: () => void; onB
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-4xl mx-auto">
           {/* Page title */}
-          <h1 className="text-xl font-bold text-[#111827] mb-2">确认分析框架</h1>
+          <h1 className="text-xl font-bold text-[#111827] mb-2">策略审核</h1>
           <p className="text-sm text-[#6B7280] mb-8">
-            请确认以下内容无误后保存，保存后仍可随时编辑
+            审核 AI 基于分析框架生成的完整策略内容，确认无误后保存
           </p>
 
           {/* Stats row */}
           <div className="grid grid-cols-4 gap-4 mb-6">
             {[
-              { label: "分析维度", value: totalDimensions },
-              { label: "判断指标", value: totalIndicators },
-              { label: "冲突规则", value: totalConflictRules },
-              { label: "否决条件", value: totalVetoConditions },
+              { label: "分析维度", value: totalDimensions, color: "text-[#2563EB]" },
+              { label: "判断指标", value: totalIndicators, color: "text-[#7C3AED]" },
+              { label: "研判规则", value: totalConflictRules, color: "text-emerald-600" },
+              { label: "否决条件", value: totalVetoConditions, color: "text-red-600" },
             ].map((stat) => (
               <div key={stat.label} className="rounded-xl border border-[#E5E7EB] bg-white px-5 py-4">
                 <p className="text-xs text-[#6B7280] mb-1">{stat.label}</p>
-                <p className="text-2xl font-bold text-[#111827]">{stat.value}</p>
+                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
               </div>
             ))}
           </div>
@@ -1998,90 +2346,149 @@ function ConfirmSave({ onBack, onBackToList, onSave }: { onBack: () => void; onB
             </div>
           </div>
 
-          {/* Section 2: 分析维度总览 */}
+          {/* Section 2: 分析维度详情 */}
           <div className="mb-4 rounded-xl border border-[#E5E7EB] bg-white p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-bold text-[#111827]">分析维度总览</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-base font-bold text-[#111827]">
+                分析维度 <span className="text-[#9CA3AF] font-normal">({totalDimensions})</span>
+              </h2>
               <button className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition-colors">返回编辑</button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {dimensions.map((d) => {
-                const priorityLabels = { high: "高", medium: "中", low: "低" }
+                const expanded = expandedDims.has(d.id)
+                const priorityLabels = { high: "高优先级", medium: "中优先级", low: "低优先级" }
                 const priorityColors = {
-                  high: "text-red-600 bg-red-50 border-red-200",
-                  medium: "text-amber-600 bg-amber-50 border-amber-200",
-                  low: "text-green-600 bg-green-50 border-green-200",
+                  high: "text-red-700 bg-red-50 border-red-200",
+                  medium: "text-amber-700 bg-amber-50 border-amber-200",
+                  low: "text-green-700 bg-green-50 border-green-200",
                 }
-                const dep = d.relations.find((r) => r.startsWith("依赖"))
-                const depName = dep ? dep.replace("依赖 → ", "") : null
-                const level = depName ? 2 : 1
                 return (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-5 py-3.5"
-                  >
-                    <div className="flex items-center gap-4">
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[#D1D5DB] bg-white text-xs font-semibold text-[#374151]">
-                        {level}
-                      </span>
-                      <span className="text-sm font-bold text-[#111827]">{d.name}</span>
-                      {depName && (
-                        <span className="text-xs font-medium text-emerald-600">
-                          依赖: {depName.replace("分析", "").replace("评估", "")}
-                        </span>
-                      )}
-                      <span className="text-xs text-[#9CA3AF]">{d.indicators.length} 指标</span>
+                  <div key={d.id} className="rounded-xl border border-[#E5E7EB] transition-all hover:border-[#D1D5DB]">
+                    {/* Header */}
+                    <div className="flex items-start justify-between px-5 py-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2.5 mb-1.5">
+                          <h3 className="text-[15px] font-semibold text-[#111827]">{d.name}</h3>
+                          <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${priorityColors[d.priority]}`}>
+                            {priorityLabels[d.priority]}
+                          </span>
+                        </div>
+                        <p className="text-sm text-[#6B7280] leading-relaxed">{d.description}</p>
+                        {!expanded && (
+                          <p className="mt-2 text-xs text-[#9CA3AF]">
+                            {d.indicators.length} 个判断指标
+                            {d.experience ? " · 有机构经验备注" : ""}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => toggleDim(d.id)}
+                        className="ml-4 shrink-0 text-sm font-medium text-[#2563EB] hover:text-[#1D4ED8] transition-colors"
+                      >
+                        {expanded ? "收起详情" : "展开详情"}
+                      </button>
                     </div>
-                    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${priorityColors[d.priority]}`}>
-                      {priorityLabels[d.priority]}
-                    </span>
+
+                    {/* Expanded content */}
+                    {expanded && (
+                      <div className="border-t border-[#F3F4F6] px-5 py-4 space-y-4">
+                        {/* Indicators */}
+                        <div>
+                          <p className="text-xs font-medium text-[#6B7280] mb-2">判断指标</p>
+                          <div className="space-y-2">
+                            {d.indicators.map((ind) => (
+                              <div key={ind.id} className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+                                <h4 className="text-sm font-semibold text-[#111827] mb-1">{ind.name}</h4>
+                                <p className="text-xs text-[#6B7280] mb-1.5">{ind.description}</p>
+                                <p className="text-xs text-[#374151]">
+                                  <span className="font-medium">判断标准：</span>{ind.criteria}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Experience */}
+                        {d.experience && (
+                          <div className="rounded-lg bg-amber-50/60 border border-amber-100 px-4 py-3">
+                            <p className="text-xs font-semibold text-amber-800 mb-1">机构经验</p>
+                            <p className="text-sm text-amber-900 leading-relaxed">{d.experience}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
             </div>
           </div>
 
-          {/* Section 3: 研判规则与否决条件 */}
+          {/* Section 3: 研判规则详情 */}
           <div className="mb-4 rounded-xl border border-[#E5E7EB] bg-white p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-bold text-[#111827]">研判规则与否决条件</h2>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-base font-bold text-[#111827]">
+                研判规则 <span className="text-[#9CA3AF] font-normal">({totalConflictRules})</span>
+              </h2>
               <button className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition-colors">返回编辑</button>
             </div>
-            <p className="text-sm text-[#6B7280] mb-4">
-              {totalConflictRules} 条冲突处理规则 · {totalVetoConditions} 条否决条件 · 已配置策略生成指引
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {VETO_CONDITIONS.map((vc) => (
-                <span
-                  key={vc.id}
-                  className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-600"
-                >
-                  否决: {vc.description.length > 12 ? vc.description.substring(0, 12).replace(/且$/, "") : vc.description}
-                </span>
-              ))}
+
+            {/* Execution Order */}
+            <div className="mb-5">
+              <p className="text-xs font-medium text-[#6B7280] mb-3">分析执行顺序</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {EXECUTION_ORDER.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    {idx > 0 && <ArrowRight className="h-3.5 w-3.5 text-[#D1D5DB]" />}
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1.5 text-xs font-medium text-[#374151]">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#2563EB] text-[10px] font-bold text-white">{item.level}</span>
+                      {item.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Conflict Rules */}
+            <div>
+              <p className="text-xs font-medium text-[#6B7280] mb-3">维度冲突处理</p>
+              <div className="space-y-3">
+                {CONFLICT_RULES.map((rule) => (
+                  <div key={rule.id} className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                      <h4 className="text-sm font-semibold text-[#111827]">{rule.title}</h4>
+                    </div>
+                    <p className="text-sm text-[#6B7280] leading-relaxed">{rule.description}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* AI Completeness Check */}
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-5">
-            <h3 className="text-sm font-bold text-[#92400E] mb-3">AI 完整性检查</h3>
+          {/* Section 4: 否决条件 */}
+          <div className="mb-6 rounded-xl border border-red-200 bg-white p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold text-[#111827]">
+                否决条件 <span className="text-[#9CA3AF] font-normal">({totalVetoConditions})</span>
+              </h2>
+              <button className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition-colors">返回编辑</button>
+            </div>
+            <p className="text-sm text-[#6B7280] mb-4">
+              满足以下任一条件时，AI 将直接建议不投资
+            </p>
             <div className="space-y-2">
-              {[
-                { ok: true, text: "所有维度都配置了判断指标" },
-                { ok: true, text: "维度依赖关系无循环" },
-                { ok: true, text: "否决条件引用的维度均已配置" },
-              ].map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-                  <span className="text-sm text-[#374151]">{item.text}</span>
+              {VETO_CONDITIONS.map((vc) => (
+                <div
+                  key={vc.id}
+                  className="flex items-center gap-4 rounded-lg bg-red-50 px-5 py-3.5"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-100 text-xs font-bold text-red-600 shrink-0">
+                    {vc.num}
+                  </span>
+                  <span className="text-sm font-medium text-[#374151]">{vc.description}</span>
                 </div>
               ))}
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-sm text-[#374151]">
-                  &quot;商业模式可行性&quot;维度未添加机构经验备注（建议补充）
-                </span>
-              </div>
             </div>
           </div>
         </div>
@@ -2101,10 +2508,10 @@ function ConfirmSave({ onBack, onBackToList, onSave }: { onBack: () => void; onB
               保存为草稿
             </button>
             <button
-              onClick={onSave}
-              className="rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+              onClick={onCreatePending}
+              className="rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
             >
-              确认保存框架
+              创建框架
             </button>
           </div>
         </div>
@@ -2134,19 +2541,30 @@ const NEW_FRAMEWORK: AnalysisFramework = {
 export function AnalysisFrameworks({
   createdFrameworks = [],
   onCreatedFrameworksChange,
+  onCreatePendingFramework,
 }: {
   createdFrameworks?: AnalysisFramework[]
   onCreatedFrameworksChange?: (frameworks: AnalysisFramework[]) => void
+  onCreatePendingFramework?: (pending: PendingFramework) => void
 }) {
   const [search, setSearch] = useState("")
   const [view, setView] = useState<FrameworkView>("list")
   const [selectedFrameworkId, setSelectedFrameworkId] = useState<string | null>(null)
 
-  function handleSaveFramework() {
-    const already = createdFrameworks.some((f) => f.id === NEW_FRAMEWORK.id)
-    if (!already) {
-      onCreatedFrameworksChange?.([NEW_FRAMEWORK, ...createdFrameworks])
+  function handleCreatePendingFramework() {
+    const pending: PendingFramework = {
+      id: `pending-framework-${Date.now()}`,
+      framework: NEW_FRAMEWORK,
+      changeId: `CR-F-${Date.now().toString().slice(-6)}`,
+      changeName: `新建分析框架 - ${NEW_FRAMEWORK.name}`,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
     }
+    onCreatePendingFramework?.(pending)
     setView("list")
   }
 
@@ -2166,7 +2584,7 @@ export function AnalysisFrameworks({
   }
 
   if (view === "confirm") {
-    return <ConfirmSave onBack={() => setView("judgment")} onBackToList={() => setView("list")} onSave={handleSaveFramework} />
+    return <ConfirmSave onBack={() => setView("judgment")} onBackToList={() => setView("list")} onCreatePending={handleCreatePendingFramework} />
   }
 
   if (view === "judgment") {
@@ -2241,9 +2659,7 @@ export function AnalysisFrameworks({
                   >
                     <Icon className="h-5 w-5" />
                   </div>
-                  {createdFrameworks.some((f) => f.id === framework.id) && (
-                    <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 border border-emerald-200">新建</span>
-                  )}
+                  {/* icon area - no badge */}
                 </div>
 
                 {/* Title & Description */}

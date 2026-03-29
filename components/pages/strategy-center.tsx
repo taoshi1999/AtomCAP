@@ -10,7 +10,7 @@ import {
 } from "@/components/pages/strategies-grid"
 import { ConsultationCenter } from "@/components/pages/consultation-center"
 import { ResearchCenter } from "@/components/pages/research-center"
-import { AnalysisFrameworks, type AnalysisFramework } from "@/components/pages/analysis-frameworks"
+import { AnalysisFrameworks, type AnalysisFramework, type PendingFramework } from "@/components/pages/analysis-frameworks"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,9 @@ interface StrategyCenterProps {
   onStrategiesChange: (strategies: Strategy[]) => void
   onSelectStrategy?: (strategyId: string) => void
   onCreatePending?: (pending: PendingStrategy) => void
+  onCreatePendingFramework?: (pending: PendingFramework) => void
+  createdFrameworks?: AnalysisFramework[]
+  onCreatedFrameworksChange?: (frameworks: AnalysisFramework[]) => void
   initialSubPage?: SubPage
 }
 
@@ -56,10 +59,12 @@ export function StrategyCenter({
   onStrategiesChange,
   onSelectStrategy,
   onCreatePending,
+  onCreatePendingFramework,
+  createdFrameworks = [],
+  onCreatedFrameworksChange,
   initialSubPage = "consultation",
 }: StrategyCenterProps) {
   const [subPage, setSubPage] = useState<SubPage>(initialSubPage)
-  const [createdFrameworks, setCreatedFrameworks] = useState<AnalysisFramework[]>([])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -96,7 +101,8 @@ export function StrategyCenter({
         {subPage === "frameworks" && (
           <AnalysisFrameworks
             createdFrameworks={createdFrameworks}
-            onCreatedFrameworksChange={setCreatedFrameworks}
+            onCreatedFrameworksChange={onCreatedFrameworksChange}
+            onCreatePendingFramework={onCreatePendingFramework}
           />
         )}
         {subPage === "strategies" && (

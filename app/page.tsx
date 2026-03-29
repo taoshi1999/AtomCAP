@@ -6,6 +6,7 @@ import { Dashboard } from "@/components/pages/dashboard"
 import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/components/pages/projects-grid"
 import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/components/pages/strategies-grid"
 import { StrategyCenter } from "@/components/pages/strategy-center"
+import type { AnalysisFramework, PendingFramework } from "@/components/pages/analysis-frameworks"
 import { ProjectDetail } from "@/components/pages/project-detail"
 import { StrategyDetail } from "@/components/pages/strategy-detail"
 import { ChangeRequests } from "@/components/pages/change-requests"
@@ -53,6 +54,9 @@ export default function Page() {
   // Strategy materials state - keyed by strategyId
   const [strategyMaterials, setStrategyMaterials] = useState<Record<string, StrategyMaterial[]>>({})
   const [pendingMaterials, setPendingMaterials] = useState<PendingMaterial[]>([])
+  // Framework change requests
+  const [pendingFrameworks, setPendingFrameworks] = useState<PendingFramework[]>([])
+  const [createdFrameworks, setCreatedFrameworks] = useState<AnalysisFramework[]>([])
   // Project-level inherited data - keyed by projectId, initialized when project is approved
   const [projectHypotheses, setProjectHypotheses] = useState<Record<string, HypothesisTableItem[]>>({})
   const [projectHypothesisDetails, setProjectHypothesisDetails] = useState<Record<string, Record<string, HypothesisDetail>>>({})
@@ -186,6 +190,27 @@ export default function Page() {
 
   function handleRejectStrategy(id: string) {
     setPendingStrategies(pendingStrategies.filter((p) => p.id !== id))
+  }
+
+  // Framework change request handlers
+  function handleCreatePendingFramework(pending: PendingFramework) {
+    setPendingFrameworks([pending, ...pendingFrameworks])
+    setView({ type: "change-requests" })
+  }
+
+  function handleApproveFramework(id: string) {
+    const pending = pendingFrameworks.find((p) => p.id === id)
+    if (pending) {
+      const already = createdFrameworks.some((f) => f.id === pending.framework.id)
+      if (!already) {
+        setCreatedFrameworks([pending.framework, ...createdFrameworks])
+      }
+      setPendingFrameworks(pendingFrameworks.filter((p) => p.id !== id))
+    }
+  }
+
+  function handleRejectFramework(id: string) {
+    setPendingFrameworks(pendingFrameworks.filter((p) => p.id !== id))
   }
 
   // Project change request handlers
@@ -1264,6 +1289,9 @@ export default function Page() {
             onStrategiesChange={setStrategies}
             onSelectStrategy={handleSelectStrategy}
             onCreatePending={handleCreatePendingStrategy}
+            onCreatePendingFramework={handleCreatePendingFramework}
+            createdFrameworks={createdFrameworks}
+            onCreatedFrameworksChange={setCreatedFrameworks}
           />
         )}
         {view.type === "change-requests" && (
@@ -1307,6 +1335,9 @@ export default function Page() {
   pendingImplementationStatuses={pendingImplementationStatuses}
   onApproveImplementationStatus={handleApproveImplementationStatus}
   onRejectImplementationStatus={handleRejectImplementationStatus}
+  pendingFrameworks={pendingFrameworks}
+  onApproveFramework={handleApproveFramework}
+  onRejectFramework={handleRejectFramework}
   />
         )}
         {view.type === "project-detail" && (

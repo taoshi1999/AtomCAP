@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { GitPullRequest, Search, Check, X, Eye, Clock, Briefcase, FolderKanban, GitBranch, Lightbulb, FileText, FolderOpen } from "lucide-react"
+import { GitPullRequest, Search, Check, X, Eye, Clock, Briefcase, FolderKanban, GitBranch, Lightbulb, FileText, FolderOpen, LayoutGrid } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 import type { PendingStrategy, PendingHypothesis, PendingTerm, PendingMaterial } from "./strategies-grid"
 import type { PendingProject } from "./projects-grid"
 import type { PendingPhase, PendingProjectHypothesis, PendingProjectTerm, PendingProjectMaterial, PendingCommitteeDecision, PendingNegotiationDecision, PendingVerification, PendingImplementationStatus } from "./workflow"
+import type { PendingFramework } from "./analysis-frameworks"
 
 type PendingRequest =
   | { type: "strategy"; data: PendingStrategy }
@@ -30,6 +31,7 @@ type PendingRequest =
   | { type: "project-material"; data: PendingProjectMaterial }
   | { type: "verification"; data: PendingVerification }
   | { type: "implementation-status"; data: PendingImplementationStatus }
+  | { type: "framework"; data: PendingFramework }
 
 interface ChangeRequestsProps {
   pendingStrategies: PendingStrategy[]
@@ -71,6 +73,9 @@ interface ChangeRequestsProps {
   pendingImplementationStatuses: PendingImplementationStatus[]
   onApproveImplementationStatus: (id: string) => void
   onRejectImplementationStatus: (id: string) => void
+  pendingFrameworks: PendingFramework[]
+  onApproveFramework: (id: string) => void
+  onRejectFramework: (id: string) => void
 }
 
 export function ChangeRequests({
@@ -113,11 +118,14 @@ export function ChangeRequests({
   pendingImplementationStatuses,
   onApproveImplementationStatus,
   onRejectImplementationStatus,
+  pendingFrameworks,
+  onApproveFramework,
+  onRejectFramework,
 }: ChangeRequestsProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [detailOpen, setDetailOpen] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null)
-  const [filterType, setFilterType] = useState<"all" | "strategy" | "project" | "phase" | "hypothesis" | "term" | "material">("all")
+  const [filterType, setFilterType] = useState<"all" | "strategy" | "project" | "phase" | "hypothesis" | "term" | "material" | "framework">("all")
 
   // Combine all requests
   const allRequests: PendingRequest[] = [
@@ -134,6 +142,7 @@ export function ChangeRequests({
     ...pendingProjectMaterials.map((m) => ({ type: "project-material" as const, data: m })),
     ...pendingVerifications.map((v) => ({ type: "verification" as const, data: v })),
     ...pendingImplementationStatuses.map((is) => ({ type: "implementation-status" as const, data: is })),
+    ...pendingFrameworks.map((f) => ({ type: "framework" as const, data: f })),
   ].sort((a, b) => new Date(b.data.initiatedAt).getTime() - new Date(a.data.initiatedAt).getTime())
 
   const filteredRequests = allRequests.filter((r) => {
@@ -144,7 +153,8 @@ export function ChangeRequests({
       filterType === "all" ||
       r.type === filterType ||
       (filterType === "hypothesis" && (r.type === "project-hypothesis" || r.type === "committee-decision" || r.type === "verification")) ||
-      (filterType === "term" && (r.type === "negotiation-decision" || r.type === "implementation-status"))
+      (filterType === "term" && (r.type === "negotiation-decision" || r.type === "implementation-status")) ||
+      (filterType === "framework" && r.type === "framework")
     return matchesSearch && matchesType
   })
 
@@ -156,6 +166,7 @@ export function ChangeRequests({
   const projectHypothesisCount = pendingProjectHypotheses.length
   const termCount = pendingTerms.length + pendingProjectTerms.length + pendingNegotiationDecisions.length + pendingImplementationStatuses.length
   const materialCount = pendingMaterials.length + pendingProjectMaterials.length
+  const frameworkCount = pendingFrameworks.length
 
   function handleViewDetail(request: PendingRequest) {
     setSelectedRequest(request)
@@ -187,6 +198,8 @@ export function ChangeRequests({
       onApproveVerification(request.data.id)
     } else if (request.type === "implementation-status") {
       onApproveImplementationStatus(request.data.id)
+    } else if (request.type === "framework") {
+      onApproveFramework(request.data.id)
     } else {
       onApproveMaterial(request.data.id)
     }
@@ -217,6 +230,8 @@ export function ChangeRequests({
       onRejectVerification(request.data.id)
     } else if (request.type === "implementation-status") {
       onRejectImplementationStatus(request.data.id)
+    } else if (request.type === "framework") {
+      onRejectFramework(request.data.id)
     } else {
       onRejectMaterial(request.data.id)
     }
@@ -303,6 +318,24 @@ export function ChangeRequests({
               filterType === "project" ? "bg-white/20" : "bg-[#F3F4F6]"
             )}>
               {projectCount}
+            </span>
+          </button>
+          <button
+            onClick={() => setFilterType("framework")}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              filterType === "framework"
+                ? "bg-[#4F46E5] text-white"
+                : "bg-white text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F9FAFB]"
+            )}
+          >
+            <LayoutGrid className="h-4 w-4" />
+            框架
+            <span className={cn(
+              "rounded-full px-2 py-0.5 text-xs",
+              filterType === "framework" ? "bg-white/20" : "bg-[#F3F4F6]"
+            )}>
+              {frameworkCount}
             </span>
           </button>
           <button
@@ -415,29 +448,32 @@ export function ChangeRequests({
                         ? "bg-blue-50 text-blue-700 border-blue-200"
                         : request.type === "project"
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : request.type === "hypothesis" || request.type === "project-hypothesis" || request.type === "committee-decision" || request.type === "verification"
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : request.type === "term" || request.type === "project-term" || request.type === "negotiation-decision" || request.type === "implementation-status"
-                              ? "bg-violet-50 text-violet-700 border-violet-200"
-                              : request.type === "material"
-                                ? "bg-teal-50 text-teal-700 border-teal-200"
-                                : request.type === "project-material"
-                                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                                  : "bg-purple-50 text-purple-700 border-purple-200"
+                          : request.type === "framework"
+                            ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                            : request.type === "hypothesis" || request.type === "project-hypothesis" || request.type === "committee-decision" || request.type === "verification"
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : request.type === "term" || request.type === "project-term" || request.type === "negotiation-decision" || request.type === "implementation-status"
+                                ? "bg-violet-50 text-violet-700 border-violet-200"
+                                : request.type === "material"
+                                  ? "bg-teal-50 text-teal-700 border-teal-200"
+                                  : request.type === "project-material"
+                                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                                    : "bg-purple-50 text-purple-700 border-purple-200"
                     )}>
                       {request.type === "strategy" ? "策略"
                         : request.type === "project" ? "项目"
-                          : request.type === "hypothesis" ? "假设"
-                            : request.type === "project-hypothesis" ? "项目假设"
-                              : request.type === "committee-decision" ? "审议结果"
-                                : request.type === "verification" ? "验证情况"
-                                  : request.type === "term" ? "条款"
-                                    : request.type === "project-term" ? "项目条款"
-                                      : request.type === "negotiation-decision" ? "谈判结果"
-                                        : request.type === "implementation-status" ? "落实情况"
-                                          : request.type === "material" ? "材料"
-                                            : request.type === "project-material" ? "项目材料"
-                                              : "工作流"}
+                          : request.type === "framework" ? "框架"
+                            : request.type === "hypothesis" ? "假设"
+                              : request.type === "project-hypothesis" ? "项目假设"
+                                : request.type === "committee-decision" ? "审议结果"
+                                  : request.type === "verification" ? "验证情况"
+                                    : request.type === "term" ? "条款"
+                                      : request.type === "project-term" ? "项目条款"
+                                        : request.type === "negotiation-decision" ? "谈判结果"
+                                          : request.type === "implementation-status" ? "落实情况"
+                                            : request.type === "material" ? "材料"
+                                              : request.type === "project-material" ? "项目材料"
+                                                : "工作流"}
                     </Badge>
                   </div>
 
@@ -453,7 +489,9 @@ export function ChangeRequests({
                     <p className="text-xs text-[#6B7280] truncate">
                       {request.type === "strategy"
                         ? `策略类型: ${(request.data as PendingStrategy).strategy.type}`
-                        : request.type === "project"
+                        : request.type === "framework"
+                          ? `维度数量: ${(request.data as PendingFramework).framework.dimensionCount}`
+                          : request.type === "project"
                           ? `策略模板: ${(request.data as PendingProject).project.strategyName || "无"}`
                           : request.type === "hypothesis"
                             ? `假设方向: ${(request.data as PendingHypothesis).hypothesis.direction}`
@@ -563,29 +601,32 @@ export function ChangeRequests({
                       ? "bg-blue-50 text-blue-700 border-blue-200"
                       : selectedRequest.type === "project"
                         ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : selectedRequest.type === "hypothesis" || selectedRequest.type === "project-hypothesis" || selectedRequest.type === "committee-decision" || selectedRequest.type === "verification"
-                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : selectedRequest.type === "term" || selectedRequest.type === "project-term" || selectedRequest.type === "negotiation-decision" || selectedRequest.type === "implementation-status"
-                            ? "bg-violet-50 text-violet-700 border-violet-200"
-                            : selectedRequest.type === "material"
-                              ? "bg-teal-50 text-teal-700 border-teal-200"
-                              : selectedRequest.type === "project-material"
-                                ? "bg-amber-50 text-amber-700 border-amber-200"
-                                : "bg-purple-50 text-purple-700 border-purple-200"
+                        : selectedRequest.type === "framework"
+                          ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                          : selectedRequest.type === "hypothesis" || selectedRequest.type === "project-hypothesis" || selectedRequest.type === "committee-decision" || selectedRequest.type === "verification"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : selectedRequest.type === "term" || selectedRequest.type === "project-term" || selectedRequest.type === "negotiation-decision" || selectedRequest.type === "implementation-status"
+                              ? "bg-violet-50 text-violet-700 border-violet-200"
+                              : selectedRequest.type === "material"
+                                ? "bg-teal-50 text-teal-700 border-teal-200"
+                                : selectedRequest.type === "project-material"
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-purple-50 text-purple-700 border-purple-200"
                   )}>
                     {selectedRequest.type === "strategy" ? "策略"
                       : selectedRequest.type === "project" ? "项目"
-                        : selectedRequest.type === "hypothesis" ? "假设"
-                          : selectedRequest.type === "project-hypothesis" ? "项目假设"
-                            : selectedRequest.type === "committee-decision" ? "审议结果"
-                              : selectedRequest.type === "verification" ? "验证情况"
-                                : selectedRequest.type === "implementation-status" ? "落实情况"
-                                  : selectedRequest.type === "term" ? "条款"
-                                    : selectedRequest.type === "project-term" ? "项目条款"
-                                      : selectedRequest.type === "negotiation-decision" ? "谈判结果"
-                                      : selectedRequest.type === "material" ? "材料"
-                                        : selectedRequest.type === "project-material" ? "项目材料"
-                                          : "工作流"}
+                        : selectedRequest.type === "framework" ? "框架"
+                          : selectedRequest.type === "hypothesis" ? "假设"
+                            : selectedRequest.type === "project-hypothesis" ? "项目假设"
+                              : selectedRequest.type === "committee-decision" ? "审议结果"
+                                : selectedRequest.type === "verification" ? "验证情况"
+                                  : selectedRequest.type === "implementation-status" ? "落实情况"
+                                    : selectedRequest.type === "term" ? "条款"
+                                      : selectedRequest.type === "project-term" ? "项目条款"
+                                        : selectedRequest.type === "negotiation-decision" ? "谈判结果"
+                                        : selectedRequest.type === "material" ? "材料"
+                                          : selectedRequest.type === "project-material" ? "项目材料"
+                                            : "工作流"}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
@@ -632,6 +673,33 @@ export function ChangeRequests({
                       <span className="text-sm font-medium text-[#111827]">
                         {(selectedRequest.data as PendingProject).project.round}
                       </span>
+                    </div>
+                  </>
+                ) : selectedRequest.type === "framework" ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">框架名称</span>
+                      <span className="text-sm font-medium text-[#111827]">
+                        {(selectedRequest.data as PendingFramework).framework.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">框架描述</span>
+                      <span className="text-sm font-medium text-[#111827] text-right max-w-[240px] leading-snug">
+                        {(selectedRequest.data as PendingFramework).framework.description}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">分析维度</span>
+                      <span className="text-sm font-medium text-[#111827] text-right max-w-[240px] leading-snug">
+                        {(selectedRequest.data as PendingFramework).framework.dimensions.join("、")}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7280]">维度数量</span>
+                      <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-xs">
+                        {(selectedRequest.data as PendingFramework).framework.dimensionCount}
+                      </Badge>
                     </div>
                   </>
                 ) : selectedRequest.type === "hypothesis" ? (
@@ -931,7 +999,7 @@ export function ChangeRequests({
                 </div>
               </div>
 
-              {(selectedRequest.type === "strategy" || selectedRequest.type === "project" || selectedRequest.type === "hypothesis" || selectedRequest.type === "term" || selectedRequest.type === "material") && (
+              {(selectedRequest.type === "strategy" || selectedRequest.type === "project" || selectedRequest.type === "hypothesis" || selectedRequest.type === "term" || selectedRequest.type === "material" || selectedRequest.type === "framework") && (
                 <div>
                   <p className="text-sm font-medium text-[#374151] mb-2">简介</p>
                   <p className="text-sm text-[#6B7280] bg-[#F9FAFB] rounded-lg p-3">
@@ -939,11 +1007,13 @@ export function ChangeRequests({
                       ? (selectedRequest.data as PendingStrategy).strategy.description
                       : selectedRequest.type === "project"
                         ? (selectedRequest.data as PendingProject).project.description
-                        : selectedRequest.type === "hypothesis"
-                          ? (selectedRequest.data as PendingHypothesis).hypothesis.content
-                          : selectedRequest.type === "term"
-                            ? (selectedRequest.data as PendingTerm).term.content
-                            : (selectedRequest.data as PendingMaterial).description
+                        : selectedRequest.type === "framework"
+                          ? (selectedRequest.data as PendingFramework).framework.description
+                          : selectedRequest.type === "hypothesis"
+                            ? (selectedRequest.data as PendingHypothesis).hypothesis.content
+                            : selectedRequest.type === "term"
+                              ? (selectedRequest.data as PendingTerm).term.content
+                              : (selectedRequest.data as PendingMaterial).description
                     }
                   </p>
                 </div>
