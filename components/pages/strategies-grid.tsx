@@ -825,7 +825,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                 </button>
                 <button
                   onClick={handleGoToStep3}
-                  className="rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
+                  className="rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
                 >
                   下一步: 生成策略并审核
                 </button>
