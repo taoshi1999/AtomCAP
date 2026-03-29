@@ -234,7 +234,7 @@ export const initialStrategies: Strategy[] = [
     name: "国际贸易",
     icon: TrendingUp,
     iconBg: "bg-amber-100 text-amber-600",
-    description: "聚焦跨境贸易、全球供应链和国际化业��拓展",
+    description: "聚焦跨境贸易、全球供应链和国际化业务拓展",
     projectCount: 9,
     totalInvest: "6.3亿",
     returnRate: "+22%",
@@ -598,7 +598,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
   // Generated hypotheses and terms (mirrors AI基础设施 preset)
   const [generatedHypotheses] = useState([
     { id: "gen-h1", direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h2", direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市��将在3年内达到500亿美元规模", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+    { id: "gen-h2", direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市场将在3年内达到500亿美元规模", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
     { id: "gen-h3", direction: "技术攻关", category: "模型训练框架", name: "开源大模型训练框架将成为主流技术路线", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
     { id: "gen-h4", direction: "技术攻关", category: "模型训练框架", name: "分布式训练效率提升是大模型竞争关键", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
     { id: "gen-h5", direction: "技术攻关", category: "基础软件生态", name: "AI编译器将成为新的基础软件投资赛道", owner: "AI生成", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
@@ -628,7 +628,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
     setIsAnalyzing(true)
     setAnalysisStep(0)
     setAnalysisComplete(false)
-    
+
     // Animate through steps
     let currentStep = 0
     const interval = setInterval(() => {
@@ -731,7 +731,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
 
           {step === 2 && (
             <div>
-              <h1 className="text-xl font-bold text-[#111827] mb-2">配置��据来源</h1>
+              <h1 className="text-xl font-bold text-[#111827] mb-2">配置数据来源</h1>
               <p className="text-sm text-[#6B7280] mb-6">
                 上传相关材料，AI 将基于这些数据生成投资策略
               </p>
@@ -970,7 +970,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                   </div>
                   <h2 className="text-lg font-semibold text-[#111827] mb-2">AI 正在生成策略</h2>
                   <p className="text-sm text-[#6B7280] mb-8">基于分析框架和数据来源自动生成假设与条款</p>
-                  
+
                   <div className="w-full max-w-md space-y-3">
                     {ANALYSIS_STEPS.map((s, idx) => (
                       <div
@@ -978,15 +978,15 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                         className={cn(
                           "flex items-center gap-3 rounded-xl border p-3 transition-all duration-300",
                           idx < analysisStep ? "border-[#10B981] bg-emerald-50" :
-                          idx === analysisStep ? "border-[#2563EB] bg-blue-50 animate-pulse" :
-                          "border-[#E5E7EB] bg-white opacity-50"
+                            idx === analysisStep ? "border-[#2563EB] bg-blue-50 animate-pulse" :
+                              "border-[#E5E7EB] bg-white opacity-50"
                         )}
                       >
                         <div className={cn(
                           "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
                           idx < analysisStep ? "bg-[#10B981] text-white" :
-                          idx === analysisStep ? "bg-[#2563EB] text-white" :
-                          "bg-[#F3F4F6] text-[#9CA3AF]"
+                            idx === analysisStep ? "bg-[#2563EB] text-white" :
+                              "bg-[#F3F4F6] text-[#9CA3AF]"
                         )}>
                           {idx < analysisStep ? (
                             <Check className="h-4 w-4" />
@@ -1016,7 +1016,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                 <div>
                   <div className="flex items-center justify-between mb-6">
                     <div>
-                      <h1 className="text-xl font-bold text-[#111827]">策略审���</h1>
+                      <h1 className="text-xl font-bold text-[#111827]">策略审核</h1>
                       <p className="mt-1 text-sm text-[#6B7280]">
                         审核 AI 生成的假设和条款，可进行编辑、删除或新增
                       </p>
@@ -1078,27 +1078,27 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                       {generatedHypotheses
                         .filter((h) => h.name.toLowerCase().includes(reviewSearchQuery.toLowerCase()) || h.direction.includes(reviewSearchQuery) || h.category.includes(reviewSearchQuery))
                         .map((h) => (
-                        <div key={h.id} className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white p-4 hover:border-[#D1D5DB] transition-colors">
-                          <div className="flex-1 min-w-0 mr-4">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-medium text-blue-700">{h.direction}</span>
-                              <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-700">{h.category}</span>
+                          <div key={h.id} className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white p-4 hover:border-[#D1D5DB] transition-colors">
+                            <div className="flex-1 min-w-0 mr-4">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-medium text-blue-700">{h.direction}</span>
+                                <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-700">{h.category}</span>
+                              </div>
+                              <p className="text-sm font-medium text-[#111827] truncate">{h.name}</p>
                             </div>
-                            <p className="text-sm font-medium text-[#111827] truncate">{h.name}</p>
+                            <div className="flex items-center gap-2">
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" title="查看详情">
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" title="查看详情">
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   )}
 
@@ -1117,27 +1117,27 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                       {generatedTerms
                         .filter((t) => t.name.toLowerCase().includes(reviewSearchQuery.toLowerCase()) || t.direction.includes(reviewSearchQuery) || t.category.includes(reviewSearchQuery))
                         .map((t) => (
-                        <div key={t.id} className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white p-4 hover:border-[#D1D5DB] transition-colors">
-                          <div className="flex-1 min-w-0 mr-4">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{t.direction}</span>
-                              <span className="rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">{t.category}</span>
+                          <div key={t.id} className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white p-4 hover:border-[#D1D5DB] transition-colors">
+                            <div className="flex-1 min-w-0 mr-4">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{t.direction}</span>
+                                <span className="rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">{t.category}</span>
+                              </div>
+                              <p className="text-sm font-medium text-[#111827] truncate">{t.name}</p>
                             </div>
-                            <p className="text-sm font-medium text-[#111827] truncate">{t.name}</p>
+                            <div className="flex items-center gap-2">
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" title="查看详情">
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#2563EB] transition-colors" title="查看详情">
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   )}
 
@@ -1167,10 +1167,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                               <div className={cn(
                                 "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
                                 file.type === "PDF" ? "bg-red-50 text-red-600" :
-                                file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
-                                file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
-                                file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
-                                "bg-gray-50 text-gray-600"
+                                  file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                    file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                      file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
+                                        "bg-gray-50 text-gray-600"
                               )}>
                                 {file.type}
                               </div>

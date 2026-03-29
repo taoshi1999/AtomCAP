@@ -131,7 +131,7 @@ export default function Page() {
         ...pending.strategy,
       }
       setStrategies([newStrategy, ...strategies])
-      
+
       // Initialize hypotheses for the new strategy if generated during creation
       if (pending.generatedHypotheses && pending.generatedHypotheses.length > 0) {
         const newHypotheses: StrategyHypothesis[] = pending.generatedHypotheses.map((h, idx) => ({
@@ -149,7 +149,7 @@ export default function Page() {
         }))
         setStrategyHypotheses((prev) => ({ ...prev, [newStrategyId]: newHypotheses }))
       }
-      
+
       // Initialize terms for the new strategy if generated during creation
       if (pending.generatedTerms && pending.generatedTerms.length > 0) {
         const newTerms: StrategyTerm[] = pending.generatedTerms.map((t, idx) => ({
@@ -167,7 +167,7 @@ export default function Page() {
         }))
         setStrategyTerms((prev) => ({ ...prev, [newStrategyId]: newTerms }))
       }
-      
+
       // Initialize materials for the new strategy from uploaded files during creation
       if (pending.uploadedMaterials && pending.uploadedMaterials.length > 0) {
         const newMaterials: StrategyMaterial[] = pending.uploadedMaterials.map((m, idx) => ({
@@ -183,7 +183,7 @@ export default function Page() {
         }))
         setStrategyMaterials((prev) => ({ ...prev, [newStrategyId]: newMaterials }))
       }
-      
+
       setPendingStrategies(pendingStrategies.filter((p) => p.id !== id))
     }
   }
@@ -242,15 +242,15 @@ export default function Page() {
       // For strategy "1" or other theme strategies, use the existing template helper
       const templateHypotheses: HypothesisTableItem[] = isTrackStrategy
         ? getTrackStrategyHypothesisTemplate().map((h) => ({
-            id: `strategy-tmpl-${h.id}`,
-            direction: h.direction,
-            category: h.category,
-            name: h.name,
-            owner: h.owner,
-            createdAt: h.createdAt,
-            updatedAt: today,
-            status: "pending" as const,
-          }))
+          id: `strategy-tmpl-${h.id}`,
+          direction: h.direction,
+          category: h.category,
+          name: h.name,
+          owner: h.owner,
+          createdAt: h.createdAt,
+          updatedAt: today,
+          status: "pending" as const,
+        }))
         : getTemplateHypothesesForStrategy(sid)
 
       // Include both approved strategy hypotheses and pending ones (not yet approved)
@@ -277,15 +277,15 @@ export default function Page() {
       // For track strategies, use the strategy view term data; otherwise use existing helper
       const templateTerms: TermTableItem[] = isTrackStrategy
         ? getTrackStrategyTermTemplate().map((t) => ({
-            id: `strategy-tmpl-${t.id}`,
-            direction: t.direction,
-            category: t.category,
-            name: t.name,
-            owner: t.owner,
-            createdAt: t.createdAt,
-            updatedAt: today,
-            status: "pending" as const,
-          }))
+          id: `strategy-tmpl-${t.id}`,
+          direction: t.direction,
+          category: t.category,
+          name: t.name,
+          owner: t.owner,
+          createdAt: t.createdAt,
+          updatedAt: today,
+          status: "pending" as const,
+        }))
         : getTemplateTermsForStrategy(sid)
 
       // Include both approved strategy terms and pending ones (not yet approved)
@@ -323,7 +323,7 @@ export default function Page() {
       const uploadedAtCreation: StrategyMaterial[] = (pending.uploadedFiles || []).map((f) => ({
         id: `uploaded-${f.id}-${Date.now()}`,
         strategyId: sid,
-        name: f.name.replace(/\.[^.]+$/, ""), // strip file extension (e.g. "���俊杰_CV.pdf" → "闫俊杰_CV")
+        name: f.name.replace(/\.[^.]+$/, ""), // strip file extension (e.g. "闫俊杰_CV.pdf" → "闫俊杰_CV")
         format: f.format,
         size: f.size,
         category: "",
@@ -375,7 +375,7 @@ export default function Page() {
     if (pending) {
       const { projectId, phase, changeType } = pending
       const currentPhases = projectPhases[projectId] || []
-      
+
       // Snapshot current project counts so completed phase cards display accurate numbers
       const snapshotHypothesesCount =
         (projectHypotheses[projectId]?.length ?? 0) +
@@ -391,16 +391,16 @@ export default function Page() {
       const updatedPhases = currentPhases.map((p) =>
         p.status === "active"
           ? {
-              ...p,
-              status: "completed" as const,
-              endDate: new Date().toISOString().split("T")[0],
-              hypothesesCount: snapshotHypothesesCount,
-              termsCount: snapshotTermsCount,
-              materialsCount: snapshotMaterialsCount,
-            }
+            ...p,
+            status: "completed" as const,
+            endDate: new Date().toISOString().split("T")[0],
+            hypothesesCount: snapshotHypothesesCount,
+            termsCount: snapshotTermsCount,
+            materialsCount: snapshotMaterialsCount,
+          }
           : p
       )
-      
+
       // 退出: just complete active phase + mark project as exited, no new phase added
       if (changeType === "退出") {
         setProjectPhases({ ...projectPhases, [projectId]: updatedPhases })
@@ -743,27 +743,27 @@ export default function Page() {
         const updatedDetail: HypothesisDetail = existingDetail
           ? { ...existingDetail, status: newStatus, committeeDecision: newDecision }
           : {
-              id: hypothesisId,
-              title: hypothesis?.name || "",
-              qaId: `QA-${Date.now()}`,
-              createdAt: hypothesis?.createdAt || today,
-              updatedAt: today,
-              status: newStatus,
+            id: hypothesisId,
+            title: hypothesis?.name || "",
+            qaId: `QA-${Date.now()}`,
+            createdAt: hypothesis?.createdAt || today,
+            updatedAt: today,
+            status: newStatus,
+            creator: { name: "张伟", role: "投资经理" },
+            valuePoints: [],
+            riskPoints: [],
+            committeeDecision: newDecision,
+            verification: {
+              conclusion: "",
+              status: "pending" as const,
+              content: "",
               creator: { name: "张伟", role: "投资经理" },
-              valuePoints: [],
-              riskPoints: [],
-              committeeDecision: newDecision,
-              verification: {
-                conclusion: "",
-                status: "pending" as const,
-                content: "",
-                creator: { name: "张伟", role: "投资经���" },
-                reviewers: [],
-                createdAt: "",
-                comments: [],
-              },
-              linkedTerms: [],
-            }
+              reviewers: [],
+              createdAt: "",
+              comments: [],
+            },
+            linkedTerms: [],
+          }
         return {
           ...prev,
           [projectId]: {
@@ -842,21 +842,21 @@ export default function Page() {
         const updatedDetail = existingDetail
           ? { ...existingDetail, status: newStatus, negotiationResult: newNegotiationResult }
           : {
-              id: termId,
-              title: termItem?.name || pending.termName,
-              termId: `TM-${Date.now()}`,
-              createdAt: termItem?.createdAt || today,
-              updatedAt: today,
-              status: newStatus,
-              creator: { name: "张伟", role: "投资经理" },
-              ourDemand: { content: "", files: [], linkedHypotheses: [], creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
-              ourBasis: { content: "", files: [], linkedHypotheses: [], creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
-              bilateralConflict: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
-              ourBottomLine: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
-              compromiseSpace: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
-              negotiationResult: newNegotiationResult,
-              implementationStatus: { status: "not-started" as const, content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
-            }
+            id: termId,
+            title: termItem?.name || pending.termName,
+            termId: `TM-${Date.now()}`,
+            createdAt: termItem?.createdAt || today,
+            updatedAt: today,
+            status: newStatus,
+            creator: { name: "张伟", role: "投资经理" },
+            ourDemand: { content: "", files: [], linkedHypotheses: [], creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+            ourBasis: { content: "", files: [], linkedHypotheses: [], creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+            bilateralConflict: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+            ourBottomLine: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+            compromiseSpace: { content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+            negotiationResult: newNegotiationResult,
+            implementationStatus: { status: "not-started" as const, content: "", creator: { name: "张伟", role: "投资经理" }, reviewers: [], createdAt: "", comments: [] },
+          }
         return { ...prev, [projectId]: { ...projectDetails, [termId]: updatedDetail } }
       })
       // Update term status in projectTerms list
@@ -924,27 +924,27 @@ export default function Page() {
         const updatedDetail: HypothesisDetail = existingDetail
           ? { ...existingDetail, verification: newVerification }
           : {
-              id: hypothesisId,
-              title: hypothesis?.name || "",
-              qaId: `QA-${Date.now()}`,
-              createdAt: hypothesis?.createdAt || today,
-              updatedAt: today,
-              status: hypothesis?.status || "pending",
+            id: hypothesisId,
+            title: hypothesis?.name || "",
+            qaId: `QA-${Date.now()}`,
+            createdAt: hypothesis?.createdAt || today,
+            updatedAt: today,
+            status: hypothesis?.status || "pending",
+            creator: { name: "张伟", role: "投资经理" },
+            valuePoints: [],
+            riskPoints: [],
+            committeeDecision: {
+              conclusion: "",
+              status: "pending" as const,
+              content: "",
               creator: { name: "张伟", role: "投资经理" },
-              valuePoints: [],
-              riskPoints: [],
-              committeeDecision: {
-                conclusion: "",
-                status: "pending" as const,
-                content: "",
-                creator: { name: "张伟", role: "投资经理" },
-                reviewers: [],
-                createdAt: "",
-                comments: [],
-              },
-              verification: newVerification,
-              linkedTerms: [],
-            }
+              reviewers: [],
+              createdAt: "",
+              comments: [],
+            },
+            verification: newVerification,
+            linkedTerms: [],
+          }
         return {
           ...prev,
           [projectId]: { ...projectDetails, [hypothesisId]: updatedDetail },
@@ -1275,7 +1275,7 @@ export default function Page() {
       <main className="flex-1 overflow-hidden">
         {view.type === "dashboard" && <Dashboard />}
         {view.type === "projects" && (
-          <ProjectsGrid 
+          <ProjectsGrid
             projects={projects}
             strategies={strategies}
             onProjectsChange={setProjects}
@@ -1295,86 +1295,86 @@ export default function Page() {
           />
         )}
         {view.type === "change-requests" && (
-<ChangeRequests
-  pendingStrategies={pendingStrategies}
-  pendingProjects={pendingProjects}
-  pendingPhases={pendingPhases}
-  pendingHypotheses={pendingHypotheses}
-  pendingProjectHypotheses={pendingProjectHypotheses}
-  pendingCommitteeDecisions={pendingCommitteeDecisions}
-  pendingTerms={pendingTerms}
-  pendingProjectTerms={pendingProjectTerms}
-  pendingNegotiationDecisions={pendingNegotiationDecisions}
-  pendingMaterials={pendingMaterials}
-  pendingProjectMaterials={pendingProjectMaterials}
-  onApproveStrategy={handleApproveStrategy}
-  onRejectStrategy={handleRejectStrategy}
-  onApproveProject={handleApproveProject}
-  onRejectProject={handleRejectProject}
-  onApprovePhase={handleApprovePhase}
-  onRejectPhase={handleRejectPhase}
-  onApproveHypothesis={handleApproveHypothesis}
-  onRejectHypothesis={handleRejectHypothesis}
-  onApproveProjectHypothesis={handleApproveProjectHypothesis}
-  onRejectProjectHypothesis={handleRejectProjectHypothesis}
-  onApproveCommitteeDecision={handleApproveCommitteeDecision}
-  onRejectCommitteeDecision={handleRejectCommitteeDecision}
-  onApproveTerm={handleApproveTerm}
-  onRejectTerm={handleRejectTerm}
-  onApproveProjectTerm={handleApproveProjectTerm}
-  onRejectProjectTerm={handleRejectProjectTerm}
-  onApproveNegotiationDecision={handleApproveNegotiationDecision}
-  onRejectNegotiationDecision={handleRejectNegotiationDecision}
-  onApproveMaterial={handleApproveMaterial}
-  onRejectMaterial={handleRejectMaterial}
-  onApproveProjectMaterial={handleApproveProjectMaterial}
-  onRejectProjectMaterial={handleRejectProjectMaterial}
-  pendingVerifications={pendingVerifications}
-  onApproveVerification={handleApproveVerification}
-  onRejectVerification={handleRejectVerification}
-  pendingImplementationStatuses={pendingImplementationStatuses}
-  onApproveImplementationStatus={handleApproveImplementationStatus}
-  onRejectImplementationStatus={handleRejectImplementationStatus}
-  pendingFrameworks={pendingFrameworks}
-  onApproveFramework={handleApproveFramework}
-  onRejectFramework={handleRejectFramework}
-  />
+          <ChangeRequests
+            pendingStrategies={pendingStrategies}
+            pendingProjects={pendingProjects}
+            pendingPhases={pendingPhases}
+            pendingHypotheses={pendingHypotheses}
+            pendingProjectHypotheses={pendingProjectHypotheses}
+            pendingCommitteeDecisions={pendingCommitteeDecisions}
+            pendingTerms={pendingTerms}
+            pendingProjectTerms={pendingProjectTerms}
+            pendingNegotiationDecisions={pendingNegotiationDecisions}
+            pendingMaterials={pendingMaterials}
+            pendingProjectMaterials={pendingProjectMaterials}
+            onApproveStrategy={handleApproveStrategy}
+            onRejectStrategy={handleRejectStrategy}
+            onApproveProject={handleApproveProject}
+            onRejectProject={handleRejectProject}
+            onApprovePhase={handleApprovePhase}
+            onRejectPhase={handleRejectPhase}
+            onApproveHypothesis={handleApproveHypothesis}
+            onRejectHypothesis={handleRejectHypothesis}
+            onApproveProjectHypothesis={handleApproveProjectHypothesis}
+            onRejectProjectHypothesis={handleRejectProjectHypothesis}
+            onApproveCommitteeDecision={handleApproveCommitteeDecision}
+            onRejectCommitteeDecision={handleRejectCommitteeDecision}
+            onApproveTerm={handleApproveTerm}
+            onRejectTerm={handleRejectTerm}
+            onApproveProjectTerm={handleApproveProjectTerm}
+            onRejectProjectTerm={handleRejectProjectTerm}
+            onApproveNegotiationDecision={handleApproveNegotiationDecision}
+            onRejectNegotiationDecision={handleRejectNegotiationDecision}
+            onApproveMaterial={handleApproveMaterial}
+            onRejectMaterial={handleRejectMaterial}
+            onApproveProjectMaterial={handleApproveProjectMaterial}
+            onRejectProjectMaterial={handleRejectProjectMaterial}
+            pendingVerifications={pendingVerifications}
+            onApproveVerification={handleApproveVerification}
+            onRejectVerification={handleRejectVerification}
+            pendingImplementationStatuses={pendingImplementationStatuses}
+            onApproveImplementationStatus={handleApproveImplementationStatus}
+            onRejectImplementationStatus={handleRejectImplementationStatus}
+            pendingFrameworks={pendingFrameworks}
+            onApproveFramework={handleApproveFramework}
+            onRejectFramework={handleRejectFramework}
+          />
         )}
         {view.type === "project-detail" && (
-<ProjectDetail
-  projectId={view.projectId}
-  project={projects.find((p) => p.id === view.projectId)}
-  phases={getPhasesForProject(view.projectId)}
-  onPhasesChange={(phases) => updatePhasesForProject(view.projectId, phases)}
-  onCreatePendingPhase={handleCreatePendingPhase}
-  onCreatePendingProjectHypothesis={handleCreatePendingProjectHypothesis}
-  projectHypotheses={projectHypotheses[view.projectId]}
-  projectHypothesisDetails={projectHypothesisDetails[view.projectId]}
-  projectTerms={projectTerms[view.projectId]}
-  projectMaterials={projectMaterialsMap[view.projectId]}
-  savedGeneratedSuggestions={savedProjectSuggestions[view.projectId]}
-  onSaveSuggestions={(suggestions) => handleSaveProjectSuggestions(view.projectId, suggestions)}
-  savedGeneratedTermSuggestions={savedProjectTermSuggestions[view.projectId]}
-  onSaveTermSuggestions={(suggestions) => handleSaveProjectTermSuggestions(view.projectId, suggestions)}
-  onCreatePendingProjectTerm={handleCreatePendingProjectTerm}
-  projectTermDetails={projectTermDetails[view.projectId]}
-  onCreatePendingProjectMaterial={handleCreatePendingProjectMaterial}
-  savedGeneratedMaterialSuggestions={savedProjectMaterialSuggestions[view.projectId]}
-  onSaveMaterialSuggestions={(suggestions) => handleSaveProjectMaterialSuggestions(view.projectId, suggestions)}
-  savedGeneratedAiResearchGroups={savedProjectAiResearchGroups[view.projectId]}
-  onSaveAiResearchGroups={(groups) => handleSaveProjectAiResearchGroups(view.projectId, groups)}
-  onAddValuePoint={(hypothesisId, vp) => handleAddValuePoint(view.projectId, hypothesisId, vp)}
-  onAddRiskPoint={(hypothesisId, rp) => handleAddRiskPoint(view.projectId, hypothesisId, rp)}
-  onCreateCommitteeDecision={(hypothesisId, hypothesisName, data) => handleCreateCommitteeDecision(view.projectId, hypothesisId, hypothesisName, data)}
-  onCreateNegotiationDecision={(termId, termName, data) => handleCreateNegotiationDecision(view.projectId, termId, termName, data)}
-  onCreateVerification={(hypothesisId, hypothesisName, data) => handleCreateVerification(view.projectId, hypothesisId, hypothesisName, data)}
-  onCreateImplementationStatus={(termId, termName, data) => handleCreateImplementationStatus(view.projectId, termId, termName, data)}
-  isExited={exitedProjects[view.projectId] === true}
-  liXiangRecord={liXiangRecords[view.projectId]}
-  touJueRecord={touJueRecords[view.projectId]}
-  huaKuanRecord={huaKuanRecords[view.projectId]}
-  tuiChuRecord={tuiChuRecords[view.projectId]}
-  />
+          <ProjectDetail
+            projectId={view.projectId}
+            project={projects.find((p) => p.id === view.projectId)}
+            phases={getPhasesForProject(view.projectId)}
+            onPhasesChange={(phases) => updatePhasesForProject(view.projectId, phases)}
+            onCreatePendingPhase={handleCreatePendingPhase}
+            onCreatePendingProjectHypothesis={handleCreatePendingProjectHypothesis}
+            projectHypotheses={projectHypotheses[view.projectId]}
+            projectHypothesisDetails={projectHypothesisDetails[view.projectId]}
+            projectTerms={projectTerms[view.projectId]}
+            projectMaterials={projectMaterialsMap[view.projectId]}
+            savedGeneratedSuggestions={savedProjectSuggestions[view.projectId]}
+            onSaveSuggestions={(suggestions) => handleSaveProjectSuggestions(view.projectId, suggestions)}
+            savedGeneratedTermSuggestions={savedProjectTermSuggestions[view.projectId]}
+            onSaveTermSuggestions={(suggestions) => handleSaveProjectTermSuggestions(view.projectId, suggestions)}
+            onCreatePendingProjectTerm={handleCreatePendingProjectTerm}
+            projectTermDetails={projectTermDetails[view.projectId]}
+            onCreatePendingProjectMaterial={handleCreatePendingProjectMaterial}
+            savedGeneratedMaterialSuggestions={savedProjectMaterialSuggestions[view.projectId]}
+            onSaveMaterialSuggestions={(suggestions) => handleSaveProjectMaterialSuggestions(view.projectId, suggestions)}
+            savedGeneratedAiResearchGroups={savedProjectAiResearchGroups[view.projectId]}
+            onSaveAiResearchGroups={(groups) => handleSaveProjectAiResearchGroups(view.projectId, groups)}
+            onAddValuePoint={(hypothesisId, vp) => handleAddValuePoint(view.projectId, hypothesisId, vp)}
+            onAddRiskPoint={(hypothesisId, rp) => handleAddRiskPoint(view.projectId, hypothesisId, rp)}
+            onCreateCommitteeDecision={(hypothesisId, hypothesisName, data) => handleCreateCommitteeDecision(view.projectId, hypothesisId, hypothesisName, data)}
+            onCreateNegotiationDecision={(termId, termName, data) => handleCreateNegotiationDecision(view.projectId, termId, termName, data)}
+            onCreateVerification={(hypothesisId, hypothesisName, data) => handleCreateVerification(view.projectId, hypothesisId, hypothesisName, data)}
+            onCreateImplementationStatus={(termId, termName, data) => handleCreateImplementationStatus(view.projectId, termId, termName, data)}
+            isExited={exitedProjects[view.projectId] === true}
+            liXiangRecord={liXiangRecords[view.projectId]}
+            touJueRecord={touJueRecords[view.projectId]}
+            huaKuanRecord={huaKuanRecords[view.projectId]}
+            tuiChuRecord={tuiChuRecords[view.projectId]}
+          />
         )}
         {view.type === "strategy-detail" && (
           <StrategyDetail

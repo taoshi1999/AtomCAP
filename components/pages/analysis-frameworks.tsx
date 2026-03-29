@@ -599,7 +599,7 @@ function CreateFrameworkPicker({ onBack, onNext }: { onBack: () => void; onNext:
             </div>
             <h3 className="text-lg font-bold text-[#111827] mb-2">AI 辅助创建</h3>
             <p className="text-sm text-[#6B7280] leading-relaxed mb-6">
-              ���自然语言描述你的投资方法论，AI 自动拆解为结构化的分析维度、判断指标和输出规范，你再逐一审核修改。
+              请使用自然语言描述你的投资方法论，AI 自动拆解为结构化的分析维度、判断指标和输出规范，你再逐一审核修改。
             </p>
             <p className="mt-auto text-xs text-[#9CA3AF]">适合：心里有方法论但不想从零填表的用户</p>
           </button>
@@ -682,9 +682,9 @@ const FRAMEWORK_MOCK_FILES = [
   { id: "fm3", name: "技术成熟度评估模型.xlsx", size: "1.2 MB", type: "XLSX", description: "基于TRL框架的技术成熟度评估量表，含性能瓶颈、迭代速度等关键指标" },
   { id: "fm4", name: "竞争格局分析框架.docx", size: "2.4 MB", type: "DOCX", description: "CR5计算方法、融资密度分析及竞争态势判断指南，附红海蓝海判定标准" },
   { id: "fm5", name: "单位经济模型验证清单.xlsx", size: "0.9 MB", type: "XLSX", description: "商业模式验证的关键指标清单：客户获取成本、留存率、LTV等核心公式" },
-  { id: "fm6", name: "创始团队评估矩阵.pdf", size: "2.1 MB", type: "PDF", description: "��技赛道创始人评估框架：技术背景、商业化能力、团队完整度评分表" },
+  { id: "fm6", name: "创始团队评估矩阵.pdf", size: "2.1 MB", type: "PDF", description: "科技赛道创始人评估框架：技术背景、商业化能力、团队完整度评分表" },
   { id: "fm7", name: "科技投资IC流程标准.pdf", size: "4.5 MB", type: "PDF", description: "投委会上会标准流程、材料要求及决策机制，含否决条件清单" },
-  { id: "fm8", name: "历史项目复盘报告汇编.pdf", size: "8.3 MB", type: "PDF", description: "���三年科技赛道投资���目复���：成功案例、失败教训及经验提炼" },
+  { id: "fm8", name: "历史项目复盘报告汇编.pdf", size: "8.3 MB", type: "PDF", description: "近三年科技赛道投资项目复盘：成功案例、失败教训及经验提炼" },
 ]
 
 function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => void; onBackToList: () => void; onNext: () => void }) {
@@ -881,10 +881,10 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
                         >
                           <div className="flex items-start gap-3">
                             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${file.type === "PDF" ? "bg-red-50 text-red-600" :
-                                file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
-                                  file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
-                                    file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
-                                      "bg-gray-50 text-gray-600"
+                              file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                  file.type === "PPTX" ? "bg-orange-50 text-orange-600" :
+                                    "bg-gray-50 text-gray-600"
                               }`}>
                               {file.type}
                             </div>
@@ -964,8 +964,8 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
                           <label
                             key={file.id}
                             className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-all ${isSelected
-                                ? "border-[#2563EB] bg-blue-50/50"
-                                : "border-[#E5E7EB] bg-white hover:border-[#D1D5DB]"
+                              ? "border-[#2563EB] bg-blue-50/50"
+                              : "border-[#E5E7EB] bg-white hover:border-[#D1D5DB]"
                               }`}
                           >
                             <input
@@ -981,9 +981,9 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
                               className="mt-1 h-4 w-4 rounded border-[#D1D5DB] text-[#2563EB] focus:ring-[#2563EB]"
                             />
                             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${file.type === "PDF" ? "bg-red-50 text-red-600" :
-                                file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
-                                  file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
-                                    "bg-gray-50 text-gray-600"
+                              file.type === "DOCX" ? "bg-blue-50 text-blue-600" :
+                                file.type === "XLSX" ? "bg-emerald-50 text-emerald-600" :
+                                  "bg-gray-50 text-gray-600"
                               }`}>
                               {file.type}
                             </div>
@@ -1109,13 +1109,13 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
                 <div
                   key={step.label}
                   className={`flex items-center gap-3 rounded-xl border p-3 transition-all duration-300 ${idx < analysisStep ? "border-[#10B981] bg-emerald-50" :
-                      idx === analysisStep ? "border-[#2563EB] bg-blue-50" :
-                        "border-[#E5E7EB] bg-white opacity-50"
+                    idx === analysisStep ? "border-[#2563EB] bg-blue-50" :
+                      "border-[#E5E7EB] bg-white opacity-50"
                     }`}
                 >
                   <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${idx < analysisStep ? "bg-[#10B981] text-white" :
-                      idx === analysisStep ? "bg-[#2563EB] text-white" :
-                        "bg-[#F3F4F6] text-[#9CA3AF]"
+                    idx === analysisStep ? "bg-[#2563EB] text-white" :
+                      "bg-[#F3F4F6] text-[#9CA3AF]"
                     }`}>
                     {idx < analysisStep ? (
                       <Check className="h-4 w-4" />
@@ -1251,7 +1251,7 @@ const INITIAL_DIMENSIONS: ConfigDimension[] = [
   {
     id: "d3",
     name: "竞争格局分析",
-    description: "分析市场竞争态势、市���集中度和融资热度，判断竞争风险",
+    description: "分析市场竞争态势、市场集中度和融资热度，判断竞争风险",
     priority: "medium",
     indicators: [
       {
@@ -1727,21 +1727,19 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
                   return (
                     <div
                       key={step.label}
-                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${
-                        isComplete
-                          ? "border-emerald-500/30 bg-emerald-500/10"
-                          : isCurrent
-                            ? "border-[#2563EB]/50 bg-[#2563EB]/10 shadow-lg shadow-[#2563EB]/10"
-                            : "border-white/5 bg-white/[0.02] opacity-40"
-                      }`}
+                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${isComplete
+                        ? "border-emerald-500/30 bg-emerald-500/10"
+                        : isCurrent
+                          ? "border-[#2563EB]/50 bg-[#2563EB]/10 shadow-lg shadow-[#2563EB]/10"
+                          : "border-white/5 bg-white/[0.02] opacity-40"
+                        }`}
                     >
-                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${
-                        isComplete
-                          ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
-                          : isCurrent
-                            ? "bg-gradient-to-br from-[#2563EB] to-[#7C3AED] shadow-md shadow-[#2563EB]/30"
-                            : "bg-white/10"
-                      }`}>
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${isComplete
+                        ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
+                        : isCurrent
+                          ? "bg-gradient-to-br from-[#2563EB] to-[#7C3AED] shadow-md shadow-[#2563EB]/30"
+                          : "bg-white/10"
+                        }`}>
                         {isComplete ? (
                           <Check className="h-4.5 w-4.5 text-white" />
                         ) : isCurrent ? (
@@ -1754,9 +1752,8 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className={`text-sm font-medium transition-colors duration-300 ${
-                          isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
-                        }`}>
+                        <span className={`text-sm font-medium transition-colors duration-300 ${isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
+                          }`}>
                           {step.label}
                         </span>
                         {isCurrent && (
@@ -2163,21 +2160,19 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
                   return (
                     <div
                       key={step.label}
-                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${
-                        isComplete
-                          ? "border-emerald-500/30 bg-emerald-500/10"
-                          : isCurrent
-                            ? "border-[#7C3AED]/50 bg-[#7C3AED]/10 shadow-lg shadow-[#7C3AED]/10"
-                            : "border-white/5 bg-white/[0.02] opacity-40"
-                      }`}
+                      className={`flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-all duration-500 ${isComplete
+                        ? "border-emerald-500/30 bg-emerald-500/10"
+                        : isCurrent
+                          ? "border-[#7C3AED]/50 bg-[#7C3AED]/10 shadow-lg shadow-[#7C3AED]/10"
+                          : "border-white/5 bg-white/[0.02] opacity-40"
+                        }`}
                     >
-                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${
-                        isComplete
-                          ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
-                          : isCurrent
-                            ? "bg-gradient-to-br from-[#7C3AED] to-[#2563EB] shadow-md shadow-[#7C3AED]/30"
-                            : "bg-white/10"
-                      }`}>
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-500 ${isComplete
+                        ? "bg-emerald-500 shadow-md shadow-emerald-500/30"
+                        : isCurrent
+                          ? "bg-gradient-to-br from-[#7C3AED] to-[#2563EB] shadow-md shadow-[#7C3AED]/30"
+                          : "bg-white/10"
+                        }`}>
                         {isComplete ? (
                           <Check className="h-4.5 w-4.5 text-white" />
                         ) : isCurrent ? (
@@ -2190,9 +2185,8 @@ function JudgmentRules({ onBack, onBackToList, onNext }: { onBack: () => void; o
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className={`text-sm font-medium transition-colors duration-300 ${
-                          isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
-                        }`}>
+                        <span className={`text-sm font-medium transition-colors duration-300 ${isComplete ? "text-emerald-300" : isCurrent ? "text-white" : "text-white/40"
+                          }`}>
                           {step.label}
                         </span>
                         {isCurrent && (
