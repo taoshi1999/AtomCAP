@@ -380,7 +380,7 @@ function FrameworkDetail({ onBack, data }: { onBack: () => void; data?: Framewor
                       {!expanded && (
                         <p className="mt-2 text-xs text-[#9CA3AF]">
                           {dim.indicators.length} 个判断指标
-                          {dim.experience ? " · 有机构经验备注" : " · 无经验备注"}
+                          {dim.experience ? " · 有经验备注" : " · 无经验备注"}
                           {dim.dependency ? ` · 依赖: ${dim.dependency}` : ""}
                         </p>
                       )}
@@ -1657,9 +1657,9 @@ function ConfigureDimensions({ onBack, onBackToList, onNext }: { onBack: () => v
             </div>
           </div>
 
-          {/* 机构经验备注 */}
+          {/* 经验备注 */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-[#374151] mb-2">机构经验备注</label>
+            <label className="block text-sm font-medium text-[#374151] mb-2">经验备注</label>
             <textarea
               value={activeDim.experience}
               onChange={(e) => updateActiveDim({ experience: e.target.value })}
@@ -2396,7 +2396,7 @@ function ConfirmSave({ onBack, onBackToList, onCreatePending }: { onBack: () => 
                         {!expanded && (
                           <p className="mt-2 text-xs text-[#9CA3AF]">
                             {d.indicators.length} 个判断指标
-                            {d.experience ? " · 有机构经验备注" : ""}
+                            {d.experience ? " · 有经验备注" : ""}
                           </p>
                         )}
                       </div>
