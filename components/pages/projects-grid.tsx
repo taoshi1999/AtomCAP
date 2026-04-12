@@ -185,9 +185,10 @@ interface ProjectsGridProps {
   onProjectsChange: (projects: Project[]) => void
   onSelectProject: (projectId: string) => void
   onCreatePending?: (pending: PendingProject) => void
+  isLoading?: boolean
 }
 
-export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectProject, onCreatePending }: ProjectsGridProps) {
+export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectProject, onCreatePending, isLoading }: ProjectsGridProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
 
@@ -410,8 +411,20 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
         </div>
 
         {/* Project Cards Grid */}
-        <div className="grid grid-cols-4 gap-5">
-          {filteredProjects.map((project) => (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#E5E7EB] border-t-[#2563EB]" />
+            <span className="ml-3 text-sm text-[#6B7280]">加载中...</span>
+          </div>
+        ) : filteredProjects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <FolderKanban className="h-12 w-12 text-[#D1D5DB]" />
+            <p className="mt-4 text-sm text-[#6B7280]">暂无投资项目</p>
+            <p className="mt-1 text-xs text-[#9CA3AF]">点击右上角"新建项目"创建第一个项目</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-5">
+            {filteredProjects.map((project) => (
             <button
               key={project.id}
               onClick={() => onSelectProject(project.id)}
@@ -465,7 +478,8 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
               </div>
             </button>
           ))}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Create Project Dialog */}

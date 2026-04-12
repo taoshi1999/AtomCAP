@@ -1,9 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AppTopbar, type TopNavKey } from "@/components/app-topbar"
 import { Dashboard } from "@/components/pages/dashboard"
-import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/components/pages/projects-grid"
+import { ProjectsGrid, type Project, type PendingProject, getStatusColor } from "@/components/pages/projects-grid"
 import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/components/pages/strategies-grid"
 import { StrategyCenter } from "@/components/pages/strategy-center"
 import type { AnalysisFramework, PendingFramework } from "@/components/pages/analysis-frameworks"
@@ -31,7 +31,41 @@ export default function Page() {
   const [view, setView] = useState<ViewState>({ type: "login" })
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
   const [pendingStrategies, setPendingStrategies] = useState<PendingStrategy[]>([])
-  const [projects, setProjects] = useState<Project[]>(initialProjects)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true)
+
+  useEffect(() => {
+    async function loadProjects() {
+      try {
+        const res = await fetch('/api/projects')
+        if (res.ok) {
+          const data = await res.json()
+          const mappedProjects: Project[] = data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            logo: p.logo || p.name.charAt(0),
+            description: p.description || "",
+            tags: p.tags || [],
+            status: p.status,
+            statusColor: getStatusColor(p.status),
+            valuation: p.valuation || "待定",
+            round: p.round || "",
+            owner: { id: p.ownerId || "", name: p.ownerName || "待分配", initials: p.ownerName?.charAt(0) || "待" },
+            strategyId: p.strategyId,
+            strategyName: p.strategyName,
+            createdAt: p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          }))
+          setProjects(mappedProjects)
+        }
+      } catch (error) {
+        console.error('加载项目失败:', error)
+      } finally {
+        setIsLoadingProjects(false)
+      }
+    }
+    loadProjects()
+  }, [])
+
   const [pendingProjects, setPendingProjects] = useState<PendingProject[]>([])
   // Workflow phases state per project - keyed by projectId
   const [projectPhases, setProjectPhases] = useState<Record<string, Phase[]>>({})
@@ -223,11 +257,44 @@ export default function Page() {
     const pending = pendingProjects.find((p) => p.id === id)
     if (pending) {
       const newProjectId = `new-project-${Date.now()}`
-      const newProject: Project = {
-        id: newProjectId,
-        ...pending.project,
-      }
-      setProjects([newProject, ...projects])
+      
+      // Call API to save project to database
+      fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: pending.project.name,
+          logo: pending.project.logo,
+          description: pending.project.description,
+          tags: pending.project.tags,
+          valuation: pending.project.valuation,
+          round: pending.project.round,
+          ownerId: pending.project.owner.id,
+          ownerName: pending.project.owner.name,
+          strategyId: pending.project.strategyId,
+          strategyName: pending.project.strategyName,
+        }),
+      })
+        .then((res) => res.json())
+        .then((savedProject) => {
+          // Use the id from database
+          const dbProjectId = savedProject.id || newProjectId
+          const newProject: Project = {
+            id: dbProjectId,
+            ...pending.project,
+          }
+          setProjects((prev) => [newProject, ...prev])
+        })
+        .catch((err) => {
+          console.error('保存项目失败:', err)
+          // Still add to local state even if API fails
+          const newProject: Project = {
+            id: newProjectId,
+            ...pending.project,
+          }
+          setProjects((prev) => [newProject, ...prev])
+        })
+      
       setPendingProjects(pendingProjects.filter((p) => p.id !== id))
 
       // Inherit hypotheses from strategy template (all set to "待验证")
@@ -1281,6 +1348,7 @@ export default function Page() {
             onProjectsChange={setProjects}
             onSelectProject={handleSelectProject}
             onCreatePending={handleCreatePendingProject}
+            isLoading={isLoadingProjects}
           />
         )}
         {view.type === "strategies" && (

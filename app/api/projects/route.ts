@@ -54,11 +54,23 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url)
+    const status = searchParams.get("status")
+    const ownerId = searchParams.get("ownerId")
+    const strategyId = searchParams.get("strategyId")
+
+    const where: Record<string, string> = {}
+    if (status) where.status = status
+    if (ownerId) where.ownerId = ownerId
+    if (strategyId) where.strategyId = strategyId
+
     const projects = await prisma.project.findMany({
+      where: Object.keys(where).length > 0 ? where : undefined,
       orderBy: { createdAt: "desc" },
     })
+
     return NextResponse.json(projects)
   } catch (error) {
     console.error("获取项目列表失败:", error)
