@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+<<<<<<< HEAD
 import AuthProvider from '@/components/AuthProvider'
+=======
+>>>>>>> upstream/main
 
 import './globals.css'
 
@@ -18,11 +21,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
+<<<<<<< HEAD
       <body className="font-sans antialiased">
         <AuthProvider>
           {children}
         </AuthProvider>
       </body>
+=======
+      <body className="font-sans antialiased">{children}</body>
+>>>>>>> upstream/main
     </html>
   )
 }

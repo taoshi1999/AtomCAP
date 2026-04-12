@@ -10,7 +10,10 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+<<<<<<< HEAD
 import { useSession } from "next-auth/react"
+=======
+>>>>>>> upstream/main
 
 export type PageKey =
   | "overview"
@@ -41,11 +44,14 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ activePage, onNavigate }: AppSidebarProps) {
+<<<<<<< HEAD
   const { data: session } = useSession()
   
   const userName = session?.user?.name || session?.user?.email?.split("@")[0] || "用户"
   const userInitial = userName.charAt(0).toUpperCase()
   
+=======
+>>>>>>> upstream/main
   return (
     <aside className="flex h-screen w-[200px] flex-col bg-[#0F172A] text-[#94A3B8] shrink-0">
       {/* Logo */}
@@ -83,10 +89,17 @@ export function AppSidebar({ activePage, onNavigate }: AppSidebarProps) {
         <div className="flex items-center gap-3">
           <Avatar className="h-8 w-8">
             <AvatarFallback className="bg-[#334155] text-xs text-white">
+<<<<<<< HEAD
               {userInitial}
             </AvatarFallback>
           </Avatar>
           <span className="text-sm text-[#CBD5E1]">{userName}</span>
+=======
+              张伟
+            </AvatarFallback>
+          </Avatar>
+          <span className="text-sm text-[#CBD5E1]">张伟</span>
+>>>>>>> upstream/main
         </div>
       </div>
     </aside>

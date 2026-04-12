@@ -19,8 +19,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+<<<<<<< HEAD
 import { useSession, signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
+=======
+>>>>>>> upstream/main
 
 export type TopNavKey = "dashboard" | "projects" | "strategies" | "change-requests"
 
@@ -30,11 +33,14 @@ interface AppTopbarProps {
 }
 
 export function AppTopbar({ activeNav, onNavigate }: AppTopbarProps) {
+<<<<<<< HEAD
   const { data: session } = useSession()
   const router = useRouter()
   
   const userName = session?.user?.name || session?.user?.email?.split("@")[0] || "用户"
   const userInitial = userName.charAt(0).toUpperCase()
+=======
+>>>>>>> upstream/main
   return (
     <header className="sticky top-0 z-50 flex h-14 w-full items-center border-b border-border bg-[#0F172A] px-6 shrink-0">
       {/* Logo */}
@@ -108,10 +114,17 @@ export function AppTopbar({ activeNav, onNavigate }: AppTopbarProps) {
           <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[#1E293B]">
             <Avatar className="h-7 w-7">
               <AvatarFallback className="bg-[#334155] text-[10px] text-white">
+<<<<<<< HEAD
                 {userInitial}
               </AvatarFallback>
             </Avatar>
             <span className="text-sm text-[#CBD5E1]">{userName}</span>
+=======
+                张伟
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-sm text-[#CBD5E1]">张伟</span>
+>>>>>>> upstream/main
             <ChevronDown className="h-3.5 w-3.5 text-[#94A3B8]" />
           </button>
         </DropdownMenuTrigger>
@@ -125,10 +138,14 @@ export function AppTopbar({ activeNav, onNavigate }: AppTopbarProps) {
             账户设置
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+<<<<<<< HEAD
           <DropdownMenuItem 
             className="cursor-pointer text-destructive focus:text-destructive"
             onClick={() => signOut({ callbackUrl: "/login" })}
           >
+=======
+          <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive">
+>>>>>>> upstream/main
             <LogOut className="mr-2 h-4 w-4" />
             退出登录
           </DropdownMenuItem>

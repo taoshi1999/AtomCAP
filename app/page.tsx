@@ -1,7 +1,11 @@
 "use client"
 
+<<<<<<< HEAD
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
+=======
+import { useState } from "react"
+>>>>>>> upstream/main
 import { AppTopbar, type TopNavKey } from "@/components/app-topbar"
 import { Dashboard } from "@/components/pages/dashboard"
 import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/components/pages/projects-grid"
@@ -82,6 +86,7 @@ export default function Page() {
     Record<string, { hypothesesGenerated: boolean; termsGenerated: boolean; materialsGenerated: boolean }>
   >({})
 
+<<<<<<< HEAD
   const { data: session, status } = useSession()
 
   // 检查登录状态
@@ -93,6 +98,8 @@ export default function Page() {
     }
   }, [status])
 
+=======
+>>>>>>> upstream/main
   const activeNav: TopNavKey | null =
     view.type === "dashboard"
       ? "dashboard"
@@ -1277,6 +1284,7 @@ export default function Page() {
     })
   }
 
+<<<<<<< HEAD
   if (status === "loading") {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -1285,6 +1293,8 @@ export default function Page() {
     )
   }
 
+=======
+>>>>>>> upstream/main
   if (view.type === "login") {
     return <Login onLogin={handleLogin} />
   }
