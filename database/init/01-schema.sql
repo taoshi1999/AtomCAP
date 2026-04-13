@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255),
+  image VARCHAR(512),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -32,6 +33,7 @@ COMMENT ON COLUMN users.id IS '用户 ID，自增主键';
 COMMENT ON COLUMN users.email IS '用户邮箱，唯一，用于登录';
 COMMENT ON COLUMN users.password_hash IS 'bcrypt 加密后的密码';
 COMMENT ON COLUMN users.name IS '用户姓名';
+COMMENT ON COLUMN users.image IS '用户头像 URL 地址';
 COMMENT ON COLUMN users.created_at IS '记录创建时间';
 COMMENT ON COLUMN users.updated_at IS '记录更新时间';
 

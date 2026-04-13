@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户认证相关
+model User {
+  id           String    @id @default(cuid())
+  name         String?
+  email        String    @unique
+  emailVerified DateTime?
+  image        String?
+  password     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  // NextAuth 关联
+  accounts     Account[]
+  sessions     Session[]
+  
+  // 业务关联
+  projects     Project[] @relation("ProjectCreator")
+  strategies   Strategy[] @relation("StrategyCreator")
+}
+
+// NextAuth 必需模型
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 业务模型 - 项目管理
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("进行中") // 进行中，已完成，待审核
+  priority    String   @default("中")    // 高，中，低
+  industry    String?
+  stage       String?  // 天使轮，A 轮，B 轮等
+  budget      Float?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  creatorId   String
+  creator     User     @relation("ProjectCreator", fields: [creatorId], references: [id])
+  
+  tasks       Task[]
+  documents   Document[]
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("待办") // 待办，进行中，已完成
+  dueDate     DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  title     String
+  url       String
+  type      String   // 商业计划书，财务报表，法律文件等
+  
+  createdAt DateTime @default(now())
+  
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// 业务模型 - 策略管理
+model Strategy {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  type        String   // 投资策略，退出策略等
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  creatorId   String
+  creator     User     @relation("StrategyCreator", fields: [creatorId], references: [id])
+  
+  hypotheses  StrategyHypothesis[]
+  terms       StrategyTerm[]
+  materials   StrategyMaterial[]
+}
+
+model StrategyHypothesis {
+  id          String   @id @default(cuid())
+  content     String
+  status      String   @default("待验证") // 待验证，验证中，已验证，已驳回
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  strategyId  String
+  strategy    Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+}
+
+model StrategyTerm {
+  id          String   @id @default(cuid())
+  title       String
+  content     String   @db.Text
+  category    String?  // 估值条款，董事会条款等
+  
+  createdAt   DateTime @default(now())
+  
+  strategyId  String
+  strategy    Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+}
+
+model StrategyMaterial {
+  id          String   @id @default(cuid())
+  title       String
+  url         String
+  type        String
+  
+  createdAt   DateTime @default(now())
+  
+  strategyId  String
+  strategy    Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+}
