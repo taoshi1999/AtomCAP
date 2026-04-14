@@ -19,99 +19,19 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   
   // NextAuth 关联
-  accounts     Account[]
   sessions     Session[]
-  
-  // 项目管理关联
-  projects     Project[]
   
   @@map("users")
 }
 
-// NextAuth 必需模型
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String? @db.Text
-  session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
+// 会话表（根据实际数据库结构）
 model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-}
-
-// 项目管理相关
-model Project {
-  id          String    @id @default(cuid())
-  name        String
-  description String?
-  status      String?   @default("active")
-  priority    String?
-  industry    String?
-  stage       String?
-  budget      Float?
-  creatorId   String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  creator    User       @relation(fields: [creatorId], references: [id])
-  tasks      Task[]
-  documents  Document[]
-
-  @@map("projects")
-}
-
-model Task {
-  id          String    @id @default(cuid())
-  projectId   String
-  title       String
-  description String?
-  status      String    @default("pending")
-  priority    String?
-  assigneeId  String?
-  dueDate     DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@map("tasks")
-}
-
-model Document {
-  id          String    @id @default(cuid())
-  projectId   String
-  title       String
-  url         String?
-  type        String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@map("documents")
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
 }
