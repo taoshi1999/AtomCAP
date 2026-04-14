@@ -100,11 +100,11 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
       <aside
         className={cn(
           "flex h-full flex-col bg-[#0F172A] text-[#94A3B8] shrink-0 transition-all duration-300",
-          collapsed ? "w-[60px]" : "w-[200px]"
+          collapsed ? "w-0 md:w-[60px]" : "w-14 sm:w-[60px] md:w-[200px]"
         )}
       >
         {/* Collapse Header */}
-        <div className="flex items-center justify-end px-3 pt-4 pb-2">
+        <div className="flex items-center justify-end px-2 sm:px-3 pt-4 pb-2">
           <button
             onClick={() => setCollapsed(!collapsed)}
             className={cn(

@@ -40,159 +40,117 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 /* ------------------------------------------------------------------ */
-/*  Mock Data                                                          */
-/* ------------------------------------------------------------------ */
-
-// 规模总览
-const scaleOverview = {
-  totalFundSize: 85.6,  // 亿元
-  fundCount: 5,
-  projectCount: 32,
-  newProjectsThisYear: 8,
-}
-
-// 收益核心
-const returnMetrics = {
-  irrMedian: 18.5,  // %
-  dpiDistribution: { above1: 12, below1: 20 },
-  avgProjectReturn: 2.3,  // 倍数
-  exitWinRate: 72,  // %
-}
-
-// 效率核心
-const efficiencyMetrics = {
-  avgWorkHours: 156,  // 小时
-  avgWorkHoursChange: -12,  // 同比变化 %
-  invalidDueDiligenceRate: 18,  // %
-  invalidDueDiligenceChange: -5,  // 同比变化
-  approvalRate: 35,  // 立项过会率 %
-}
-
-// 风险总览
-const riskOverview = {
-  highRiskProjects: 3,
-  complianceTodos: 7,
-  todayMeetingProjects: 2,
-}
-
-// 赛道投资分布
-const trackDistribution = [
-  { name: "大模型应用", value: 35, color: "#2563EB" },
-  { name: "AI基础设施", value: 25, color: "#7C3AED" },
-  { name: "企业服务", value: 20, color: "#059669" },
-  { name: "医疗健康", value: 12, color: "#DC2626" },
-  { name: "金融科技", value: 8, color: "#F59E0B" },
-]
-
-// 本年度立项/投决/退出趋势
-const projectTrend = [
-  { month: "1月", 立项: 3, 投决: 1, 退出: 0 },
-  { month: "2月", 立项: 2, 投决: 2, 退出: 1 },
-  { month: "3月", 立项: 4, 投决: 1, 退出: 0 },
-  { month: "4月", 立项: 2, 投决: 3, 退出: 1 },
-  { month: "5月", 立项: 5, 投决: 2, 退出: 0 },
-  { month: "6月", 立项: 3, 投决: 2, 退出: 2 },
-]
-
-// IRR/DPI对标行业分位值
-const benchmarkData = [
-  { quarter: "2023Q1", ourIRR: 15, industryP50: 12, industryP75: 18, ourDPI: 0.8, dpiP50: 0.6 },
-  { quarter: "2023Q2", ourIRR: 16, industryP50: 13, industryP75: 19, ourDPI: 0.85, dpiP50: 0.65 },
-  { quarter: "2023Q3", ourIRR: 17, industryP50: 14, industryP75: 20, ourDPI: 0.9, dpiP50: 0.7 },
-  { quarter: "2023Q4", ourIRR: 18, industryP50: 14, industryP75: 21, ourDPI: 0.95, dpiP50: 0.72 },
-  { quarter: "2024Q1", ourIRR: 18.5, industryP50: 15, industryP75: 22, ourDPI: 1.0, dpiP50: 0.75 },
-]
-
-// 团队项目效能排行
-const teamRanking = [
-  { name: "张伟", projects: 8, avgDays: 45, score: 95 },
-  { name: "李四", projects: 6, avgDays: 52, score: 88 },
-  { name: "王五", projects: 7, avgDays: 58, score: 82 },
-  { name: "赵六", projects: 5, avgDays: 48, score: 80 },
-  { name: "陈总", projects: 4, avgDays: 42, score: 78 },
-]
-
-// 待办决策事项
-const pendingDecisions = [
-  {
-    id: "1",
-    type: "立项审批",
-    typeColor: "bg-blue-50 text-blue-700",
-    title: "智元机器人A轮投资立项申请",
-    project: "智元机器人",
-    submitter: "张伟",
-    submitTime: "2024-03-08 09:30",
-    deadline: "2024-03-10 18:00",
-    urgency: "urgent",
-  },
-  {
-    id: "2",
-    type: "投决材料预审",
-    typeColor: "bg-purple-50 text-purple-700",
-    title: "MiniMax B轮投资决策材料预审",
-    project: "MiniMax",
-    submitter: "李四",
-    submitTime: "2024-03-07 14:20",
-    deadline: "2024-03-09 12:00",
-    urgency: "urgent",
-  },
-  {
-    id: "3",
-    type: "尽调报告审核",
-    typeColor: "bg-emerald-50 text-emerald-700",
-    title: "阶跃星辰技术尽调报告审核",
-    project: "阶跃星辰",
-    submitter: "王五",
-    submitTime: "2024-03-07 10:15",
-    deadline: "2024-03-12 18:00",
-    urgency: "normal",
-  },
-  {
-    id: "4",
-    type: "条款清单审批",
-    typeColor: "bg-amber-50 text-amber-700",
-    title: "百川智能投资条款清单审批",
-    project: "百川智能",
-    submitter: "赵六",
-    submitTime: "2024-03-06 16:45",
-    deadline: "2024-03-11 18:00",
-    urgency: "normal",
-  },
-  {
-    id: "5",
-    type: "项目退出申请",
-    typeColor: "bg-red-50 text-red-700",
-    title: "深势科技股权转让退出申请",
-    project: "深势科技",
-    submitter: "张伟",
-    submitTime: "2024-03-05 11:00",
-    deadline: "2024-03-15 18:00",
-    urgency: "low",
-  },
-  {
-    id: "6",
-    type: "合规风险处置",
-    typeColor: "bg-orange-50 text-orange-700",
-    title: "零一万物关联交易合规审查",
-    project: "零一万物",
-    submitter: "陈总",
-    submitTime: "2024-03-08 08:00",
-    deadline: "2024-03-09 18:00",
-    urgency: "urgent",
-  },
-]
-
-/* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
 export function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [dbData, setDbData] = useState<any>(null)
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  // 【前端核心逻辑】 异步请求触发机制
+  // React 使用了生命周期钩子 useEffect，它会在组件渲染完成后立即执行一次里面的代码。
+  // 在这个回调中自动触发 fetch 请求后端打包加工好的 /api/dashboard 数据。
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const response = await fetch('/api/dashboard')
+        if (response.ok) {
+          const data = await response.json()
+          setDbData(data) // 成功拿到大 JSON 包后，存入页面的 dbData 状态中，引发下面的 React 动态再渲染。
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard data from API', err)
+      }
+    }
+    loadData()
+  }, [])
+
+  const currentScaleOverview = {
+    totalFundSize: dbData?.overview?.totalInvestment ?? 0,
+    fundCount: dbData?.overview?.fundCount ?? 0,
+    projectCount: dbData?.overview?.totalProjectCount ?? 0,
+    newProjectsThisYear: dbData?.overview?.newProjectCount ?? 0,
+  }
+
+  const currentReturnMetrics = {
+    irrMedian: dbData?.overview?.irrMedian ?? 0,
+    dpiDistribution: { 
+      above1: dbData?.overview?.dpiDistribution?.split('/')[0] ?? "0",
+      below1: dbData?.overview?.dpiDistribution?.split('/')[1] ?? "0"
+    },
+    avgProjectReturn: dbData?.overview?.avgReturnMultiple ?? 0,
+    exitWinRate: dbData?.overview?.exitWinRate ?? 0,
+  }
+
+  const currentEfficiencyMetrics = {
+    avgWorkHours: dbData?.overview?.avgProjectDuration ?? 0,
+    avgWorkHoursChange: 0,
+    invalidDueDiligenceRate: dbData?.overview?.invalidEfficiency ?? 0,
+    invalidDueDiligenceChange: 0,
+    approvalRate: dbData?.overview?.approvalPassRate ?? 0,
+  }
+
+  const currentRiskOverview = {
+    highRiskProjects: dbData?.overview?.highRiskProjectCount ?? 0,
+    complianceTodos: dbData?.overview?.compliancePendingCount ?? 0,
+    todayMeetingProjects: dbData?.overview?.todayMeetingCount ?? 0,
+  }
+
+  const currentTodos = (dbData?.todos || []).map((todo: any) => ({
+    id: todo.id,
+    type: todo.type || "未知事项",
+    typeColor: "bg-blue-50 text-blue-700",
+    title: todo.title || "-",
+    project: todo.projectName || "-",
+    submitter: todo.submitter || "-",
+    submitTime: todo.submitTime ? new Date(todo.submitTime).toLocaleString("zh-CN") : "-",
+    deadline: todo.deadline ? new Date(todo.deadline).toLocaleString("zh-CN") : "-",
+    urgency: todo.priority === '紧急' ? 'urgent' : (todo.priority === '一般' ? 'normal' : 'low')
+  }))
+
+  const activeTeamRanking = (dbData?.charts || [])
+    .filter((c: any) => c.managerName)
+    .map((c: any) => ({
+      name: c.managerName,
+      projects: c.managerProjectCount || 0,
+      avgDays: c.managerAvgCycle || 0,
+      score: c.managerEfficiencyScore || 0
+    }))
+
+  const defaultColors = ["#2563EB", "#7C3AED", "#059669", "#DC2626", "#F59E0B"]
+  const trackDistribution = (dbData?.charts || [])
+    .filter((c: any) => c.trackName)
+    .map((c: any, i: number) => ({
+      name: c.trackName,
+      value: c.trackRatio || 0,
+      color: defaultColors[i % defaultColors.length]
+    }))
+
+  const projectTrendMap: Record<string, any> = {}
+  ;(dbData?.charts || []).filter((c: any) => c.statisticMonth).forEach((c: any) => {
+    if (!projectTrendMap[c.statisticMonth]) {
+      projectTrendMap[c.statisticMonth] = { month: c.statisticMonth, 立项: 0, 投决: 0, 退出: 0 }
+    }
+    if (c.stageName === "立项") projectTrendMap[c.statisticMonth].立项 += c.stageProjectCount || 0
+    if (c.stageName === "投决") projectTrendMap[c.statisticMonth].投决 += c.stageProjectCount || 0
+    if (c.stageName === "退出") projectTrendMap[c.statisticMonth].退出 += c.stageProjectCount || 0
+  })
+  const projectTrend = Object.values(projectTrendMap)
+
+  const benchmarkData = (dbData?.charts || [])
+    .filter((c: any) => c.quarter)
+    .map((c: any) => ({
+      quarter: c.quarter,
+      ourIRR: c.fundIrr || 0,
+      industryP50: c.industryAvgIrr || 0,
+      industryP75: c.industryTopIrr || 0,
+      ourDPI: 0, dpiP50: 0
+    }))
 
   const formatTime = (date: Date) => {
     return date.toLocaleString("zh-CN", {
@@ -212,10 +170,10 @@ export function Dashboard() {
   }
 
   return (
-    <div className="h-full overflow-auto bg-[#F3F4F6]">
-      <div className="px-6 py-6 space-y-6">
+    <div className="h-full overflow-auto bg-[#F3F4F6] overflow-x-hidden">
+      <div className="px-4 py-4 md:px-6 md:py-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#111827]">数据看板</h1>
             <p className="mt-1 text-sm text-[#6B7280]">
@@ -228,7 +186,7 @@ export function Dashboard() {
         </div>
 
         {/* 4 Core Metric Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* 规模总览 */}
           <div className="rounded-xl border border-[#E5E7EB] bg-white p-5">
             <div className="flex items-center gap-2 mb-4">
@@ -240,19 +198,19 @@ export function Dashboard() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">基金总规模</p>
-                <p className="text-xl font-bold text-[#111827]">{scaleOverview.totalFundSize}<span className="text-sm font-normal text-[#6B7280] ml-1">亿元</span></p>
+                <p className="text-xl font-bold text-[#111827]">{currentScaleOverview.totalFundSize}<span className="text-sm font-normal text-[#6B7280] ml-1">亿元</span></p>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">在管基金数量</p>
-                <p className="text-xl font-bold text-[#111827]">{scaleOverview.fundCount}<span className="text-sm font-normal text-[#6B7280] ml-1">支</span></p>
+                <p className="text-xl font-bold text-[#111827]">{currentScaleOverview.fundCount}<span className="text-sm font-normal text-[#6B7280] ml-1">支</span></p>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">在管项目总数</p>
-                <p className="text-xl font-bold text-[#111827]">{scaleOverview.projectCount}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span></p>
+                <p className="text-xl font-bold text-[#111827]">{currentScaleOverview.projectCount}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span></p>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">本年度新增项目</p>
-                <p className="text-xl font-bold text-[#2563EB]">{scaleOverview.newProjectsThisYear}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span></p>
+                <p className="text-xl font-bold text-[#2563EB]">{currentScaleOverview.newProjectsThisYear}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span></p>
               </div>
             </div>
           </div>
@@ -268,24 +226,24 @@ export function Dashboard() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">IRR中位数</p>
-                <p className="text-xl font-bold text-emerald-600">{returnMetrics.irrMedian}<span className="text-sm font-normal text-[#6B7280] ml-1">%</span></p>
+                <p className="text-xl font-bold text-emerald-600">{currentReturnMetrics.irrMedian}<span className="text-sm font-normal text-[#6B7280] ml-1">%</span></p>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">DPI分布</p>
                 <p className="text-sm font-medium text-[#111827]">
-                  <span className="text-emerald-600">{returnMetrics.dpiDistribution.above1}</span>
+                  <span className="text-emerald-600">{currentReturnMetrics.dpiDistribution.above1}</span>
                   <span className="text-[#9CA3AF]">/</span>
-                  <span className="text-amber-600">{returnMetrics.dpiDistribution.below1}</span>
+                  <span className="text-amber-600">{currentReturnMetrics.dpiDistribution.below1}</span>
                 </p>
                 <p className="text-[10px] text-[#9CA3AF]">{'>'}1x / {'<'}1x</p>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">平均回报率</p>
-                <p className="text-xl font-bold text-[#111827]">{returnMetrics.avgProjectReturn}<span className="text-sm font-normal text-[#6B7280] ml-1">x</span></p>
+                <p className="text-xl font-bold text-[#111827]">{currentReturnMetrics.avgProjectReturn}<span className="text-sm font-normal text-[#6B7280] ml-1">x</span></p>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">退出胜率</p>
-                <p className="text-xl font-bold text-emerald-600">{returnMetrics.exitWinRate}<span className="text-sm font-normal text-[#6B7280] ml-1">%</span></p>
+                <p className="text-xl font-bold text-emerald-600">{currentReturnMetrics.exitWinRate}<span className="text-sm font-normal text-[#6B7280] ml-1">%</span></p>
               </div>
             </div>
           </div>
@@ -302,34 +260,34 @@ export function Dashboard() {
               <div className="col-span-2">
                 <p className="text-xs text-[#6B7280] mb-1">单项目平均耗时</p>
                 <div className="flex items-center gap-2">
-                  <p className="text-xl font-bold text-[#111827]">{efficiencyMetrics.avgWorkHours}<span className="text-sm font-normal text-[#6B7280] ml-1">小时</span></p>
+                  <p className="text-xl font-bold text-[#111827]">{currentEfficiencyMetrics.avgWorkHours}<span className="text-sm font-normal text-[#6B7280] ml-1">小时</span></p>
                   <span className={cn(
                     "text-xs px-1.5 py-0.5 rounded",
-                    efficiencyMetrics.avgWorkHoursChange < 0
+                    currentEfficiencyMetrics.avgWorkHoursChange < 0
                       ? "bg-emerald-50 text-emerald-600"
                       : "bg-red-50 text-red-600"
                   )}>
-                    {efficiencyMetrics.avgWorkHoursChange > 0 ? "+" : ""}{efficiencyMetrics.avgWorkHoursChange}%
+                    {currentEfficiencyMetrics.avgWorkHoursChange > 0 ? "+" : ""}{currentEfficiencyMetrics.avgWorkHoursChange}%
                   </span>
                 </div>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">无效尽调占比</p>
                 <div className="flex items-center gap-2">
-                  <p className="text-lg font-bold text-[#111827]">{efficiencyMetrics.invalidDueDiligenceRate}%</p>
+                  <p className="text-lg font-bold text-[#111827]">{currentEfficiencyMetrics.invalidDueDiligenceRate}%</p>
                   <span className={cn(
                     "text-xs px-1.5 py-0.5 rounded",
-                    efficiencyMetrics.invalidDueDiligenceChange < 0
+                    currentEfficiencyMetrics.invalidDueDiligenceChange < 0
                       ? "bg-emerald-50 text-emerald-600"
                       : "bg-red-50 text-red-600"
                   )}>
-                    {efficiencyMetrics.invalidDueDiligenceChange > 0 ? "+" : ""}{efficiencyMetrics.invalidDueDiligenceChange}%
+                    {currentEfficiencyMetrics.invalidDueDiligenceChange > 0 ? "+" : ""}{currentEfficiencyMetrics.invalidDueDiligenceChange}%
                   </span>
                 </div>
               </div>
               <div>
                 <p className="text-xs text-[#6B7280] mb-1">立项过会率</p>
-                <p className="text-lg font-bold text-[#111827]">{efficiencyMetrics.approvalRate}<span className="text-sm font-normal text-[#6B7280] ml-1">%</span></p>
+                <p className="text-lg font-bold text-[#111827]">{currentEfficiencyMetrics.approvalRate}<span className="text-sm font-normal text-[#6B7280] ml-1">%</span></p>
               </div>
             </div>
           </div>
@@ -347,24 +305,24 @@ export function Dashboard() {
                 <p className="text-sm text-[#6B7280]">高风险项目</p>
                 <p className={cn(
                   "text-lg font-bold",
-                  riskOverview.highRiskProjects > 0 ? "text-red-600" : "text-[#111827]"
+                  currentRiskOverview.highRiskProjects > 0 ? "text-red-600" : "text-[#111827]"
                 )}>
-                  {riskOverview.highRiskProjects}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span>
+                  {currentRiskOverview.highRiskProjects}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span>
                 </p>
               </div>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-[#6B7280]">合规待办事项</p>
                 <p className={cn(
                   "text-lg font-bold",
-                  riskOverview.complianceTodos > 5 ? "text-amber-600" : "text-[#111827]"
+                  currentRiskOverview.complianceTodos > 5 ? "text-amber-600" : "text-[#111827]"
                 )}>
-                  {riskOverview.complianceTodos}<span className="text-sm font-normal text-[#6B7280] ml-1">项</span>
+                  {currentRiskOverview.complianceTodos}<span className="text-sm font-normal text-[#6B7280] ml-1">项</span>
                 </p>
               </div>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-[#6B7280]">今日待上会项目</p>
                 <p className="text-lg font-bold text-[#2563EB]">
-                  {riskOverview.todayMeetingProjects}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span>
+                  {currentRiskOverview.todayMeetingProjects}<span className="text-sm font-normal text-[#6B7280] ml-1">个</span>
                 </p>
               </div>
             </div>
@@ -372,36 +330,39 @@ export function Dashboard() {
         </div>
 
         {/* Charts Row */}
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="space-y-6">
             {/* 赛道投资分布饼图 */}
-            <div className="rounded-xl border border-[#E5E7EB] bg-white p-5">
+            <div className="rounded-xl border border-[#E5E7EB] bg-white p-5 w-full overflow-x-auto">
               <h3 className="font-semibold text-[#111827] mb-1">赛道投资分布</h3>
               <p className="text-sm text-[#6B7280] mb-4">按投资金额占比统计</p>
-              <div className="h-[240px] flex items-center justify-center">
-                <PieChart width={450} height={240}>
-                  <Pie
-                    data={trackDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={2}
-                    dataKey="value"
-                    label={({ name, value }) => `${name} ${value}%`}
-                    labelLine={false}
-                  >
-                    {trackDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => `${value}%`} />
-                </PieChart>
+              <div className="h-[240px] flex items-center justify-center min-w-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={trackDistribution}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({ name, value }: any) => `${name} ${value}%`}
+                      labelLine={false}
+                    >
+                      {trackDistribution.map((entry: any, index: number) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: any) => `${value}%`} />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
+              
               <div className="flex flex-wrap gap-3 justify-center mt-2">
-                {trackDistribution.map((item) => (
-                  <div key={item.name} className="flex items-center gap-1.5">
+                {trackDistribution.map((item: any, idx: number) => (
+                  <div key={`${item.name}-${idx}`} className="flex items-center gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                     <span className="text-xs text-[#6B7280]">{item.name}</span>
                   </div>
@@ -471,7 +432,7 @@ export function Dashboard() {
               <h3 className="font-semibold text-[#111827] mb-1">团队效能排行</h3>
               <p className="text-sm text-[#6B7280] mb-4">TOP5成员项目效能评分</p>
               <div className="space-y-3">
-                {teamRanking.map((member, index) => (
+                {activeTeamRanking.map((member: any, index: number) => (
                   <div key={member.name} className="flex items-center gap-3">
                     <div className={cn(
                       "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
@@ -507,12 +468,12 @@ export function Dashboard() {
               <p className="text-sm text-[#6B7280]">按紧急程度排序</p>
             </div>
             <Badge className="bg-red-100 text-red-700 border-red-200">
-              {pendingDecisions.filter(d => d.urgency === "urgent").length} 项紧急
+              {currentTodos.filter((d: any) => d.urgency === "urgent").length} 项紧急
             </Badge>
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-[#E5E7EB]">
-            <table className="w-full">
+          <div className="rounded-lg border border-[#E5E7EB] overflow-x-auto w-full">
+            <table className="w-full min-w-[900px]">
               <thead className="bg-[#F9FAFB]">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-[#6B7280]">事项类型</th>
@@ -526,7 +487,7 @@ export function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E5E7EB]">
-                {pendingDecisions.map((item) => (
+                {currentTodos.map((item: any) => (
                   <tr key={item.id} className="hover:bg-[#F9FAFB] transition-colors">
                     <td className="px-4 py-3">
                       <Badge className={cn("text-xs", item.typeColor)}>

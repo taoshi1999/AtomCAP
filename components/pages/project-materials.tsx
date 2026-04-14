@@ -688,10 +688,10 @@ export function ProjectMaterials({
             )}
 
             {/* Header */}
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
               <h1 className="text-2xl font-bold text-[#111827]">通用材料</h1>
               {!isExited && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {onCreatePendingProjectMaterial && (
                     <button
                       onClick={openGenerateDialog}
@@ -720,51 +720,53 @@ export function ProjectMaterials({
             )}
 
             {/* Table */}
-            <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
-              {/* Table Header */}
-              <div className="grid grid-cols-[minmax(240px,2fr)_90px_80px_minmax(200px,3fr)_160px] items-center gap-4 border-b border-[#E5E7EB] bg-[#1E3A5F] px-6 py-3">
-                <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">文件名称</span>
-                <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">格式</span>
-                <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">大小</span>
-                <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">简介</span>
-                <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff] text-right">操作</span>
-              </div>
+            <div className="overflow-x-auto rounded-xl border border-[#E5E7EB] bg-white">
+              <div className="min-w-[800px]">
+                {/* Table Header */}
+                <div className="grid grid-cols-[minmax(240px,2fr)_90px_80px_minmax(200px,3fr)_160px] items-center gap-4 border-b border-[#E5E7EB] bg-[#1E3A5F] px-6 py-3">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">文件名称</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">格式</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">大小</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff]">简介</span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#ffffff] text-right">操作</span>
+                </div>
 
-              {/* Table Body */}
-              <div className="divide-y divide-[#F3F4F6]">
-                {displayItems.map((item) => {
-                  const FormatIcon = getFormatIcon(item.format)
-                  return (
-                    <div
-                      key={item.id}
-                      className="grid grid-cols-[minmax(240px,2fr)_90px_80px_minmax(200px,3fr)_160px] items-center gap-4 px-6 py-4 transition-colors hover:bg-[#F9FAFB]"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F3F4F6]">
-                          <FormatIcon className="h-4.5 w-4.5 text-[#6B7280]" />
+                {/* Table Body */}
+                <div className="divide-y divide-[#F3F4F6]">
+                  {displayItems.map((item) => {
+                    const FormatIcon = getFormatIcon(item.format)
+                    return (
+                      <div
+                        key={item.id}
+                        className="grid grid-cols-[minmax(240px,2fr)_90px_80px_minmax(200px,3fr)_160px] items-center gap-4 px-6 py-4 transition-colors hover:bg-[#F9FAFB]"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F3F4F6]">
+                            <FormatIcon className="h-4.5 w-4.5 text-[#6B7280]" />
+                          </div>
+                          <span className="truncate text-sm font-medium text-[#111827]">{item.name}</span>
                         </div>
-                        <span className="truncate text-sm font-medium text-[#111827]">{item.name}</span>
+                        <div>
+                          <Badge variant="outline" className={`text-xs font-medium ${getFormatColor(item.format)}`}>
+                            {item.format}
+                          </Badge>
+                        </div>
+                        <span className="text-sm text-[#6B7280]">{item.size}</span>
+                        <p className="truncate text-sm text-[#6B7280]">{item.description}</p>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                            <Download className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">下载</span>
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                            <Eye className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">详情</span>
+                          </Button>
+                        </div>
                       </div>
-                      <div>
-                        <Badge variant="outline" className={`text-xs font-medium ${getFormatColor(item.format)}`}>
-                          {item.format}
-                        </Badge>
-                      </div>
-                      <span className="text-sm text-[#6B7280]">{item.size}</span>
-                      <p className="truncate text-sm text-[#6B7280]">{item.description}</p>
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                          <Download className="h-3.5 w-3.5" />
-                          下载
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                          <Eye className="h-3.5 w-3.5" />
-                          详情
-                        </Button>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </div>

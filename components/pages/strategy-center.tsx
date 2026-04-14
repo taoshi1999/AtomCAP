@@ -25,6 +25,9 @@ interface StrategyCenterProps {
   createdFrameworks?: AnalysisFramework[]
   onCreatedFrameworksChange?: (frameworks: AnalysisFramework[]) => void
   initialSubPage?: SubPage
+  onLoadMore?: () => void
+  hasMore?: boolean
+  isLoadingMore?: boolean
 }
 
 // ─── Tab Config ───────────────────────────────────────────────────────────────
@@ -63,6 +66,9 @@ export function StrategyCenter({
   createdFrameworks = [],
   onCreatedFrameworksChange,
   initialSubPage = "consultation",
+  onLoadMore,
+  hasMore,
+  isLoadingMore,
 }: StrategyCenterProps) {
   const [subPage, setSubPage] = useState<SubPage>(initialSubPage)
 
@@ -111,6 +117,9 @@ export function StrategyCenter({
             onStrategiesChange={onStrategiesChange}
             onSelectStrategy={onSelectStrategy}
             onCreatePending={onCreatePending}
+            onLoadMore={onLoadMore}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
           />
         )}
       </div>

@@ -1249,9 +1249,9 @@ export function ProjectOverview({ project, isNewProject = false, projectHypothes
           </div>
 
           {/* Basic Info for New Projects */}
-          <div className="rounded-xl border border-[#E5E7EB] bg-white p-6">
+          <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 md:p-6 w-full">
             <h3 className="mb-4 text-base font-semibold text-[#111827]">基本信息</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex items-center gap-3 rounded-lg bg-[#F9FAFB] p-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
                   <User className="h-5 w-5 text-blue-600" />
@@ -1292,7 +1292,7 @@ export function ProjectOverview({ project, isNewProject = false, projectHypothes
           </div>
 
           {/* Metric Cards + Communication Center Button */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {newMetrics.map((m) => {
               const Icon = m.icon
               return (
@@ -1386,9 +1386,9 @@ export function ProjectOverview({ project, isNewProject = false, projectHypothes
         </div>
 
         {/* Basic Info Card */}
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-6">
+        <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 md:p-6 w-full">
           <h3 className="mb-4 text-base font-semibold text-[#111827]">基本信息</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-center gap-3 rounded-lg bg-[#F9FAFB] p-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
                 <User className="h-5 w-5 text-blue-600" />
@@ -1429,7 +1429,7 @@ export function ProjectOverview({ project, isNewProject = false, projectHypothes
         </div>
 
         {/* Metric Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {defaultMetrics.map((m) => {
             const Icon = m.icon
             return (

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import {
@@ -575,7 +575,7 @@ function CreateFrameworkPicker({ onBack, onNext }: { onBack: () => void; onNext:
         </div>
 
         {/* Cards */}
-        <div className="mx-auto max-w-3xl grid grid-cols-2 gap-6 mb-8">
+        <div className="mx-auto max-w-3xl grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           {/* AI 辅助创建 */}
           <button
             onClick={() => setSelected("ai")}
@@ -808,8 +808,8 @@ function DescribeMethodology({ onBack, onBackToList, onNext }: { onBack: () => v
       </div>
 
       {/* Main content — scrollable */}
-      <div className="flex-1 overflow-auto px-8 pb-8">
-        <div className="flex gap-8">
+       <div className="flex-1 overflow-auto px-4 md:px-8 pb-8">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-8">
           {/* Left: form */}
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-[#111827] mb-2">描述你的投资方法论</h1>
@@ -2644,7 +2644,7 @@ export function AnalysisFrameworks({
                 placeholder="搜索框架..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-64 pl-9 bg-white border-[#E5E7EB]"
+                className="w-full md:w-64 pl-9 bg-white border-[#E5E7EB]"
               />
             </div>
             <span className="text-sm text-[#6B7280]">

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Briefcase, Search, Plus, Target, TrendingUp, Building2, Cpu, Zap, Leaf, X, Check, MoreHorizontal, ChevronRight, ArrowLeft, Upload, Folder, Eye, Pencil, Trash2, Sparkles, Lightbulb, FolderOpen, FileText, Sheet, File } from "lucide-react"
+import { useState, useRef, useCallback } from "react"
+import { Briefcase, Search, Plus, Target, TrendingUp, Building2, Cpu, Zap, Leaf, X, Check, MoreHorizontal, ChevronRight, ArrowLeft, Upload, Folder, Eye, Pencil, Trash2, Sparkles, Lightbulb, FolderOpen, FileText, Sheet, File, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
@@ -264,6 +264,10 @@ interface StrategiesGridProps {
   onStrategiesChange: (strategies: Strategy[]) => void
   onSelectStrategy?: (strategyId: string) => void
   onCreatePending?: (pending: PendingStrategy) => void
+  // 【新增】：接收父组件下发用于翻页触底的方法属性以及数据读取状态
+  onLoadMore?: () => void
+  hasMore?: boolean
+  isLoadingMore?: boolean
 }
 
 /* ------------------------------------------------------------------ */
@@ -719,7 +723,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto px-4 py-4 md:px-8 md:pb-8">
         <div className="mx-auto max-w-3xl">
           {step === 1 && (
             <CreateStrategyStep1
@@ -1067,29 +1071,29 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
               {/* Review Interface */}
               {analysisComplete && !isAnalyzing && (
                 <div>
-                  <div className="flex items-center justify-between mb-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
                     <div>
                       <h1 className="text-xl font-bold text-[#111827]">策略审核</h1>
                       <p className="mt-1 text-sm text-[#6B7280]">
                         审核 AI 生成的假设和条款，可进行编辑、删除或新增
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                      <div className="relative w-full sm:w-auto">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
                         <input
                           type="text"
                           placeholder="搜索..."
                           value={reviewSearchQuery}
                           onChange={(e) => setReviewSearchQuery(e.target.value)}
-                          className="w-48 rounded-lg border border-[#E5E7EB] bg-white pl-9 pr-3 py-2 text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB]"
+                          className="w-full sm:w-48 rounded-lg border border-[#E5E7EB] bg-white pl-9 pr-3 py-2 text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:ring-1 focus:ring-[#2563EB] min-w-0"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* Tabs */}
-                  <div className="flex gap-1 rounded-xl bg-[#F3F4F6] p-1 mb-6">
+                  <div className="flex flex-col sm:flex-row gap-1 rounded-xl bg-[#F3F4F6] p-1 mb-6">
                     {[
                       { key: "hypotheses", label: "假设清单", count: generatedHypotheses.length },
                       { key: "terms", label: "条款清单", count: generatedTerms.length },
@@ -1584,7 +1588,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
 /* ------------------------------------------------------------------ */
 type StrategiesView = "list" | "create"
 
-export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrategy, onCreatePending }: StrategiesGridProps) {
+export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrategy, onCreatePending, onLoadMore, hasMore, isLoadingMore }: StrategiesGridProps) {
   const [view, setView] = useState<StrategiesView>("list")
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -1592,6 +1596,25 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
     (s) =>
       s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.description.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  // 【新增】：策略瀑布流交叉监视器对象与处理流程同 ProjectsGrid，复用相似实现进行最后组件观测
+  const observer = useRef<IntersectionObserver | null>(null)
+  const lastStrategyElementRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      // 倘若读取时网络响应慢就暂停防卡
+      if (isLoadingMore) return
+      if (observer.current) observer.current.disconnect()
+      
+      // 创建判定屏幕元素在视窗里显示的观察者，当进入视区就会出发拿数据方法
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasMore && onLoadMore) {
+          onLoadMore()
+        }
+      })
+      if (node) observer.current.observe(node) // 将渲染出来的那个 DOM 给它绑个监控点
+    },
+    [isLoadingMore, hasMore, onLoadMore]
   )
 
   function handleSaveStrategy(result: CreateStrategyResult) {
@@ -1670,11 +1693,12 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
 
         {/* Strategy Cards Grid */}
         <div className="grid grid-cols-3 gap-5">
-          {filteredStrategies.map((strategy) => {
+          {filteredStrategies.map((strategy, index) => {
             const Icon = strategy.icon
             return (
               <button
                 key={strategy.id}
+                ref={index === filteredStrategies.length - 1 ? lastStrategyElementRef : null}
                 onClick={() => onSelectStrategy?.(strategy.id)}
                 className="group flex flex-col rounded-xl border border-[#E5E7EB] bg-white p-6 text-left transition-all hover:border-[#2563EB]/30 hover:shadow-lg hover:shadow-[#2563EB]/5"
               >
@@ -1739,6 +1763,13 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
             )
           })}
         </div>
+        
+        {/* Loading Indicator */}
+        {isLoadingMore && (
+          <div className="mt-8 flex justify-center pb-8">
+            <Loader2 className="h-6 w-6 animate-spin text-[#2563EB]" />
+          </div>
+        )}
       </div>
     </div>
   )

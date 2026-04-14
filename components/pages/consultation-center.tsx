@@ -464,9 +464,9 @@ export function ConsultationCenter() {
       </div>
 
       {/* ── Body ── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
         {/* ── Main Content ── */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 md:py-6">
           {filteredArticles.length === 0 ? (
             <div className="flex h-60 flex-col items-center justify-center gap-3 text-muted-foreground">
               <BookOpen className="h-10 w-10 opacity-30" />
@@ -476,13 +476,13 @@ export function ConsultationCenter() {
             <div className="space-y-6">
               {/* ── Top Feature Row ── */}
               {topFeatured && (
-                <div className="grid grid-cols-3 gap-4" style={{ gridTemplateRows: "auto" }}>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ gridTemplateRows: "auto" }}>
                   {/* Large featured card */}
-                  <div className="col-span-1 row-span-2">
+                  <div className="col-span-1 lg:row-span-2">
                     <FeaturedCard article={topFeatured} />
                   </div>
                   {/* Right 2×2 grid of the next 4 articles */}
-                  <div className="col-span-2 grid grid-cols-2 gap-4">
+                  <div className="col-span-1 lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {gridArticles.slice(0, 4).map((a) => (
                       <FeaturedCard key={a.id} article={a} />
                     ))}
@@ -512,7 +512,7 @@ export function ConsultationCenter() {
         </div>
 
         {/* ── Sidebar ── */}
-        <div className="w-72 shrink-0 overflow-y-auto border-l border-border bg-white px-4 py-6 space-y-4">
+        <div className="w-full lg:w-72 shrink-0 overflow-y-auto border-t lg:border-t-0 lg:border-l border-border bg-white px-4 py-6 space-y-4">
           {/* Hot list */}
           <HotListCard articles={hotArticles} />
 

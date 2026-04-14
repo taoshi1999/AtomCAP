@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useCallback } from "react"
 import {
   FolderKanban, Search, Plus, X, Upload, Folder,
   ChevronLeft, ChevronRight, Check, Loader2, FileText,
@@ -77,7 +77,7 @@ export interface PendingProject {
   reviewers: { id: string; name: string; initials: string }[]
   uploadedFiles?: MockFile[]
 }
-
+/*
 export const initialProjects: Project[] = [
   {
     id: "2",
@@ -87,6 +87,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "A轮"],
     status: "投中期",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
+    valuation: "待定",
     round: "A轮",
     owner: { id: "lisi", name: "李四", initials: "李四" },
     strategyId: "2",
@@ -101,6 +102,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "C轮"],
     status: "投后期",
     statusColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    valuation: "待定",
     round: "C轮",
     owner: { id: "wangfang", name: "王芳", initials: "王芳" },
     strategyId: "1",
@@ -115,6 +117,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "B轮"],
     status: "投中期",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
+    valuation: "待定",
     round: "B轮",
     owner: { id: "zhangwei", name: "张伟", initials: "张伟" },
     strategyId: "1",
@@ -129,6 +132,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "A轮"],
     status: "投前期",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
+    valuation: "待定",
     round: "A轮",
     owner: { id: "lisi", name: "李四", initials: "李四" },
     strategyId: "2",
@@ -143,6 +147,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "Pre-A"],
     status: "投前期",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
+    valuation: "待定",
     round: "Pre-A",
     owner: { id: "zhaoqiang", name: "赵强", initials: "赵强" },
     strategyId: "2",
@@ -157,6 +162,7 @@ export const initialProjects: Project[] = [
     tags: ["AI+科学", "B轮"],
     status: "投后期",
     statusColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    valuation: "待定",
     round: "B轮",
     owner: { id: "chenzong", name: "陈总", initials: "陈总" },
     strategyId: "4",
@@ -171,13 +177,14 @@ export const initialProjects: Project[] = [
     tags: ["AI+消费", "A轮"],
     status: "投前期",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
+    valuation: "待定",
     round: "A轮",
     owner: { id: "wangfang", name: "王芳", initials: "王芳" },
     strategyId: "6",
     strategyName: "出海电商",
     createdAt: "2024-01-10",
   },
-]
+]*/
 
 interface ProjectsGridProps {
   projects: Project[]
@@ -185,9 +192,12 @@ interface ProjectsGridProps {
   onProjectsChange: (projects: Project[]) => void
   onSelectProject: (projectId: string) => void
   onCreatePending?: (pending: PendingProject) => void
+  onLoadMore?: () => void
+  hasMore?: boolean
+  isLoadingMore?: boolean
 }
 
-export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectProject, onCreatePending }: ProjectsGridProps) {
+export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectProject, onCreatePending, onLoadMore, hasMore, isLoadingMore }: ProjectsGridProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
 
@@ -215,6 +225,27 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
     (p) =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.description.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  // 【新增核心功能】：自动获取加载下一页所需要的交叉监视器 API 辅助对象
+  const observer = useRef<IntersectionObserver | null>(null) // 用于存储观察器实例以免它随组件一直不停重建
+  const lastProjectElementRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      // 如果正在加载请求中，停止旧回调监视防狂点
+      if (isLoadingMore) return
+      // 断开上一轮（如果有了）卡片对象监听绑定防止堆积回调泄漏
+      if (observer.current) observer.current.disconnect()
+      
+      // 新建观察器去确认最后那个 DOM 是不是进到了屏幕显示里
+      observer.current = new IntersectionObserver((entries) => {
+        // [0].isIntersecting 判断它露脸了。如果是这样，且还有老本数据能够继续榨取就触发给外的加载动作
+        if (entries[0].isIntersecting && hasMore && onLoadMore) {
+          onLoadMore()
+        }
+      })
+      if (node) observer.current.observe(node) // 将目前传进来的挂载了此回调函数的卡片挂到我们的“摄像头”
+    },
+    [isLoadingMore, hasMore, onLoadMore]
   )
 
   function handleCreate() {
@@ -373,12 +404,12 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
   }
 
   return (
-    <div className="h-full overflow-auto bg-[#F3F4F6]">
-      <div className="px-8 py-8">
+    <div className="h-full overflow-auto bg-[#F3F4F6] overflow-x-hidden">
+      <div className="px-4 py-4 md:px-8 md:py-8">
         {/* Page Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white shrink-0">
               <FolderKanban className="h-5 w-5" />
             </div>
             <div>
@@ -388,20 +419,20 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2">
-              <Search className="h-4 w-4 text-[#9CA3AF]" />
+          <div className="flex flex-col flex-wrap sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 w-full sm:w-auto overflow-hidden">
+              <Search className="h-4 w-4 text-[#9CA3AF] shrink-0" />
               <input
                 type="text"
                 placeholder="搜索项目..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-48 bg-transparent text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF]"
+                className="w-full sm:w-48 bg-transparent text-sm text-[#374151] outline-none placeholder:text-[#9CA3AF] min-w-0"
               />
             </div>
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] shrink-0 whitespace-nowrap"
             >
               <Plus className="h-4 w-4" />
               新建项目
@@ -410,10 +441,11 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
         </div>
 
         {/* Project Cards Grid */}
-        <div className="grid grid-cols-4 gap-5">
-          {filteredProjects.map((project) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {filteredProjects.map((project, index) => (
             <button
               key={project.id}
+              ref={index === filteredProjects.length - 1 ? lastProjectElementRef : null}
               onClick={() => onSelectProject(project.id)}
               className="group flex flex-col rounded-xl border border-[#E5E7EB] bg-white p-5 text-left transition-all hover:border-[#2563EB]/30 hover:shadow-lg hover:shadow-[#2563EB]/5"
             >
@@ -466,6 +498,13 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
             </button>
           ))}
         </div>
+        
+        {/* Loading Indicator */}
+        {isLoadingMore && (
+          <div className="mt-8 flex justify-center pb-8">
+            <Loader2 className="h-6 w-6 animate-spin text-[#2563EB]" />
+          </div>
+        )}
       </div>
 
       {/* Create Project Dialog */}
@@ -507,7 +546,7 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-[#111827] truncate">{strategy.name}</p>
-                        <p className="text-xs text-[#6B7280]">{strategy.type}</p>
+                        <p className="text-xs text-[#6B7280]">{strategy.frameworkName || "定制策略"}</p>
                       </div>
                     </button>
                   )

@@ -496,8 +496,8 @@ export function StrategyHypotheses({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
-          <table className="w-full">
+          <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-x-auto">
+            <table className="w-full min-w-[800px]">
             <thead>
               <tr className="bg-[#1E3A5F] text-white">
                 <th className="px-4 py-3 text-left text-sm font-medium">假设方向</th>

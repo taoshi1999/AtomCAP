@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AppTopbar, type TopNavKey } from "@/components/app-topbar"
 import { Dashboard } from "@/components/pages/dashboard"
-import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/components/pages/projects-grid"
-import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/components/pages/strategies-grid"
+import { ProjectsGrid, type Project, type PendingProject, getStatusColor } from "@/components/pages/projects-grid"
+import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial } from "@/components/pages/strategies-grid"
 import { StrategyCenter } from "@/components/pages/strategy-center"
 import type { AnalysisFramework, PendingFramework } from "@/components/pages/analysis-frameworks"
 import { ProjectDetail } from "@/components/pages/project-detail"
@@ -27,12 +27,158 @@ type ViewState =
   | { type: "project-detail"; projectId: string }
   | { type: "strategy-detail"; strategyId: string; initialSubPage?: "overview" | "hypotheses" | "terms" | "materials" }
 
+import { Target, Cpu, Building2, Zap, Leaf, TrendingUp, Briefcase } from "lucide-react"
+
+// A helper to map string names to icons from lucide-react
+function getIconForStrategy(name: string) {
+  const iconMap: Record<string, any> = {
+    Cpu: Cpu,
+    Target: Target,
+    Building2: Building2,
+    Zap: Zap,
+    Leaf: Leaf,
+    TrendingUp: TrendingUp,
+    Briefcase: Briefcase,
+  }
+  return iconMap[name] || Target
+}
+
+function getIconBgForStrategy(name: string) {
+  const bgMap: Record<string, string> = {
+    Cpu: "bg-blue-100 text-blue-600",
+    Target: "bg-violet-100 text-violet-600",
+    Building2: "bg-emerald-100 text-emerald-600",
+    Zap: "bg-rose-100 text-rose-600",
+    Leaf: "bg-lime-100 text-lime-600",
+    TrendingUp: "bg-amber-100 text-amber-600",
+    Briefcase: "bg-indigo-100 text-indigo-600",
+  }
+  return bgMap[name] || "bg-violet-100 text-violet-600"
+}
+
 export default function Page() {
   const [view, setView] = useState<ViewState>({ type: "login" })
-  const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
+  const [strategies, setStrategies] = useState<Strategy[]>([])
   const [pendingStrategies, setPendingStrategies] = useState<PendingStrategy[]>([])
-  const [projects, setProjects] = useState<Project[]>(initialProjects)
+  const [projects, setProjects] = useState<Project[]>([])
   const [pendingProjects, setPendingProjects] = useState<PendingProject[]>([])
+
+  // 【新增】：项目列表的分页状态 - 当前页码、是否有更多、是否正在加载下一页
+  const [projectsPage, setProjectsPage] = useState(1);
+  const [hasMoreProjects, setHasMoreProjects] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // 【新增】：策略列表的分页状态
+  const [strategiesPage, setStrategiesPage] = useState(1);
+  const [hasMoreStrategies, setHasMoreStrategies] = useState(true);
+  const [isLoadingMoreStrategies, setIsLoadingMoreStrategies] = useState(false);
+
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const [projectsResponse, strategiesResponse] = await Promise.all([
+          // 【修改】：初始化时仅请求第一页，limit=2 是为了演示滑动效果，实际业务通常为 10 或 20
+          fetch('/api/projects?page=1&limit=2'), //??????????????
+          fetch('/api/strategies?page=1&limit=2') //??????????????
+        ]);
+        
+        if (projectsResponse.ok) {
+          const fetchedProjects = await projectsResponse.json();
+          setProjects(fetchedProjects);
+          // 【新增】：如果数据库一共返回了不足2条，证明后面一滴也没有了，标记不再请求新数据
+          if (fetchedProjects.length < 2) { //??????????????
+            setHasMoreProjects(false);
+          }
+        }
+
+        if (strategiesResponse.ok) {
+          const fetchedStrategiesData = await strategiesResponse.json();
+          // 【新增】：如果不满2条，标记没更多了
+          if (fetchedStrategiesData.length < 2) { //??????????????
+            setHasMoreStrategies(false);
+          }
+          const mappedStrategies: Strategy[] = fetchedStrategiesData.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            icon: getIconForStrategy(s.iconName),
+            iconBg: getIconBgForStrategy(s.iconName),
+            description: s.description,
+            projectCount: s.projectCount,
+            totalInvest: s.totalInvest,
+            returnRate: s.returnRate,
+            owner: s.owner,
+            createdAt: s.createdAt,
+            frameworkName: s.frameworkName,
+          }));
+          setStrategies(mappedStrategies);
+        }
+      } catch (err) {
+        console.error("Failed to load initial data from API", err);
+      }
+    }
+    loadInitialData();
+  }, []);
+
+  // 【新增】：当用户列表滑入底端触发的【加载下一页项目】事件回调函数
+  const loadMoreProjects = async () => {
+    // 【判断】：如果在请求中或是数据已完结，则忽视该请求防止重复多余请求
+    if (isLoadingMore || !hasMoreProjects) return;
+    setIsLoadingMore(true); // 打开下方 loading 状态标识
+    try {
+      const nextPage = projectsPage + 1; // 准备发送下一页的页码
+      const res = await fetch(`/api/projects?page=${nextPage}&limit=2`); //??????????????
+      if (res.ok) {
+        const newProjects = await res.json();
+        // 【判断】：如果没要到满2条则证明到达了最底了
+        if (newProjects.length < 2) { //??????????????
+          setHasMoreProjects(false);
+        }
+        // 【核心】：利用拓展运算符展开，把新的数据追加拼接在原来的老数据结尾（无限滚动的真正意义所在）
+        setProjects(prev => [...prev, ...newProjects]);
+        setProjectsPage(nextPage); // 更新分页标识
+      }
+    } catch (err) {
+      console.error("Failed to load more projects", err);
+    } finally {
+      setIsLoadingMore(false); // 关闭网络请求锁标识
+    }
+  };
+
+  // 【新增】：同上：策略加载下一页逻辑
+  const loadMoreStrategies = async () => {
+    if (isLoadingMoreStrategies || !hasMoreStrategies) return;
+    setIsLoadingMoreStrategies(true);
+    try {
+      const nextPage = strategiesPage + 1;
+      const res = await fetch(`/api/strategies?page=${nextPage}&limit=2`); //??????????????
+      if (res.ok) {
+        const fetchedStrategiesData = await res.json();
+        if (fetchedStrategiesData.length < 2) { //??????????????
+          setHasMoreStrategies(false);
+        }
+        const newStrategies: Strategy[] = fetchedStrategiesData.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          icon: getIconForStrategy(s.iconName),
+          iconBg: getIconBgForStrategy(s.iconName),
+          description: s.description,
+          projectCount: s.projectCount,
+          totalInvest: s.totalInvest,
+          returnRate: s.returnRate,
+          owner: s.owner,
+          createdAt: s.createdAt,
+          frameworkName: s.frameworkName,
+        }));
+        setStrategies(prev => [...prev, ...newStrategies]);
+        setStrategiesPage(nextPage);
+      }
+    } catch (err) {
+      console.error("Failed to load more strategies", err);
+    } finally {
+      setIsLoadingMoreStrategies(false);
+    }
+  };
+
   // Workflow phases state per project - keyed by projectId
   const [projectPhases, setProjectPhases] = useState<Record<string, Phase[]>>({})
   const [pendingPhases, setPendingPhases] = useState<PendingPhase[]>([])
@@ -146,6 +292,7 @@ export default function Page() {
           owner: "张伟",
           createdAt: new Date().toISOString().split("T")[0],
           updatedAt: new Date().toISOString().split("T")[0],
+          relatedMaterials: [],
         }))
         setStrategyHypotheses((prev) => ({ ...prev, [newStrategyId]: newHypotheses }))
       }
@@ -164,6 +311,9 @@ export default function Page() {
           owner: "张伟",
           createdAt: new Date().toISOString().split("T")[0],
           updatedAt: new Date().toISOString().split("T")[0],
+          recommendation: "Neutral",
+          relatedMaterials: [],
+          relatedHypotheses: [],
         }))
         setStrategyTerms((prev) => ({ ...prev, [newStrategyId]: newTerms }))
       }
@@ -236,7 +386,7 @@ export default function Page() {
 
       // Detect if strategy is a track strategy (赛道策略) to determine template data source
       const strategy = strategies.find((s) => s.id === sid)
-      const isTrackStrategy = strategy?.type === "赛道策略"
+      const isTrackStrategy = strategy?.frameworkName === "赛道研究" || strategy?.name.includes("赛道")
 
       // For track strategies, use the strategy view template data (hypotheses shown in strategy view)
       // For strategy "1" or other theme strategies, use the existing template helper
@@ -1281,6 +1431,9 @@ export default function Page() {
             onProjectsChange={setProjects}
             onSelectProject={handleSelectProject}
             onCreatePending={handleCreatePendingProject}
+            onLoadMore={loadMoreProjects}
+            hasMore={hasMoreProjects}
+            isLoadingMore={isLoadingMore}
           />
         )}
         {view.type === "strategies" && (
@@ -1292,6 +1445,9 @@ export default function Page() {
             onCreatePendingFramework={handleCreatePendingFramework}
             createdFrameworks={createdFrameworks}
             onCreatedFrameworksChange={setCreatedFrameworks}
+            onLoadMore={loadMoreStrategies}
+            hasMore={hasMoreStrategies}
+            isLoadingMore={isLoadingMoreStrategies}
           />
         )}
         {view.type === "change-requests" && (

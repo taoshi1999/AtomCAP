@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import {
@@ -227,10 +227,10 @@ export function ResearchCenter() {
   const currentFeatured = featuredReports[featuredIdx]
 
   return (
-    <div className="flex h-full overflow-hidden bg-[#F8FAFC]">
+     <div className="flex flex-col md:flex-row h-full overflow-hidden bg-[#F8FAFC]">
 
       {/* ── Left Sidebar ─────────────────────────────────────────────────── */}
-      <div className="w-44 shrink-0 overflow-y-auto border-r border-border bg-white py-3">
+      <div className="w-full md:w-44 shrink-0 overflow-y-auto border-b md:border-b-0 md:border-r border-border bg-white py-3">
         {/* Search bar */}
         <div className="px-3 mb-3">
           <div className="relative">
@@ -297,7 +297,7 @@ export function ResearchCenter() {
       <div className="flex-1 overflow-y-auto">
 
         {/* Featured banner */}
-        <div className="flex gap-3 p-4 border-b border-border bg-white">
+        <div className="flex flex-col lg:flex-row gap-3 p-4 border-b border-border bg-white">
           {/* Banner image */}
           <div className="relative h-44 flex-1 overflow-hidden rounded-xl shrink-0">
             <div className={cn(
@@ -333,7 +333,7 @@ export function ResearchCenter() {
           </div>
 
           {/* Recommended articles sidebar */}
-          <div className="w-56 shrink-0 flex flex-col">
+          <div className="w-full lg:w-56 shrink-0 flex flex-col pt-4 lg:pt-0">
             <div className="flex items-center gap-1.5 mb-2">
               <BookMarked className="h-3.5 w-3.5 text-blue-600" />
               <span className="text-xs font-semibold text-foreground">网站推荐</span>
@@ -362,7 +362,7 @@ export function ResearchCenter() {
         {/* Category tabs + article list */}
         <div className="bg-white mt-2 mx-0 border-y border-border">
           {/* Tabs */}
-          <div className="flex items-center border-b border-border px-4">
+            <div className="flex items-center border-b border-border px-4 overflow-x-auto whitespace-nowrap scrollbar-none">
             {(["宏观经济", "投资策略", "行业分析", "公司调研"] as MainCategory[]).map((cat) => (
               <button
                 key={cat}
@@ -400,7 +400,7 @@ export function ResearchCenter() {
         </div>
 
         {/* Bottom two-column section */}
-        <div className="grid grid-cols-2 gap-2 p-2 pt-2">
+         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-2 pt-2">
           {/* 晨会早刊 / 机构资讯 */}
           <MorningSection reports={reports} />
           {/* 新股研究 / 并购重组 / 融资融券 */}
@@ -409,7 +409,7 @@ export function ResearchCenter() {
       </div>
 
       {/* ── Right Sidebar ─────────────────────────────────────────────────── */}
-      <div className="w-56 shrink-0 overflow-y-auto border-l border-border bg-white py-4 px-3 space-y-4">
+      <div className="w-full lg:w-56 shrink-0 overflow-y-auto border-t lg:border-t-0 lg:border-l border-border bg-white py-4 px-3 space-y-4">
 
         {/* 主要行业 */}
         <div>

@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model DashboardOverview {
+  id                     String   @id @default(cuid()) // 唯一标识
+  totalProjectCount      Int      @default(0)          // 累计看过的项目总数
+  totalInvestment        Float?                        // 累计投资金额总量
+  fundCount              Int      @default(0)          // 正在管理的基金总数
+  newProjectCount        Int      @default(0)          // 本年新增/立项的项目数
+  irrMedian              Float?                        // 内部收益率(IRR)中位数
+  dpiDistribution        String?  @db.VarChar(50)      // DPI(投入资本分红率)分布区间情况
+  avgReturnMultiple      Float?                        // 历史平均资金回报倍数
+  exitWinRate            Float?                        // 历史项目成功退出胜率
+  avgProjectDuration     Int?                          // 平均项目周转时长(月/天)
+  invalidEfficiency      Float?                        // 无效推进/损耗效能占比
+  approvalPassRate       Float?                        // 投决会审核通过率
+  highRiskProjectCount   Int      @default(0)          // 警报或高风险项目跟踪数
+  compliancePendingCount Int      @default(0)          // 待进行合规性审查的项目数
+  todayMeetingCount      Int      @default(0)          // 今日计划上会的数量
+  updatedAt              DateTime @updatedAt           // 数据最后更新日期
+}
+
+model DashboardChart {
+  id                     String  @id @default(cuid()) // 唯一标识符
+  trackName              String? @db.VarChar(50)      // 行业赛道名称
+  trackInvestAmount      Float?                       // 该赛道的已投总金额
+  trackRatio             Float?                       // 该赛道占整体投资额的比例
+  stageName              String? @db.VarChar(50)      // 投资轮次/阶段名称
+  stageProjectCount      Int?                         // 对应轮次的投资项目个数
+  statisticMonth         String? @db.VarChar(20)      // 图表横坐标-对应统计月份
+  quarter                String? @db.VarChar(20)      // 图表横坐标-对应统计季度
+  fundIrr                Float?                       // 你的基金在当期的IRR指标
+  industryTopIrr         Float?                       // 行业前1/4分位(Top Quartile)基准IRR
+  industryAvgIrr         Float?                       // 行业整体平均IRR
+  managerName            String? @db.VarChar(50)      // 投资经理姓名（用于团队效能柱状图）
+  managerProjectCount    Int?                         // 投资经理负责的总项目数
+  managerAvgCycle        Int?                         // 投资经理平均推表/尽调周期
+  managerEfficiencyScore Int?                         // 投资经理综合效能评估打分
+}
+
+model DashboardTodo {
+  id          String    @id @default(cuid()) // 唯一ID
+  type        String?   @db.VarChar(50)      // 待办类型（比如：会议、审批、尽调任务等）
+  title       String?   @db.VarChar(255)     // 待办事项的具体名称和标题
+  projectName String?   @db.VarChar(255)     // 关联的具体项目名称（如: 某AI应用项目）
+  submitter   String?   @db.VarChar(50)      // 任务的提交人/发起人
+  submitTime  DateTime?                      // 任务被发起提交的具体时间
+  deadline    DateTime?                      // 要求完成的最后截止时间
+  priority    String?   @db.VarChar(20)      // 紧急程度/优先级（高、中、低）
+  operation   String?   @db.VarChar(20)      // 需要采取的操作动作文本（如"去审批"）
+  createdAt   DateTime  @default(now())      // 这条待办记录在数据库中的创建时间
+}
+
+model Project {
+  id              String   @id @default(cuid()) // 
+  name            String   @db.VarChar(255)     // 项目的全称（如“月之暗面”）
+  logo            String?  @db.VarChar(20)      // 项目缩写Logo（通常截取名称首字）
+  description     String?                       // 项目简介（一句话描述核心业务）
+  stage           String   @db.VarChar(50)      // 当前所处的投资阶段状态（比如"投中期"）
+  tags            String   @db.VarChar(50)      // 业务标签集合
+  round           String?  @db.VarChar(50)      // 当前的融资轮次（如 A轮、Pre-A 等）
+  managerId       String?  @db.VarChar(100)     // 项目主要负责经理的账号ID
+  managerName     String?  @db.VarChar(100)     // 项目主要负责经理的真实姓名
+  totalInvestment Float?                        // 记录该项目总融资金额或估值
+  irr             Float?                        // 单个项目的自身IRR水平记录
+  createdAt       DateTime @default(now())      // 创建这个项目建档的时间
+  updatedAt       DateTime @updatedAt           // 最后一次修改该项目信息的更新时间
+}
+
+model Strategy {
+  id              String   @id @default(cuid()) // 
+  iconName        String?  @db.VarChar(50)      // 对应前端展示时用的图标标识（如：Cpu、Target）
+  name            String   @db.VarChar(255)     // 策略板块名称（如“AI基础设施”、“大模型应用”）
+  frameworkName   String?  @db.VarChar(255)     // 该策略套用的分析框架名（如“早期项目筛选框架”）
+  description     String?                       // 策略大类的导语或简短概括描述
+  managerName     String?  @db.VarChar(100)     // 主要管理或追踪该领域的合伙人/经理名字
+  projectCount    Int      @default(0)          // 落入该策略分类下的子项目总个数
+  totalInvestment String?  @db.VarChar(50)      // 在该策略方向上规划或已投的资金（文本表示带单位“亿”）
+  returnRate      String?  @db.VarChar(50)      // 该策略跑出来的综合收益率（文本表示带"%"）
+  createdAt       DateTime @default(now())      // 策略主题首次入库的时间
+  updatedAt       DateTime @updatedAt           // 策略属性记录每次更新的时间戳
+}
