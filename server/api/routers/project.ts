@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import { createTRPCRouter, publicProcedure, protectedProcedure } from '../trpc'
-import { prisma } from '@/server/db'
+import { prisma } from '../../db'
+import type { Context } from '../context'
 
 export const projectRouter = createTRPCRouter({
   /**
    * 获取所有项目
    */
-  getAll: protectedProcedure.query(async ({ ctx }) => {
+  getAll: protectedProcedure.query(async ({ ctx }: { ctx: Context }) => {
     const projects = await prisma.project.findMany({
       orderBy: {
         createdAt: 'desc' as const,

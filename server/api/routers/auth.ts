@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import { createTRPCRouter, publicProcedure, protectedProcedure } from './trpc'
-import { prisma } from '@/server/db'
+import { createTRPCRouter, publicProcedure, protectedProcedure } from '../trpc'
+import { prisma } from '../../db'
 
 export const authRouter = createTRPCRouter({
   /**

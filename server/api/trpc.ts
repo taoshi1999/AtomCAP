@@ -1,26 +1,25 @@
 import { initTRPC, TRPCError } from '@trpc/server'
-import superjson from 'superjson'
-import { type Context } from './context'
+import { Context } from './context'
 
-export const t = initTRPC.context<Context>().create({
-  transformer: superjson,
-})
+// 初始化 tRPC
+const t = initTRPC.context<Context>().create()
 
+// 导出基础配置
 export const createTRPCRouter = t.router
 export const publicProcedure = t.procedure
 
-/**
- * 认证中间件 - 需要用户登录
- */
-export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
-  if (!ctx.session || !ctx.session.user) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' })
+// 受保护的程序（需要登录）
+export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: '请先登录',
+    })
   }
-  
+
   return next({
     ctx: {
-      ...ctx,
-      session: { ...ctx.session, user: ctx.session.user },
+      session: ctx.session,
     },
   })
 })

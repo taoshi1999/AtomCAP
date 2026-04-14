@@ -22,6 +22,9 @@ model User {
   accounts     Account[]
   sessions     Session[]
   
+  // 项目管理关联
+  projects     Project[]
+  
   @@map("users")
 }
 
@@ -59,4 +62,56 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// 项目管理相关
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  status      String?   @default("active")
+  priority    String?
+  industry    String?
+  stage       String?
+  budget      Float?
+  creatorId   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  creator    User       @relation(fields: [creatorId], references: [id])
+  tasks      Task[]
+  documents  Document[]
+
+  @@map("projects")
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  status      String    @default("pending")
+  priority    String?
+  assigneeId  String?
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
+}
+
+model Document {
+  id          String    @id @default(cuid())
+  projectId   String
+  title       String
+  url         String?
+  type        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
 }
