@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useSession } from "next-auth/react"
 import { AppTopbar, type TopNavKey } from "@/components/app-topbar"
 import { Dashboard } from "@/components/pages/dashboard"
 import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/components/pages/projects-grid"
@@ -80,6 +81,17 @@ export default function Page() {
   const [strategyRecommendations, setStrategyRecommendations] = useState<
     Record<string, { hypothesesGenerated: boolean; termsGenerated: boolean; materialsGenerated: boolean }>
   >({})
+
+  const { data: session, status } = useSession()
+
+  // 检查登录状态
+  useEffect(() => {
+    if (status === "authenticated") {
+      setView({ type: "dashboard" })
+    } else if (status === "unauthenticated") {
+      setView({ type: "login" })
+    }
+  }, [status])
 
   const activeNav: TopNavKey | null =
     view.type === "dashboard"
@@ -1263,6 +1275,14 @@ export default function Page() {
       ...projectPhases,
       [projectId]: phases,
     })
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-gray-500">加载中...</div>
+      </div>
+    )
   }
 
   if (view.type === "login") {
