@@ -1,19 +1,13 @@
-import path from "path"
-import { fileURLToPath } from "url"
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-// Worktree lives at <project>/.claude/worktrees/<name> — go up 3 levels to reach the project root
-// where node_modules/next and pnpm-lock.yaml reside.
-const projectRoot = path.resolve(__dirname, "..", "..", "..")
+/**
+ * 运行时环境变量校验（T3 Stack 标准）
+ */
+await import("./src/env.mjs");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  turbopack: {
-    root: projectRoot,
-  },
-}
+};
 
-export default nextConfig
+export default nextConfig;
