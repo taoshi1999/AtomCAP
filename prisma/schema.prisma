@@ -39,22 +39,32 @@ model Session {
 // ==================== 项目管理 ====================
 
 model Project {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  status      String?  @default("设立期")
-  priority    String?  @default("中")
-  industry    String?
-  stage       String?
-  budget      Float?
-  creatorId   String   @map("creator_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  logo         String?
+  description  String?
+  tags         String[]
+  status       String   @default("待立项")
+  valuation    String?
+  round        String?
+  ownerId      String?  @map("owner_id")
+  ownerName    String?  @map("owner_name")
+  strategyId   String?  @map("strategy_id")
+  strategyName String?  @map("strategy_name")
+  creatorId    String   @map("creator_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   creator   User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
   tasks     Task[]
   documents Document[]
 
+  @@index([code])
+  @@index([status])
+  @@index([ownerId])
+  @@index([strategyId])
+  @@index([createdAt])
   @@map("projects")
 }
 
