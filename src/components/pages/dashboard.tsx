@@ -28,7 +28,6 @@ import {
   YAxis,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
 } from "recharts"
 import {
@@ -421,18 +420,16 @@ export function Dashboard() {
                 }}
                 className="h-[240px] w-full"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={projectTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} />
-                    <YAxis tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend />
-                    <Bar dataKey="立项" fill="#2563EB" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="投决" fill="#7C3AED" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="退出" fill="#059669" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart data={projectTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} />
+                  <YAxis tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Legend />
+                  <Bar dataKey="立项" fill="#2563EB" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="投决" fill="#7C3AED" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="退出" fill="#059669" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ChartContainer>
             </div>
           </div>
@@ -451,18 +448,16 @@ export function Dashboard() {
                 }}
                 className="h-[240px] w-full"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={benchmarkData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis dataKey="quarter" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} padding={{ left: 30, right: 30 }} />
-                    <YAxis tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} unit="%" width={40} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend />
-                    <Line type="monotone" dataKey="ourIRR" stroke="#2563EB" strokeWidth={2} dot={{ fill: "#2563EB" }} name="本基金IRR" />
-                    <Line type="monotone" dataKey="industryP50" stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="5 5" dot={false} name="行业P50" />
-                    <Line type="monotone" dataKey="industryP75" stroke="#D1D5DB" strokeWidth={1.5} strokeDasharray="3 3" dot={false} name="行业P75" />
-                  </LineChart>
-                </ResponsiveContainer>
+                <LineChart data={benchmarkData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis dataKey="quarter" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} padding={{ left: 30, right: 30 }} />
+                  <YAxis tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E5E7EB" }} unit="%" width={40} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Legend />
+                  <Line type="monotone" dataKey="ourIRR" stroke="#2563EB" strokeWidth={2} dot={{ fill: "#2563EB" }} name="本基金IRR" />
+                  <Line type="monotone" dataKey="industryP50" stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="5 5" dot={false} name="行业P50" />
+                  <Line type="monotone" dataKey="industryP75" stroke="#D1D5DB" strokeWidth={1.5} strokeDasharray="3 3" dot={false} name="行业P75" />
+                </LineChart>
               </ChartContainer>
             </div>
 
