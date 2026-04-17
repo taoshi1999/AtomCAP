@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
+import { api } from "@/src/components/TRPCProvider"
 import { AppTopbar, type TopNavKey } from "@/src/components/app-topbar"
 import { Dashboard } from "@/src/components/pages/dashboard"
-import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/src/components/pages/projects-grid"
+import { ProjectsGrid, type Project, type PendingProject, getStatusColor } from "@/src/components/pages/projects-grid"
 import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/src/components/pages/strategies-grid"
 import { StrategyCenter } from "@/src/components/pages/strategy-center"
 import type { AnalysisFramework, PendingFramework } from "@/src/components/pages/analysis-frameworks"
@@ -32,8 +33,41 @@ export default function Page() {
   const [view, setView] = useState<ViewState>({ type: "login" })
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
   const [pendingStrategies, setPendingStrategies] = useState<PendingStrategy[]>([])
-  const [projects, setProjects] = useState<Project[]>(initialProjects)
+  const [projects, setProjects] = useState<Project[]>([])
   const [pendingProjects, setPendingProjects] = useState<PendingProject[]>([])
+
+  const { data: session, status } = useSession()
+  const projectsQuery = api.project.getAll.useQuery(undefined, {
+    enabled: status === "authenticated",
+  })
+
+  useEffect(() => {
+    if (projectsQuery.data) {
+      const mappedProjects: Project[] = projectsQuery.data.map((p) => ({
+        id: p.id,
+        name: p.name,
+        logo: p.logo || p.name.charAt(0),
+        description: p.description || "",
+        tags: p.tags || [],
+        status: p.status || "待立项",
+        statusColor: getStatusColor(p.status || "待立项"),
+        valuation: p.valuation || "待定",
+        round: p.round || "",
+        owner: { id: p.ownerId || "", name: p.ownerName || "待分配", initials: p.ownerName?.charAt(0) || "待" },
+        strategyId: p.strategyId || undefined,
+        strategyName: p.strategyName || undefined,
+        createdAt: p.createdAt ? new Date(p.createdAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+      }))
+      setProjects(mappedProjects)
+    }
+  }, [projectsQuery.data])
+
+  const createProjectMutation = api.project.create.useMutation({
+    onSuccess: () => {
+      projectsQuery.refetch()
+    },
+  })
+
   // Workflow phases state per project - keyed by projectId
   const [projectPhases, setProjectPhases] = useState<Record<string, Phase[]>>({})
   const [pendingPhases, setPendingPhases] = useState<PendingPhase[]>([])
@@ -81,8 +115,6 @@ export default function Page() {
   const [strategyRecommendations, setStrategyRecommendations] = useState<
     Record<string, { hypothesesGenerated: boolean; termsGenerated: boolean; materialsGenerated: boolean }>
   >({})
-
-  const { data: session, status } = useSession()
 
   // 检查登录状态
   useEffect(() => {
@@ -234,141 +266,159 @@ export default function Page() {
   function handleApproveProject(id: string) {
     const pending = pendingProjects.find((p) => p.id === id)
     if (pending) {
-      const newProjectId = `new-project-${Date.now()}`
-      const newProject: Project = {
-        id: newProjectId,
-        ...pending.project,
-      }
-      setProjects([newProject, ...projects])
-      setPendingProjects(pendingProjects.filter((p) => p.id !== id))
+      createProjectMutation.mutate({
+        name: pending.project.name,
+        logo: pending.project.logo,
+        description: pending.project.description,
+        tags: pending.project.tags,
+        valuation: pending.project.valuation,
+        round: pending.project.round,
+        ownerId: pending.project.owner.id,
+        ownerName: pending.project.owner.name,
+        strategyId: pending.project.strategyId,
+        strategyName: pending.project.strategyName,
+      }, {
+        onSuccess: (savedProject) => {
+          const newProjectId = savedProject.id
+          const newProject: Project = {
+            id: newProjectId,
+            ...pending.project,
+          }
+          setProjects((prev) => [newProject, ...prev])
 
-      // Inherit hypotheses from strategy template (all set to "待验证")
-      const sid = pending.project.strategyId || ""
-      const today = new Date().toISOString().split("T")[0]
+          // Inherit hypotheses from strategy template (all set to "待验证")
+          const sid = pending.project.strategyId || ""
+          const today = new Date().toISOString().split("T")[0]
 
-      // Detect if strategy is a track strategy (赛道策略) to determine template data source
-      const strategy = strategies.find((s) => s.id === sid)
-      const isTrackStrategy = strategy?.type === "赛道策略"
+          // Detect if strategy is a track strategy (赛道策略) to determine template data source
+          const strategy = strategies.find((s) => s.id === sid)
+          const isTrackStrategy = strategy?.type === "赛道策略"
 
-      // For track strategies, use the strategy view template data (hypotheses shown in strategy view)
-      // For strategy "1" or other theme strategies, use the existing template helper
-      const templateHypotheses: HypothesisTableItem[] = isTrackStrategy
-        ? getTrackStrategyHypothesisTemplate().map((h) => ({
-          id: `strategy-tmpl-${h.id}`,
-          direction: h.direction,
-          category: h.category,
-          name: h.name,
-          owner: h.owner,
-          createdAt: h.createdAt,
-          updatedAt: today,
-          status: "pending" as const,
-        }))
-        : getTemplateHypothesesForStrategy(sid)
+          // For track strategies, use the strategy view template data (hypotheses shown in strategy view)
+          // For strategy "1" or other theme strategies, use the existing template helper
+          const templateHypotheses: HypothesisTableItem[] = isTrackStrategy
+            ? getTrackStrategyHypothesisTemplate().map((h) => ({
+              id: `strategy-tmpl-${h.id}`,
+              direction: h.direction,
+              category: h.category,
+              name: h.name,
+              owner: h.owner,
+              createdAt: h.createdAt,
+              updatedAt: today,
+              status: "pending" as const,
+            }))
+            : getTemplateHypothesesForStrategy(sid)
 
-      // Include both approved strategy hypotheses and pending ones (not yet approved)
-      const pendingStrategyHypotheses = pendingHypotheses
-        .filter((p) => p.hypothesis.strategyId === sid)
-        .map((p) => p.hypothesis)
-      const allStrategyHypotheses = [...(strategyHypotheses[sid] || []), ...pendingStrategyHypotheses]
-      const userHypotheses: HypothesisTableItem[] = allStrategyHypotheses.map((h, i) => ({
-        id: `proj-h-${Date.now()}-${i}`,
-        direction: h.direction,
-        category: h.category,
-        name: h.name,
-        owner: h.owner,
-        createdAt: h.createdAt,
-        updatedAt: today,
-        status: "pending" as const,
-      }))
-      setProjectHypotheses((prev) => ({
-        ...prev,
-        [newProjectId]: [...templateHypotheses, ...userHypotheses],
-      }))
+          // Include both approved strategy hypotheses and pending ones (not yet approved)
+          const pendingStrategyHypotheses = pendingHypotheses
+            .filter((p) => p.hypothesis.strategyId === sid)
+            .map((p) => p.hypothesis)
+          const allStrategyHypotheses = [...(strategyHypotheses[sid] || []), ...pendingStrategyHypotheses]
+          const userHypotheses: HypothesisTableItem[] = allStrategyHypotheses.map((h, i) => ({
+            id: `proj-h-${Date.now()}-${i}`,
+            direction: h.direction,
+            category: h.category,
+            name: h.name,
+            owner: h.owner,
+            createdAt: h.createdAt,
+            updatedAt: today,
+            status: "pending" as const,
+          }))
+          setProjectHypotheses((prev) => ({
+            ...prev,
+            [newProjectId]: [...templateHypotheses, ...userHypotheses],
+          }))
 
-      // Inherit terms from strategy template (all set to "待审批")
-      // For track strategies, use the strategy view term data; otherwise use existing helper
-      const templateTerms: TermTableItem[] = isTrackStrategy
-        ? getTrackStrategyTermTemplate().map((t) => ({
-          id: `strategy-tmpl-${t.id}`,
-          direction: t.direction,
-          category: t.category,
-          name: t.name,
-          owner: t.owner,
-          createdAt: t.createdAt,
-          updatedAt: today,
-          status: "pending" as const,
-        }))
-        : getTemplateTermsForStrategy(sid)
+          // Inherit terms from strategy template (all set to "待审批")
+          // For track strategies, use the strategy view term data; otherwise use existing helper
+          const templateTerms: TermTableItem[] = isTrackStrategy
+            ? getTrackStrategyTermTemplate().map((t) => ({
+              id: `strategy-tmpl-${t.id}`,
+              direction: t.direction,
+              category: t.category,
+              name: t.name,
+              owner: t.owner,
+              createdAt: t.createdAt,
+              updatedAt: today,
+              status: "pending" as const,
+            }))
+            : getTemplateTermsForStrategy(sid)
 
-      // Include both approved strategy terms and pending ones (not yet approved)
-      const pendingStrategyTerms = pendingTerms
-        .filter((p) => p.term.strategyId === sid)
-        .map((p) => p.term)
-      const allStrategyTerms = [...(strategyTerms[sid] || []), ...pendingStrategyTerms]
-      const userTerms: TermTableItem[] = allStrategyTerms.map((t, i) => ({
-        id: `proj-t-${Date.now()}-${i}`,
-        direction: t.direction,
-        category: t.category,
-        name: t.name,
-        owner: t.owner,
-        createdAt: t.createdAt,
-        updatedAt: today,
-        status: "pending" as const,
-      }))
-      setProjectTerms((prev) => ({
-        ...prev,
-        [newProjectId]: [...templateTerms, ...userTerms],
-      }))
+          // Include both approved strategy terms and pending ones (not yet approved)
+          const pendingStrategyTerms = pendingTerms
+            .filter((p) => p.term.strategyId === sid)
+            .map((p) => p.term)
+          const allStrategyTerms = [...(strategyTerms[sid] || []), ...pendingStrategyTerms]
+          const userTerms: TermTableItem[] = allStrategyTerms.map((t, i) => ({
+            id: `proj-t-${Date.now()}-${i}`,
+            direction: t.direction,
+            category: t.category,
+            name: t.name,
+            owner: t.owner,
+            createdAt: t.createdAt,
+            updatedAt: today,
+            status: "pending" as const,
+          }))
+          setProjectTerms((prev) => ({
+            ...prev,
+            [newProjectId]: [...templateTerms, ...userTerms],
+          }))
 
-      // Inherit materials: template mock materials + user-approved strategy materials + pending strategy materials + files uploaded during project creation
-      // For track strategies that have no specific material template, fall back to strategy "1" materials library
-      const rawMaterialTemplate = isTrackStrategy && getTemplateMaterialsForStrategy(sid).length === 0
-        ? getTemplateMaterialsForStrategy("1")
-        : getTemplateMaterialsForStrategy(sid)
-      const templateMaterials: StrategyMaterial[] = rawMaterialTemplate.map((m) => ({
-        ...m,
-        strategyId: sid,
-        category: "",
-        owner: "张伟",
-        createdAt: today,
-      }))
-      const uploadedAtCreation: StrategyMaterial[] = (pending.uploadedFiles || []).map((f) => ({
-        id: `uploaded-${f.id}-${Date.now()}`,
-        strategyId: sid,
-        name: f.name.replace(/\.[^.]+$/, ""), // strip file extension (e.g. "闫俊杰_CV.pdf" → "闫俊杰_CV")
-        format: f.format,
-        size: f.size,
-        category: "",
-        description: f.description || "",
-        owner: "张伟",
-        createdAt: today,
-      }))
-      // Include both approved strategy materials and pending ones (not yet approved)
-      const pendingStrategyMaterialFiles: StrategyMaterial[] = pendingMaterials
-        .filter((p) => p.strategyId === sid)
-        .flatMap((p, pi) =>
-          p.files.map((f, fi) => ({
-            id: `pending-mat-${pi}-${fi}-${Date.now()}`,
+          // Inherit materials: template mock materials + user-approved strategy materials + pending strategy materials + files uploaded during project creation
+          // For track strategies that have no specific material template, fall back to strategy "1" materials library
+          const rawMaterialTemplate = isTrackStrategy && getTemplateMaterialsForStrategy(sid).length === 0
+            ? getTemplateMaterialsForStrategy("1")
+            : getTemplateMaterialsForStrategy(sid)
+          const templateMaterials: StrategyMaterial[] = rawMaterialTemplate.map((m) => ({
+            ...m,
             strategyId: sid,
-            name: f.name,
-            format: f.format,
-            size: f.size,
-            description: p.description,
-            category: p.category,
+            category: "",
             owner: "张伟",
             createdAt: today,
           }))
-        )
-      const inheritedMaterials: StrategyMaterial[] = [
-        ...uploadedAtCreation,
-        ...(strategyMaterials[sid] || []),
-        ...pendingStrategyMaterialFiles,
-        ...templateMaterials,
-      ]
-      setProjectMaterialsMap((prev) => ({
-        ...prev,
-        [newProjectId]: inheritedMaterials,
-      }))
+          const uploadedAtCreation: StrategyMaterial[] = (pending.uploadedFiles || []).map((f) => ({
+            id: `uploaded-${f.id}-${Date.now()}`,
+            strategyId: sid,
+            name: f.name.replace(/\.[^.]+$/, ""), // strip file extension (e.g. "闫俊杰_CV.pdf" → "闫俊杰_CV")
+            format: f.format,
+            size: f.size,
+            category: "",
+            description: f.description || "",
+            owner: "张伟",
+            createdAt: today,
+          }))
+          // Include both approved strategy materials and pending ones (not yet approved)
+          const pendingStrategyMaterialFiles: StrategyMaterial[] = pendingMaterials
+            .filter((p) => p.strategyId === sid)
+            .flatMap((p, pi) =>
+              p.files.map((f, fi) => ({
+                id: `pending-mat-${pi}-${fi}-${Date.now()}`,
+                strategyId: sid,
+                name: f.name,
+                format: f.format,
+                size: f.size,
+                description: p.description,
+                category: p.category,
+                owner: "张伟",
+                createdAt: today,
+              }))
+            )
+          const inheritedMaterials: StrategyMaterial[] = [
+            ...uploadedAtCreation,
+            ...(strategyMaterials[sid] || []),
+            ...pendingStrategyMaterialFiles,
+            ...templateMaterials,
+          ]
+          setProjectMaterialsMap((prev) => ({
+            ...prev,
+            [newProjectId]: inheritedMaterials,
+          }))
+        },
+        onError: (error) => {
+          console.error('保存项目失败:', error)
+        },
+      })
+      setPendingProjects(pendingProjects.filter((p) => p.id !== id))
     }
   }
 

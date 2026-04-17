@@ -1,8 +1,11 @@
 import { initTRPC, TRPCError } from '@trpc/server'
+import superjson from 'superjson'
 import { Context } from './context'
 
 // 初始化 tRPC
-const t = initTRPC.context<Context>().create()
+const t = initTRPC.context<Context>().create({
+  transformer: superjson,
+})
 
 // 导出基础配置
 export const createTRPCRouter = t.router
