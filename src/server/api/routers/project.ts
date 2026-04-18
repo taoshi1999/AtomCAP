@@ -7,15 +7,45 @@ export const projectRouter = createTRPCRouter({
   /**
    * 获取所有项目
    */
-  getAll: protectedProcedure.query(async ({ ctx }: { ctx: Context }) => {
-    const projects = await prisma.project.findMany({
-      orderBy: {
-        createdAt: 'desc' as const,
-      },
-    })
+  getAll: publicProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      ownerId: z.string().optional(),
+      stage: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    }).optional())
+    .query(async ({ input, ctx }: { input?: { search?: string, ownerId?: string, stage?: string, tags?: string[] }; ctx: Context }) => {
+      const { search, ownerId, stage, tags } = input ?? {}
+      const whereCondition: any = {}
+      
+      if (search) {
+        whereCondition.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } }
+        ]
+      }
+      if (ownerId) {
+        whereCondition.ownerId = ownerId
+      }
+      if (stage) {
+        whereCondition.status = stage
+      }
+      if (tags && tags.length > 0) {
+        whereCondition.tags = { hasSome: tags }
+      }
 
-    return projects
-  }),
+      const projects = await prisma.project.findMany({
+        where: whereCondition,
+        include: {
+          owner: true,
+        },
+        orderBy: {
+          createdAt: 'desc' as const,
+        },
+      })
+
+      return projects
+    }),
 
   /**
    * 获取单个项目详情

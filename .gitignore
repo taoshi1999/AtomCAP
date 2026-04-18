@@ -3,11 +3,26 @@ __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 
-# Common ignores
-node_modules/
-.next/
+# Environment variables
+.env
 .env*.local
-.DS_Store
 
-# Claude Code
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# IDE / OS
+.DS_Store
+.vscode/
+
+# Claude / AI
 .claude/
+.gemini/
+.antigravity/
+
+# Build
+dist/
+build/

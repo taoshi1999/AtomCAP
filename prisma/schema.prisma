@@ -21,6 +21,7 @@ model User {
 
   sessions Session[]
   projects Project[]  @relation("CreatedProjects")
+  ownedProjects Project[] @relation("OwnedProjects")
 
   @@map("users")
 }
@@ -47,13 +48,21 @@ model Project {
   industry    String?
   stage       String?
   budget      Float?
+  tags        String[] @default([])
+  logo        String?
+  valuation   String?
+  round       String?
+  strategyId  String?
+  strategyName String?
   creatorId   String   @map("creator_id")
+  ownerId     String?  @map("owner_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  creator   User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
-  tasks     Task[]
-  documents Document[]
+  creator     User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
+  owner       User?      @relation("OwnedProjects", fields: [ownerId], references: [id], onDelete: SetNull)
+  tasks       Task[]
+  documents   Document[]
 
   @@map("projects")
 }

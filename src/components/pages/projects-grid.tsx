@@ -24,6 +24,14 @@ import {
   getFormatColor,
   type MockFile,
 } from "@/src/components/pages/project-materials"
+import { api } from "@/src/components/TRPCProvider"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/src/components/ui/select"
 
 // Available owners
 const availableOwners = [
@@ -189,7 +197,18 @@ interface ProjectsGridProps {
 
 export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectProject, onCreatePending }: ProjectsGridProps) {
   const [searchQuery, setSearchQuery] = useState("")
+  const [stageFilter, setStageFilter] = useState("all")
+  const [tagFilter, setTagFilter] = useState("all")
+  const [ownerFilter, setOwnerFilter] = useState("all")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+
+  // TRPC Query
+  const { data: dbProjects, isLoading: isDbLoading } = api.project.getAll.useQuery({
+    search: searchQuery || undefined,
+    stage: stageFilter !== "all" ? stageFilter : undefined,
+    tags: tagFilter !== "all" ? [tagFilter] : undefined,
+    ownerId: ownerFilter !== "all" ? ownerFilter : undefined,
+  })
 
   // Form state
   const [newName, setNewName] = useState("")
@@ -211,11 +230,40 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false)
   const [newTags, setNewTags] = useState("")
 
-  const filteredProjects = projects.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.description.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // Only use DB projects if they successfully load, otherwise fallback
+  const displayProjects: Project[] = dbProjects 
+    ? dbProjects.map(p => ({
+        id: p.id,
+        name: p.name,
+        logo: p.logo || p.name.charAt(0),
+        description: p.description || "",
+        tags: p.tags,
+        status: p.status || "设立期",
+        statusColor: getStatusColor(p.status || "设立期"),
+        valuation: p.valuation || "待定",
+        round: p.round || "未知",
+        owner: {
+           id: p.owner?.id || "unknown",
+           name: p.owner?.name || "未知",
+           initials: p.owner?.name?.slice(0, 2) || "未知"
+        },
+        strategyId: p.strategyId || "",
+        strategyName: p.strategyName || "",
+        createdAt: p.createdAt.toISOString().split("T")[0]
+      }))
+    : projects.filter(
+        (p) => {
+          const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.description.toLowerCase().includes(searchQuery.toLowerCase());
+          const matchStage = stageFilter === "all" || p.status === stageFilter;
+          const matchTag = tagFilter === "all" || p.tags.includes(tagFilter);
+          const matchOwner = ownerFilter === "all" || p.owner.id === ownerFilter;
+          return matchSearch && matchStage && matchTag && matchOwner;
+        }
+      )
+
+  // Derive unique tags from fallback/db projects for the filter dropdown
+  const allTagsList = Array.from(new Set((dbProjects || []).flatMap(p => p.tags).concat(projects.flatMap(p => p.tags))))
+
 
   function handleCreate() {
     if (!newName.trim() || !selectedStrategyId) return
@@ -389,6 +437,37 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Filters */}
+            <Select value={stageFilter} onValueChange={setStageFilter}>
+              <SelectTrigger className="w-[120px] h-9 text-sm">
+                <SelectValue placeholder="所有阶段" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">所有阶段</SelectItem>
+                {statusOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.value}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <Select value={tagFilter} onValueChange={setTagFilter}>
+              <SelectTrigger className="w-[120px] h-9 text-sm">
+                <SelectValue placeholder="所有标签" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">所有标签</SelectItem>
+                {allTagsList.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+              <SelectTrigger className="w-[120px] h-9 text-sm">
+                <SelectValue placeholder="所有负责人" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">所有负责人</SelectItem>
+                {availableOwners.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
             <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2">
               <Search className="h-4 w-4 text-[#9CA3AF]" />
               <input
@@ -410,8 +489,14 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
         </div>
 
         {/* Project Cards Grid */}
-        <div className="grid grid-cols-4 gap-5">
-          {filteredProjects.map((project) => (
+        {isDbLoading ? (
+          <div className="flex items-center justify-center py-20 text-sm text-[#6B7280]">
+            <Loader2 className="h-6 w-6 animate-spin mr-2 text-[#2563EB]" />
+            加载项目数据中...
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-5">
+            {displayProjects.map((project) => (
             <button
               key={project.id}
               onClick={() => onSelectProject(project.id)}
@@ -466,6 +551,7 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {/* Create Project Dialog */}
