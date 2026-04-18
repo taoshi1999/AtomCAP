@@ -1,0 +1,13 @@
+0 verbose cli D:\nodejs\node.exe D:\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.14.0
+3 silly config load:file:D:\nodejs\node_modules\npm\npmrc
+4 silly config load:file:D:\tempatomcap\AtomCAP-main\.npmrc
+5 silly config load:file:C:\Users\易曼婷\.npmrc
+6 silly config load:file:D:\tempatomcap\AtomCAP-main\%AppData%\npm\etc\npmrc
+7 verbose title npm run dev
+8 verbose argv "run" "dev"
+9 verbose logfile logs-max:10 dir:D:\tempatomcap\AtomCAP-main\%AppData%\npm-cache\_logs\2026-04-18T12_17_16_083Z-
+10 verbose logfile D:\tempatomcap\AtomCAP-main\%AppData%\npm-cache\_logs\2026-04-18T12_17_16_083Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
