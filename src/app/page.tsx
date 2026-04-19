@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { AppTopbar, type TopNavKey } from "@/src/components/app-topbar"
-import { Dashboard } from "@/src/components/pages/dashboard"
 import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/src/components/pages/projects-grid"
 import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/src/components/pages/strategies-grid"
 import { StrategyCenter } from "@/src/components/pages/strategy-center"
@@ -20,7 +19,6 @@ import { getTrackStrategyHypothesisTemplate } from "@/src/components/pages/strat
 import { getTrackStrategyTermTemplate } from "@/src/components/pages/strategy-terms"
 
 type ViewState =
-  | { type: "dashboard" }
   | { type: "projects" }
   | { type: "strategies" }
   | { type: "change-requests" }
@@ -29,7 +27,7 @@ type ViewState =
 
 export default function Page() {
   const router = useRouter()
-  const [view, setView] = useState<ViewState>({ type: "dashboard" })
+  const [view, setView] = useState<ViewState>({ type: "projects" })
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
   const [pendingStrategies, setPendingStrategies] = useState<PendingStrategy[]>([])
   const [projects, setProjects] = useState<Project[]>(initialProjects)
@@ -92,19 +90,18 @@ export default function Page() {
   }, [status, router])
 
   const activeNav: TopNavKey | null =
-    view.type === "dashboard"
-      ? "dashboard"
-      : view.type === "projects" || view.type === "project-detail"
-        ? "projects"
-        : view.type === "strategies" || view.type === "strategy-detail"
-          ? "strategies"
-          : view.type === "change-requests"
-            ? "change-requests"
-            : null
+    view.type === "projects" || view.type === "project-detail"
+      ? "projects"
+      : view.type === "strategies" || view.type === "strategy-detail"
+        ? "strategies"
+        : view.type === "change-requests"
+          ? "change-requests"
+          : null
 
   function handleTopNav(nav: TopNavKey) {
     if (nav === "dashboard") {
-      setView({ type: "dashboard" })
+      // 数据看板是独立路由，切到 /dashboard
+      router.push("/dashboard")
     } else if (nav === "projects") {
       setView({ type: "projects" })
     } else if (nav === "strategies") {
@@ -1284,7 +1281,6 @@ export default function Page() {
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <AppTopbar activeNav={activeNav} onNavigate={handleTopNav} />
       <main className="flex-1 overflow-hidden">
-        {view.type === "dashboard" && <Dashboard />}
         {view.type === "projects" && (
           <ProjectsGrid
             projects={projects}
