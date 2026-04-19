@@ -4,9 +4,8 @@ import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { AppTopbar, type TopNavKey } from "@/src/components/app-topbar"
-import { ProjectsGrid, type Project, type PendingProject, initialProjects, getStatusColor } from "@/src/components/pages/projects-grid"
+import { type Project, type PendingProject, initialProjects, getStatusColor } from "@/src/components/pages/projects-grid"
 import { type Strategy, type PendingStrategy, type StrategyHypothesis, type PendingHypothesis, type StrategyTerm, type PendingTerm, type StrategyMaterial, type PendingMaterial, initialStrategies } from "@/src/components/pages/strategies-grid"
-import { StrategyCenter } from "@/src/components/pages/strategy-center"
 import type { AnalysisFramework, PendingFramework } from "@/src/components/pages/analysis-frameworks"
 import { ProjectDetail } from "@/src/components/pages/project-detail"
 import { StrategyDetail } from "@/src/components/pages/strategy-detail"
@@ -19,15 +18,13 @@ import { getTrackStrategyHypothesisTemplate } from "@/src/components/pages/strat
 import { getTrackStrategyTermTemplate } from "@/src/components/pages/strategy-terms"
 
 type ViewState =
-  | { type: "projects" }
-  | { type: "strategies" }
   | { type: "change-requests" }
   | { type: "project-detail"; projectId: string }
   | { type: "strategy-detail"; strategyId: string; initialSubPage?: "overview" | "hypotheses" | "terms" | "materials" }
 
 export default function Page() {
   const router = useRouter()
-  const [view, setView] = useState<ViewState>({ type: "projects" })
+  const [view, setView] = useState<ViewState>({ type: "change-requests" })
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
   const [pendingStrategies, setPendingStrategies] = useState<PendingStrategy[]>([])
   const [projects, setProjects] = useState<Project[]>(initialProjects)
@@ -89,10 +86,32 @@ export default function Page() {
     }
   }, [status, router])
 
+  // 支持从其他独立路由跳回 "/" 的深链：
+  //   ?projectId=xxx  → 进入项目详情
+  //   ?strategyId=xxx → 进入策略详情
+  //   ?nav=change-requests → 切到变更请求
+  // 直接读 window.location，避免 Next 16 对 useSearchParams 的 Suspense 要求。
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const projectId = params.get("projectId")
+    const strategyId = params.get("strategyId")
+    const nav = params.get("nav")
+    if (projectId) {
+      setView({ type: "project-detail", projectId })
+    } else if (strategyId) {
+      setView({ type: "strategy-detail", strategyId })
+    } else if (nav === "change-requests") {
+      setView({ type: "change-requests" })
+    }
+    // 仅首次挂载处理一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const activeNav: TopNavKey | null =
-    view.type === "projects" || view.type === "project-detail"
+    view.type === "project-detail"
       ? "projects"
-      : view.type === "strategies" || view.type === "strategy-detail"
+      : view.type === "strategy-detail"
         ? "strategies"
         : view.type === "change-requests"
           ? "change-requests"
@@ -100,12 +119,14 @@ export default function Page() {
 
   function handleTopNav(nav: TopNavKey) {
     if (nav === "dashboard") {
-      // 数据看板是独立路由，切到 /dashboard
+      // 数据看板是独立路由
       router.push("/dashboard")
     } else if (nav === "projects") {
-      setView({ type: "projects" })
+      // 项目列表是独立路由
+      router.push("/projects")
     } else if (nav === "strategies") {
-      setView({ type: "strategies" })
+      // 策略中心是独立路由
+      router.push("/strategies")
     } else if (nav === "change-requests") {
       setView({ type: "change-requests" })
     }
@@ -1281,26 +1302,6 @@ export default function Page() {
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <AppTopbar activeNav={activeNav} onNavigate={handleTopNav} />
       <main className="flex-1 overflow-hidden">
-        {view.type === "projects" && (
-          <ProjectsGrid
-            projects={projects}
-            strategies={strategies}
-            onProjectsChange={setProjects}
-            onSelectProject={handleSelectProject}
-            onCreatePending={handleCreatePendingProject}
-          />
-        )}
-        {view.type === "strategies" && (
-          <StrategyCenter
-            strategies={strategies}
-            onStrategiesChange={setStrategies}
-            onSelectStrategy={handleSelectStrategy}
-            onCreatePending={handleCreatePendingStrategy}
-            onCreatePendingFramework={handleCreatePendingFramework}
-            createdFrameworks={createdFrameworks}
-            onCreatedFrameworksChange={setCreatedFrameworks}
-          />
-        )}
         {view.type === "change-requests" && (
           <ChangeRequests
             pendingStrategies={pendingStrategies}

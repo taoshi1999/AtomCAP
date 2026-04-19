@@ -39,8 +39,14 @@ export default function DashboardPage() {
       // 已在当前页
       return
     }
-    // 其他导航项仍由主 SPA 页面承载
-    router.push("/")
+    if (nav === "projects") {
+      router.push("/projects")
+    } else if (nav === "strategies") {
+      router.push("/strategies")
+    } else {
+      // change-requests 仍由 "/" 下的 SPA 承载
+      router.push(`/?nav=${nav}`)
+    }
   }
 
   if (status === "loading" || status === "unauthenticated") {

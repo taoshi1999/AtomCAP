@@ -159,6 +159,133 @@ async function seedDashboardTodos() {
   })
 }
 
+/**
+ * 项目列表 seed
+ *
+ * Project 需要 creatorId 指向一个真实 User（外键 + onDelete: Cascade），
+ * 所以先 upsert 一个专门的种子账号 `seed@atomcap.local`。
+ *
+ * 幂等策略：
+ *   - 种子用户用 upsert（按 email 唯一约束命中）
+ *   - 只删除 `creatorId == seedUser.id` 的项目，避免误删真实数据
+ *   - 相关 Task / Document 在 schema 里配置了 onDelete: Cascade，会随之清理
+ */
+async function seedProjects() {
+  const seedUser = await prisma.user.upsert({
+    where: { email: 'seed@atomcap.local' },
+    update: {},
+    create: {
+      email: 'seed@atomcap.local',
+      name: 'Seed User',
+    },
+  })
+
+  await prisma.project.deleteMany({ where: { creatorId: seedUser.id } })
+
+  await prisma.project.createMany({
+    data: [
+      {
+        name: '月之暗面',
+        description: '新一代 AI 搜索与对话平台，聚焦长上下文与复杂推理能力。',
+        logo: '月',
+        tags: 'AI,A轮',
+        status: '投中期',
+        stage: '投中阶段',
+        round: 'A轮',
+        industry: '人工智能',
+        managerId: 'lisi',
+        managerName: '李四',
+        totalInvestment: 1.2, // 亿元
+        creatorId: seedUser.id,
+      },
+      {
+        name: '智谱 AI',
+        description: '认知大模型技术与企业级应用开发，国产大模型第一梯队。',
+        logo: '智',
+        tags: 'AI,C轮',
+        status: '投后期',
+        stage: '投后阶段',
+        round: 'C轮',
+        industry: '人工智能',
+        managerId: 'wangfang',
+        managerName: '王芳',
+        totalInvestment: 3.5,
+        irr: 28.4,
+        creatorId: seedUser.id,
+      },
+    ],
+  })
+}
+
+/**
+ * 策略列表 seed
+ *
+ * Strategy 没有外键依赖（不挂到 User 也不挂到 Project），
+ * 所以直接 deleteMany + createMany 即可保持幂等。
+ *
+ * iconName 的取值必须与 /strategies 页里 ICON_MAP 的 key 对齐
+ * （CPU / Target / Building / Zap / Leaf / Trending / Briefcase），
+ * 否则前端会回退到 Target 图标。
+ */
+async function seedStrategies() {
+  await prisma.strategy.deleteMany()
+
+  await prisma.strategy.createMany({
+    data: [
+      {
+        name: 'AI 基础设施',
+        iconName: 'CPU',
+        frameworkName: '早期项目筛选框架',
+        description: '聚焦 AI 算力、模型训练框架和基础软件生态投资。',
+        managerName: '张伟',
+        projectCount: 12,
+        totalInvestment: '8.5亿',
+        returnRate: '+32%',
+      },
+      {
+        name: '大模型应用',
+        iconName: 'Target',
+        frameworkName: '早期项目筛选框架',
+        description: '关注大语言模型的企业级和消费级应用落地场景。',
+        managerName: '李四',
+        projectCount: 8,
+        totalInvestment: '5.2亿',
+        returnRate: '+18%',
+      },
+      {
+        name: '企业数字化',
+        iconName: 'Building',
+        frameworkName: '价值投资评估框架',
+        description: '聚焦企业数字化转型、智能化升级和业务流程优化。',
+        managerName: '王芳',
+        projectCount: 15,
+        totalInvestment: '12亿',
+        returnRate: '+25%',
+      },
+      {
+        name: '生物科技',
+        iconName: 'Zap',
+        frameworkName: '早期项目筛选框架',
+        description: '布局 AI 制药、基因治疗和精准医疗等前沿领域。',
+        managerName: '赵强',
+        projectCount: 6,
+        totalInvestment: '4.8亿',
+        returnRate: '+12%',
+      },
+      {
+        name: '清洁能源',
+        iconName: 'Leaf',
+        frameworkName: 'ESG 合规审查框架',
+        description: '聚焦新能源、储能技术和绿色低碳产业投资。',
+        managerName: '李四',
+        projectCount: 10,
+        totalInvestment: '18亿',
+        returnRate: '+28%',
+      },
+    ],
+  })
+}
+
 async function main() {
   console.log('🌱 Seeding database...')
 
@@ -170,6 +297,12 @@ async function main() {
 
   await seedDashboardTodos()
   console.log('  ✔ DashboardTodo')
+
+  await seedProjects()
+  console.log('  ✔ Project (×2)')
+
+  await seedStrategies()
+  console.log('  ✔ Strategy (×5)')
 
   console.log('✅ Seed complete')
 }
