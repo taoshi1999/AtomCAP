@@ -18,10 +18,10 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
 
-  // 已登录用户访问 /login 时自动跳转到主页
+  // 已登录用户访问 /login 时自动跳转到数据看板
   useEffect(() => {
     if (status === "authenticated") {
-      router.replace("/")
+      router.replace("/dashboard")
     }
   }, [status, router])
 
@@ -46,7 +46,7 @@ export default function LoginPage() {
       if (result?.error) {
         setError("邮箱或密码错误，请重试")
       } else {
-        router.push("/")
+        router.push("/dashboard")
         router.refresh()
       }
     } catch (err) {
