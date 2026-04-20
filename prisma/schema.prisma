@@ -164,4 +164,38 @@ model Strategy {
   returnRate      String?  @db.VarChar(50)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  hypotheses Hypothesis[]
+}
+
+model Hypothesis {
+  id                     String    @id @default(cuid())
+  strategyId             String    @map("strategy_id")
+  title                  String
+  description            String?
+  direction              String?   @db.VarChar(100)
+  category               String?   @db.VarChar(100)
+  owner                  String?   @db.VarChar(100)
+  status                 String    @default("pending") @db.VarChar(20)
+
+  committeeConclusion    String?   @db.VarChar(20)
+  committeeContent       String?   @db.Text
+  committeeStatus        String?   @default("pending") @db.VarChar(20)
+  committeeCreatorName   String?   @db.VarChar(100)
+  committeeCreatorRole   String?   @db.VarChar(100)
+  committeeCreatedAt     DateTime? @map("committee_created_at")
+
+  verificationConclusion String?   @db.VarChar(20)
+  verificationContent    String?   @db.Text
+  verificationStatus     String?   @default("pending") @db.VarChar(20)
+  verificationCreatorName  String?   @db.VarChar(100)
+  verificationCreatorRole  String?   @db.VarChar(100)
+  verificationCreatedAt  DateTime? @map("verification_created_at")
+
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
+  @@map("hypotheses")
 }
