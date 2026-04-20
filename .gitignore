@@ -14,5 +14,3 @@ node_modules/
 .claude/
 
 .env
-pnpm-lock.yaml
-tsconfig.tsbuildinfo
