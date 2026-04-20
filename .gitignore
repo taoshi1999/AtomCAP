@@ -12,4 +12,7 @@ node_modules/
 
 # Claude Code
 .claude/
+
 .env
+pnpm-lock.yaml
+tsconfig.tsbuildinfo
