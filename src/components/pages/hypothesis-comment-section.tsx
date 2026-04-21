@@ -42,12 +42,9 @@ export function HypothesisCommentSection({ hypothesisId }: { hypothesisId: strin
   }
 
   async function handleUploadFile(file: File): Promise<string> {
-    const formData = new FormData()
-    formData.append("file", file)
-    
     const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
       method: "POST",
-      body: formData,
+      body: file,
     })
     
     const data = await response.json()
@@ -86,11 +83,7 @@ export function HypothesisCommentSection({ hypothesisId }: { hypothesisId: strin
       setUploadingFiles([])
       getCommentsQuery.refetch()
     } catch (error) {
-      if (error instanceof Error && error.message.includes("假设不存在")) {
-        alert("当前假设数据为模拟数据，暂不支持评论功能")
-      } else {
-        console.error("Failed to submit comment:", error)
-      }
+      console.error("Failed to submit comment:", error)
     } finally {
       setIsUploading(false)
     }
