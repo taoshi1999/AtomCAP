@@ -11,11 +11,12 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const blob = await put(filename, request.body, {
-      access: 'public',
+      access: 'private',
     });
 
     return NextResponse.json(blob);
   } catch (error) {
-    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
+    console.error('Upload error:', error);
+    return NextResponse.json({ error: 'Upload failed', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
   }
 }
