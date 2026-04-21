@@ -1,0 +1,331 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户与认证 ====================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  password      String?   @map("password_hash")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  sessions Session[]
+  projects Project[]  @relation("CreatedProjects")
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// ==================== 项目管理 ====================
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String?  @default("设立期")
+  priority    String?  @default("中")
+  industry    String?
+  stage       String?
+  budget      Float?
+  
+  //US002扩展的字段
+  logo            String?  @db.VarChar(20)
+  tags            String?  @db.VarChar(50)
+  round           String?  @db.VarChar(50)
+  valuation       String?  @db.VarChar(50)
+  managerId       String?  @db.VarChar(100)
+  managerName     String?  @db.VarChar(100)
+  totalInvestment Float?
+  irr             Float?
+
+  /// US-005 概览：尽调完成度 0–100
+  diligenceProgressPct Int?    @map("diligence_progress_pct")
+  riskLevelLabel       String? @map("risk_level_label") @db.VarChar(64)
+  overviewNextStepHint String? @map("overview_next_step_hint") @db.Text
+
+  creatorId   String   @map("creator_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator            User                   @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
+  tasks              Task[]
+  documents          Document[]
+  projectHypotheses  ProjectHypothesis[]
+  projectTerms       ProjectTerm[]
+  projectMaterials   ProjectMaterial[]
+  workflowPhases     ProjectWorkflowPhase[]
+
+  @@map("projects")
+}
+
+/// 项目假设清单（US-005 计数与清单页数据源）
+model ProjectHypothesis {
+  id                String   @id @default(cuid())
+  projectId         String   @map("project_id")
+  workflowPhaseId   String?  @map("workflow_phase_id")
+  direction         String   @default("") @db.VarChar(128)
+  category          String   @default("") @db.VarChar(128)
+  name              String   @db.VarChar(512)
+  body              String?  @db.Text
+  status            String   @default("pending") @db.VarChar(32)
+  sortOrder         Int      @default(0) @map("sort_order")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workflowPhase ProjectWorkflowPhase? @relation(fields: [workflowPhaseId], references: [id], onDelete: SetNull)
+  pointComments ProjectHypothesisPointComment[]
+
+  @@index([projectId], map: "idx_project_hypotheses_project")
+  @@index([workflowPhaseId], map: "idx_project_hypotheses_phase")
+  @@map("project_hypotheses")
+}
+
+/// 假设详情「价值点 / 风险点」评论（锚定 pointKey，与前端 `${hypothesisId}-vp-1` 等一致）
+model ProjectHypothesisPointComment {
+  id           String @id @default(cuid())
+  hypothesisId String @map("hypothesis_id")
+  pointKind    String @map("point_kind") @db.VarChar(8)
+  pointKey     String @map("point_key") @db.VarChar(192)
+  content      String @db.Text
+  authorName   String @map("author_name") @db.VarChar(128)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  hypothesis ProjectHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+
+  @@index([hypothesisId], map: "idx_hyp_point_comments_hypothesis")
+  @@map("project_hypothesis_point_comments")
+}
+
+model ProjectTerm {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  workflowPhaseId String?  @map("workflow_phase_id")
+  direction       String   @default("") @db.VarChar(128)
+  category        String   @default("") @db.VarChar(128)
+  name            String   @db.VarChar(512)
+  body            String?  @db.Text
+  status          String   @default("pending") @db.VarChar(32)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workflowPhase ProjectWorkflowPhase? @relation(fields: [workflowPhaseId], references: [id], onDelete: SetNull)
+  sectionComments ProjectTermSectionComment[]
+
+  @@index([projectId], map: "idx_project_terms_project")
+  @@index([workflowPhaseId], map: "idx_project_terms_phase")
+  @@map("project_terms")
+}
+
+/// 条款详情各区块评论（sectionKey：ourDemand / ourBasis / bilateralConflict / …）
+model ProjectTermSectionComment {
+  id         String   @id @default(cuid())
+  termId     String   @map("term_id")
+  sectionKey String   @map("section_key") @db.VarChar(48)
+  content    String   @db.Text
+  authorName String   @map("author_name") @db.VarChar(128)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  term ProjectTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@index([termId], map: "idx_term_section_comments_term")
+  @@map("project_term_section_comments")
+}
+
+model ProjectMaterial {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  workflowPhaseId String?  @map("workflow_phase_id")
+  name            String   @db.VarChar(512)
+  format          String   @default("PDF") @db.VarChar(32)
+  size            String?  @db.VarChar(64)
+  description     String?  @db.Text
+  category        String   @default("通用材料") @db.VarChar(128)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workflowPhase ProjectWorkflowPhase? @relation(fields: [workflowPhaseId], references: [id], onDelete: SetNull)
+
+  @@index([projectId], map: "idx_project_materials_project")
+  @@index([workflowPhaseId], map: "idx_project_materials_phase")
+  @@map("project_materials")
+}
+
+model ProjectWorkflowPhase {
+  id              String    @id @default(cuid())
+  projectId       String    @map("project_id")
+  sortOrder       Int       @default(0) @map("sort_order")
+  groupLabel      String    @map("group_label") @db.VarChar(64)
+  name            String    @db.VarChar(255)
+  fullLabel       String    @map("full_label") @db.VarChar(512)
+  hypothesesCount Int       @default(0) @map("hypotheses_count")
+  termsCount      Int       @default(0) @map("terms_count")
+  materialsCount  Int       @default(0) @map("materials_count")
+  status          String    @db.VarChar(32)
+  startDate       DateTime? @map("start_date") @db.Date
+  endDate         DateTime? @map("end_date") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectHypotheses ProjectHypothesis[]
+  projectTerms      ProjectTerm[]
+  projectMaterials  ProjectMaterial[]
+
+  @@unique([projectId, sortOrder], map: "uniq_project_phase_sort")
+  @@index([projectId, status], map: "idx_project_phases_project_status")
+  @@map("project_workflow_phases")
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  projectId   String    @map("project_id")
+  title       String
+  description String?
+  status      String    @default("pending")
+  priority    String?   @default("中")
+  assignee    String?
+  dueDate     DateTime? @map("due_date")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String
+  format    String?
+  size      String?
+  category  String?
+  url       String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+//数据看板前四块
+model DashboardOverview {
+  id                     String   @id @default(cuid())
+  totalProjectCount      Int      @default(0)
+  totalInvestment        Float?
+  fundCount              Int      @default(0)
+  newProjectCount        Int      @default(0)
+  irrMedian              Float?
+  dpiDistribution        String?  @db.VarChar(50)
+  avgReturnMultiple      Float?
+  exitWinRate            Float?
+  avgProjectDuration     Int?
+  invalidEfficiency      Float?
+  approvalPassRate       Float?
+  highRiskProjectCount   Int      @default(0)
+  compliancePendingCount Int      @default(0)
+  todayMeetingCount      Int      @default(0)
+  updatedAt              DateTime @updatedAt
+}
+//数据看板中间四块
+model DashboardChart {
+  id                     String  @id @default(cuid())
+  trackName              String? @db.VarChar(50)
+  trackInvestAmount      Float?
+  trackRatio             Float?
+  stageName              String? @db.VarChar(50)
+  stageProjectCount      Int?
+  statisticMonth         String? @db.VarChar(20)
+  quarter                String? @db.VarChar(20)
+  fundIrr                Float?
+  industryTopIrr         Float?
+  industryAvgIrr         Float?
+  managerName            String? @db.VarChar(50)
+  managerProjectCount    Int?
+  managerAvgCycle        Int?
+  managerEfficiencyScore Int?
+}
+//数据看板待办
+model DashboardTodo {
+  id          String    @id @default(cuid())
+  type        String?   @db.VarChar(50)
+  title       String?   @db.VarChar(255)
+  projectName String?   @db.VarChar(255)
+  submitter   String?   @db.VarChar(50)
+  submitTime  DateTime?
+  deadline    DateTime?
+  priority    String?   @db.VarChar(20)
+  operation   String?   @db.VarChar(20)
+  createdAt   DateTime  @default(now())
+}
+//策略中心
+model Strategy {
+  id              String   @id @default(cuid())
+  iconName        String?  @db.VarChar(50)
+  name            String   @db.VarChar(255)
+  frameworkName   String?  @db.VarChar(255)
+  description     String?
+  managerName     String?  @db.VarChar(100)
+  projectCount    Int      @default(0)
+  totalInvestment String?  @db.VarChar(50)
+  returnRate      String?  @db.VarChar(50)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  hypotheses Hypothesis[]
+}
+
+model Hypothesis {
+  id                     String    @id @default(cuid())
+  strategyId             String    @map("strategy_id")
+  title                  String
+  description            String?
+  direction              String?   @db.VarChar(100)
+  category               String?   @db.VarChar(100)
+  owner                  String?   @db.VarChar(100)
+  status                 String    @default("pending") @db.VarChar(20)
+
+  committeeConclusion    String?   @db.VarChar(20)
+  committeeContent       String?   @db.Text
+  committeeStatus        String?   @default("pending") @db.VarChar(20)
+  committeeCreatorName   String?   @db.VarChar(100)
+  committeeCreatorRole   String?   @db.VarChar(100)
+  committeeCreatedAt     DateTime? @map("committee_created_at")
+
+  verificationConclusion String?   @db.VarChar(20)
+  verificationContent    String?   @db.Text
+  verificationStatus     String?   @default("pending") @db.VarChar(20)
+  verificationCreatorName  String?   @db.VarChar(100)
+  verificationCreatorRole  String?   @db.VarChar(100)
+  verificationCreatedAt  DateTime? @map("verification_created_at")
+
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
+  @@map("hypotheses")
+}

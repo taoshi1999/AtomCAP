@@ -1,0 +1,22 @@
+# 本地开发：PostgreSQL（Next.js 仍在宿主机 `npm run dev`）
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: atomcap-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: atomcap
+    volumes:
+      - atomcap_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atomcap"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  atomcap_pgdata:
