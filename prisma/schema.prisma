@@ -65,6 +65,7 @@ model Project {
   creator   User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
   tasks     Task[]
   documents Document[]
+  hypotheses Hypothesis[]
 
   @@map("projects")
 }
@@ -165,12 +166,13 @@ model Strategy {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  hypotheses Hypothesis[]
+  hypotheses      Hypothesis[]
 }
 
 model Hypothesis {
   id                     String    @id @default(cuid())
-  strategyId             String    @map("strategy_id")
+  strategyId             String?   @map("strategy_id")
+  projectId              String?   @map("project_id")
   title                  String
   description            String?
   direction              String?   @db.VarChar(100)
@@ -197,7 +199,8 @@ model Hypothesis {
 
   // US006新增价值点(ValuePoint)、风险点(RiskPoint)、附件(Attachment)表，用以支持US006中多价值点风险点、每个点包含附件的需求。
   // 通过 onDelete: Cascade 实现假设本身被删除时，级联清理这些从属数据
-  strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  strategy   Strategy? @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   valuePoints ValuePoint[]
   riskPoints  RiskPoint[]
   attachments Attachment[]

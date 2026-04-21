@@ -326,7 +326,7 @@ async function seedHypotheses() {
         category: '算力与芯片',
         owner: '李四',
         status: 'pending',
-      },
+      }, 
       {
         strategyId: aiStrategy.id,
         title: '开源大模型训练框架将成为主流技术路线',

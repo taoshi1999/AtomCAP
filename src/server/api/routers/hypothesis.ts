@@ -5,7 +5,7 @@ export const hypothesisRouter = createTRPCRouter({
   create: protectedProcedure
     .input(
       z.object({
-        strategyId: z.string(),
+        projectId: z.string(),
         title: z.string(),
         valuePoints: z
           .array(
@@ -42,13 +42,13 @@ export const hypothesisRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
-      const { strategyId, title, valuePoints, riskPoints } = input;
+      const { projectId, title, valuePoints, riskPoints } = input;
 
       // 在同一事事务内利用 Prisma 的 nested writes (嵌套写入) 特性
       // 一次性创建假设及其从属的 valuePoints / riskPoints / attachments 子记录
       const newHypothesis = await ctx.db.hypothesis.create({
         data: {
-          strategyId,
+          projectId,
           title,
           status: "pending",
           valuePoints: {
@@ -85,19 +85,19 @@ export const hypothesisRouter = createTRPCRouter({
       return newHypothesis;
     }),
 
-  getByStrategy: protectedProcedure
+  getByProject: protectedProcedure
     .input(z.object({
-      strategyId: z.string(),
+      projectId: z.string(),
     }))
     .query(async ({ ctx, input }: { ctx: any; input: any }) => {
       const data = await ctx.db.hypothesis.findMany({
-        where: { strategyId: input.strategyId },
+        where: { projectId: input.projectId },
         orderBy: { createdAt: "asc" },
       });
 
       return data.map((h: any) => ({
         id: h.id,
-        strategyId: h.strategyId,
+        projectId: h.projectId,
         title: h.title,
         description: h.description || "",
         direction: h.direction || "",
