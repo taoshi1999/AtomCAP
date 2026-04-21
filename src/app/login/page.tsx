@@ -11,9 +11,9 @@ import { useRouter } from "next/navigation"
 export default function LoginPage() {
   const router = useRouter()
   const { status } = useSession()
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [captchaInput, setCaptchaInput] = useState("")
+  const [username, setUsername] = useState("1@qq.com")
+  const [password, setPassword] = useState("111111")
+  const [captchaInput, setCaptchaInput] = useState("X7K2")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
