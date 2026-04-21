@@ -16,6 +16,7 @@ import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy, midIn
 import { getTemplateMaterialsForStrategy } from "@/src/components/pages/project-materials"
 import { getTrackStrategyHypothesisTemplate } from "@/src/components/pages/strategy-hypotheses"
 import { getTrackStrategyTermTemplate } from "@/src/components/pages/strategy-terms"
+import { api } from "@/src/trpc/react"
 
 type ViewState =
   | { type: "change-requests" }
@@ -78,6 +79,21 @@ export default function Page() {
   >({})
 
   const { data: session, status } = useSession()
+
+  const activeProjectId = view.type === "project-detail" ? view.projectId : ""
+  const loadProjectDetailFromDb =
+    status === "authenticated" &&
+    Boolean(activeProjectId) &&
+    !activeProjectId.startsWith("new-project-")
+
+  const {
+    data: projectDetailBundle,
+    isLoading: projectDetailLoading,
+    isError: projectDetailError,
+  } = api.project.getDetailBundle.useQuery(
+    { projectId: activeProjectId },
+    { enabled: loadProjectDetailFromDb },
+  )
 
   // 未登录用户跳转至 /login 路由
   useEffect(() => {
@@ -184,8 +200,9 @@ export default function Page() {
           category: t.category,
           name: t.name,
           content: "",
-          reason: "",
-          status: "pending" as const,
+          recommendation: "",
+          relatedMaterials: [],
+          relatedHypotheses: [],
           owner: "张伟",
           createdAt: new Date().toISOString().split("T")[0],
           updatedAt: new Date().toISOString().split("T")[0],
@@ -260,8 +277,9 @@ export default function Page() {
       const today = new Date().toISOString().split("T")[0]
 
       // Detect if strategy is a track strategy (赛道策略) to determine template data source
+      // 使用 parentStrategyId 来判断是否为赛道策略（子策略）
       const strategy = strategies.find((s) => s.id === sid)
-      const isTrackStrategy = strategy?.type === "赛道策略"
+      const isTrackStrategy = strategy?.parentStrategyId != null
 
       // For track strategies, use the strategy view template data (hypotheses shown in strategy view)
       // For strategy "1" or other theme strategies, use the existing template helper
@@ -1299,6 +1317,20 @@ export default function Page() {
     )
   }
 
+  const projectDetailBlocked =
+    view.type === "project-detail" &&
+    loadProjectDetailFromDb &&
+    (projectDetailLoading || projectDetailError)
+
+  const hasServerProjectDetail =
+    view.type === "project-detail" &&
+    loadProjectDetailFromDb &&
+    Boolean(projectDetailBundle) &&
+    !projectDetailLoading &&
+    !projectDetailError
+
+  const pid = view.type === "project-detail" ? view.projectId : ""
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <AppTopbar activeNav={activeNav} onNavigate={handleTopNav} />
@@ -1349,40 +1381,106 @@ export default function Page() {
             onRejectFramework={handleRejectFramework}
           />
         )}
-        {view.type === "project-detail" && (
+        {view.type === "project-detail" && loadProjectDetailFromDb && projectDetailLoading && (
+          <div className="flex h-full items-center justify-center text-sm text-gray-500">
+            项目详情加载中...
+          </div>
+        )}
+        {view.type === "project-detail" && loadProjectDetailFromDb && projectDetailError && (
+          <div className="flex h-full items-center justify-center text-sm text-red-500">
+            项目详情加载失败，请稍后重试
+          </div>
+        )}
+        {view.type === "project-detail" && !projectDetailBlocked && (
           <ProjectDetail
-            projectId={view.projectId}
-            project={projects.find((p) => p.id === view.projectId)}
-            phases={getPhasesForProject(view.projectId)}
-            onPhasesChange={(phases) => updatePhasesForProject(view.projectId, phases)}
+            projectId={pid}
+            project={
+              hasServerProjectDetail && projectDetailBundle
+                ? projectDetailBundle.project
+                : projects.find((p) => p.id === pid)
+            }
+            phases={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.phases as Phase[])
+                : getPhasesForProject(pid)
+            }
+            onPhasesChange={(phases) => updatePhasesForProject(pid, phases)}
             onCreatePendingPhase={handleCreatePendingPhase}
             onCreatePendingProjectHypothesis={handleCreatePendingProjectHypothesis}
-            projectHypotheses={projectHypotheses[view.projectId]}
-            projectHypothesisDetails={projectHypothesisDetails[view.projectId]}
-            projectTerms={projectTerms[view.projectId]}
-            projectMaterials={projectMaterialsMap[view.projectId]}
-            savedGeneratedSuggestions={savedProjectSuggestions[view.projectId]}
-            onSaveSuggestions={(suggestions) => handleSaveProjectSuggestions(view.projectId, suggestions)}
-            savedGeneratedTermSuggestions={savedProjectTermSuggestions[view.projectId]}
-            onSaveTermSuggestions={(suggestions) => handleSaveProjectTermSuggestions(view.projectId, suggestions)}
+            projectHypotheses={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.hypotheses as HypothesisTableItem[])
+                : projectHypotheses[pid]
+            }
+            projectHypothesisDetails={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.hypothesisDetails as Record<string, HypothesisDetail>)
+                : projectHypothesisDetails[pid]
+            }
+            projectTerms={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.terms as TermTableItem[])
+                : projectTerms[pid]
+            }
+            projectMaterials={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.materials as StrategyMaterial[])
+                : projectMaterialsMap[pid]
+            }
+            savedGeneratedSuggestions={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.savedGeneratedSuggestions as GeneratedSuggestion[])
+                : savedProjectSuggestions[pid]
+            }
+            onSaveSuggestions={(suggestions) => handleSaveProjectSuggestions(pid, suggestions)}
+            savedGeneratedTermSuggestions={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.savedGeneratedTermSuggestions as GeneratedTermSuggestion[])
+                : savedProjectTermSuggestions[pid]
+            }
+            onSaveTermSuggestions={(suggestions) => handleSaveProjectTermSuggestions(pid, suggestions)}
             onCreatePendingProjectTerm={handleCreatePendingProjectTerm}
-            projectTermDetails={projectTermDetails[view.projectId]}
+            projectTermDetails={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.termDetails as Record<string, TermDetail>)
+                : projectTermDetails[pid]
+            }
             onCreatePendingProjectMaterial={handleCreatePendingProjectMaterial}
-            savedGeneratedMaterialSuggestions={savedProjectMaterialSuggestions[view.projectId]}
-            onSaveMaterialSuggestions={(suggestions) => handleSaveProjectMaterialSuggestions(view.projectId, suggestions)}
-            savedGeneratedAiResearchGroups={savedProjectAiResearchGroups[view.projectId]}
-            onSaveAiResearchGroups={(groups) => handleSaveProjectAiResearchGroups(view.projectId, groups)}
-            onAddValuePoint={(hypothesisId, vp) => handleAddValuePoint(view.projectId, hypothesisId, vp)}
-            onAddRiskPoint={(hypothesisId, rp) => handleAddRiskPoint(view.projectId, hypothesisId, rp)}
-            onCreateCommitteeDecision={(hypothesisId, hypothesisName, data) => handleCreateCommitteeDecision(view.projectId, hypothesisId, hypothesisName, data)}
-            onCreateNegotiationDecision={(termId, termName, data) => handleCreateNegotiationDecision(view.projectId, termId, termName, data)}
-            onCreateVerification={(hypothesisId, hypothesisName, data) => handleCreateVerification(view.projectId, hypothesisId, hypothesisName, data)}
-            onCreateImplementationStatus={(termId, termName, data) => handleCreateImplementationStatus(view.projectId, termId, termName, data)}
-            isExited={exitedProjects[view.projectId] === true}
-            liXiangRecord={liXiangRecords[view.projectId]}
-            touJueRecord={touJueRecords[view.projectId]}
-            huaKuanRecord={huaKuanRecords[view.projectId]}
-            tuiChuRecord={tuiChuRecords[view.projectId]}
+            savedGeneratedMaterialSuggestions={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.savedGeneratedMaterialSuggestions as GeneratedMaterialSuggestion[])
+                : savedProjectMaterialSuggestions[pid]
+            }
+            onSaveMaterialSuggestions={(suggestions) => handleSaveProjectMaterialSuggestions(pid, suggestions)}
+            savedGeneratedAiResearchGroups={
+              hasServerProjectDetail && projectDetailBundle
+                ? (projectDetailBundle.savedGeneratedAiResearchGroups as GeneratedAiResearchGroup[])
+                : savedProjectAiResearchGroups[pid]
+            }
+            onSaveAiResearchGroups={(groups) => handleSaveProjectAiResearchGroups(pid, groups)}
+            onAddValuePoint={(hypothesisId, vp) => handleAddValuePoint(pid, hypothesisId, vp)}
+            onAddRiskPoint={(hypothesisId, rp) => handleAddRiskPoint(pid, hypothesisId, rp)}
+            onCreateCommitteeDecision={(hypothesisId, hypothesisName, data) =>
+              handleCreateCommitteeDecision(pid, hypothesisId, hypothesisName, data)
+            }
+            onCreateNegotiationDecision={(termId, termName, data) =>
+              handleCreateNegotiationDecision(pid, termId, termName, data)
+            }
+            onCreateVerification={(hypothesisId, hypothesisName, data) =>
+              handleCreateVerification(pid, hypothesisId, hypothesisName, data)
+            }
+            onCreateImplementationStatus={(termId, termName, data) =>
+              handleCreateImplementationStatus(pid, termId, termName, data)
+            }
+            isExited={
+              hasServerProjectDetail && projectDetailBundle
+                ? projectDetailBundle.isExited
+                : exitedProjects[pid] === true
+            }
+            liXiangRecord={liXiangRecords[pid]}
+            touJueRecord={touJueRecords[pid]}
+            huaKuanRecord={huaKuanRecords[pid]}
+            tuiChuRecord={tuiChuRecords[pid]}
           />
         )}
         {view.type === "strategy-detail" && (

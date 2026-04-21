@@ -192,7 +192,7 @@ export function StrategyDetail({
             isNewStrategy={strategyId.startsWith("new-")}
             prefillData={hypothesesPrefill}
             onPrefillUsed={() => setHypothesesPrefill(undefined)}
-            strategyType={strategy?.type}
+            strategyType={strategy?.parentStrategyId ? "赛道策略" : "主题策略"}
             parentStrategyName={strategy?.parentStrategyName}
             hypotheses={hypotheses}
             onCreatePendingHypothesis={onCreatePendingHypothesis}
@@ -203,7 +203,7 @@ export function StrategyDetail({
             isNewStrategy={strategyId.startsWith("new-")}
             prefillData={termsPrefill}
             onPrefillUsed={() => setTermsPrefill(undefined)}
-            strategyType={strategy?.type}
+            strategyType={strategy?.parentStrategyId ? "赛道策略" : "主题策略"}
             parentStrategyName={strategy?.parentStrategyName}
             strategyTerms={strategyTerms}
             onCreatePendingTerm={onCreatePendingTerm}
@@ -212,7 +212,7 @@ export function StrategyDetail({
           <ProjectMaterials
             isNewProject={strategyId.startsWith("new-")}
             project={{ name: strategy?.name }}
-            strategyType={strategy?.type}
+            strategyType={strategy?.parentStrategyId ? "赛道策略" : "主题策略"}
             parentStrategyName={strategy?.parentStrategyName}
             strategyId={strategyId}
             strategyMaterials={strategyMaterials}

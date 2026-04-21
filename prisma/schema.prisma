@@ -20,7 +20,7 @@ model User {
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   sessions Session[]
-  projects Project[]  @relation("CreatedProjects")
+  projects Project[] @relation("CreatedProjects")
 
   @@map("users")
 }
@@ -36,35 +36,40 @@ model Session {
   @@map("sessions")
 }
 
-// ==================== 项目管理 ====================
+// ==================== 项目管理（与库表对齐） ====================
 
 model Project {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  status      String?  @default("设立期")
-  priority    String?  @default("中")
-  industry    String?
-  stage       String?
-  budget      Float?
-  
-  //US002扩展的字段
-  logo            String?  @db.VarChar(20)
-  tags            String?  @db.VarChar(50)
-  round           String?  @db.VarChar(50)
-  valuation       String?  @db.VarChar(50)
-  managerId       String?  @db.VarChar(100)
-  managerName     String?  @db.VarChar(100)
-  totalInvestment Float?
-  irr             Float?
+  id                     String   @id @default(cuid())
+  name                   String
+  description            String?
+  status                 String?  @default("设立期")
+  priority               String?  @default("中")
+  industry               String?
+  stage                  String?
+  budget                 Float?
+  logo                   String?  @db.VarChar(20)
+  tags                   String?  @db.VarChar(50)
+  round                  String?  @db.VarChar(50)
+  valuation              String?  @db.VarChar(50)
+  managerId              String?  @db.VarChar(100)
+  managerName            String?  @db.VarChar(100)
+  totalInvestment        Float?
+  irr                    Float?
+  diligenceProgressPct   Int?     @map("diligence_progress_pct")
+  riskLevelLabel         String?  @map("risk_level_label") @db.VarChar(64)
+  overviewNextStepHint   String?  @map("overview_next_step_hint")
+  creatorId              String   @map("creator_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
-  creatorId   String   @map("creator_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  creator User @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
 
-  creator   User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
-  tasks     Task[]
-  documents Document[]
+  documents          Document[]
+  tasks              Task[]
+  projectHypotheses  ProjectHypothesis[]
+  projectTerms       ProjectTerm[]
+  projectMaterials   ProjectMaterial[]
+  workflowPhases     ProjectWorkflowPhase[]
 
   @@map("projects")
 }
@@ -101,7 +106,132 @@ model Document {
 
   @@map("documents")
 }
-//数据看板前四块
+
+/// 项目级假设（US-005 库表 project_hypotheses）
+model ProjectHypothesis {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  direction       String   @default("") @db.VarChar(128)
+  category        String   @default("") @db.VarChar(128)
+  name            String   @db.VarChar(512)
+  /// 可为 JSON 字符串，存 HypothesisDetail 或扩展字段
+  body            String?
+  status          String   @default("pending") @db.VarChar(32)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  workflowPhaseId String?  @map("workflow_phase_id")
+
+  project Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase   ProjectWorkflowPhase?   @relation(fields: [workflowPhaseId], references: [id])
+  comments ProjectHypothesisPointComment[]
+
+  @@index([workflowPhaseId], map: "idx_project_hypotheses_phase")
+  @@index([projectId], map: "idx_project_hypotheses_project")
+  @@map("project_hypotheses")
+}
+
+model ProjectHypothesisPointComment {
+  id            String   @id @default(cuid())
+  hypothesisId  String   @map("hypothesis_id")
+  pointKind     String   @map("point_kind") @db.VarChar(8)
+  pointKey      String   @map("point_key") @db.VarChar(192)
+  content       String
+  authorName    String   @map("author_name") @db.VarChar(128)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  hypothesis ProjectHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+
+  @@index([hypothesisId], map: "idx_hyp_point_comments_hypothesis")
+  @@map("project_hypothesis_point_comments")
+}
+
+/// 项目级条款（project_terms）
+model ProjectTerm {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  direction       String   @default("") @db.VarChar(128)
+  category        String   @default("") @db.VarChar(128)
+  name            String   @db.VarChar(512)
+  body            String?
+  status          String   @default("pending") @db.VarChar(32)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  workflowPhaseId String?  @map("workflow_phase_id")
+
+  project   Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase     ProjectWorkflowPhase?   @relation(fields: [workflowPhaseId], references: [id])
+  comments  ProjectTermSectionComment[]
+
+  @@index([workflowPhaseId], map: "idx_project_terms_phase")
+  @@index([projectId], map: "idx_project_terms_project")
+  @@map("project_terms")
+}
+
+model ProjectTermSectionComment {
+  id          String   @id @default(cuid())
+  termId      String   @map("term_id")
+  sectionKey  String   @map("section_key") @db.VarChar(48)
+  content     String
+  authorName  String   @map("author_name") @db.VarChar(128)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  term ProjectTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@index([termId], map: "idx_term_section_comments_term")
+  @@map("project_term_section_comments")
+}
+
+/// 项目材料（project_materials）
+model ProjectMaterial {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  name            String   @db.VarChar(512)
+  format          String   @default("PDF") @db.VarChar(32)
+  size            String?  @db.VarChar(64)
+  description     String?
+  category        String   @default("通用材料") @db.VarChar(128)
+  createdAt       DateTime @default(now()) @map("created_at")
+  workflowPhaseId String?  @map("workflow_phase_id")
+
+  project Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase   ProjectWorkflowPhase? @relation(fields: [workflowPhaseId], references: [id])
+
+  @@index([workflowPhaseId], map: "idx_project_materials_phase")
+  @@index([projectId], map: "idx_project_materials_project")
+  @@map("project_materials")
+}
+
+/// 工作流阶段（project_workflow_phases）
+model ProjectWorkflowPhase {
+  id               String    @id @default(cuid())
+  projectId        String    @map("project_id")
+  sortOrder        Int       @default(0) @map("sort_order")
+  groupLabel       String    @map("group_label") @db.VarChar(64)
+  name             String    @db.VarChar(255)
+  fullLabel        String    @map("full_label") @db.VarChar(512)
+  hypothesesCount  Int       @default(0) @map("hypotheses_count")
+  termsCount       Int       @default(0) @map("terms_count")
+  materialsCount   Int       @default(0) @map("materials_count")
+  status           String    @db.VarChar(32)
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectHypotheses ProjectHypothesis[]
+  projectTerms      ProjectTerm[]
+  projectMaterials  ProjectMaterial[]
+
+  @@unique([projectId, sortOrder], map: "uniq_project_phase_sort")
+  @@index([projectId, status], map: "idx_project_phases_project_status")
+  @@map("project_workflow_phases")
+}
+
+// ==================== 数据看板 ====================
+
 model DashboardOverview {
   id                     String   @id @default(cuid())
   totalProjectCount      Int      @default(0)
@@ -120,7 +250,7 @@ model DashboardOverview {
   todayMeetingCount      Int      @default(0)
   updatedAt              DateTime @updatedAt
 }
-//数据看板中间四块
+
 model DashboardChart {
   id                     String  @id @default(cuid())
   trackName              String? @db.VarChar(50)
@@ -138,7 +268,7 @@ model DashboardChart {
   managerAvgCycle        Int?
   managerEfficiencyScore Int?
 }
-//数据看板待办
+
 model DashboardTodo {
   id          String    @id @default(cuid())
   type        String?   @db.VarChar(50)
@@ -151,7 +281,9 @@ model DashboardTodo {
   operation   String?   @db.VarChar(20)
   createdAt   DateTime  @default(now())
 }
-//策略中心
+
+// ==================== 策略中心 ====================
+
 model Strategy {
   id              String   @id @default(cuid())
   iconName        String?  @db.VarChar(50)
@@ -166,34 +298,33 @@ model Strategy {
   updatedAt       DateTime @updatedAt
 
   hypotheses Hypothesis[]
+
+  @@map("Strategy")
 }
 
 model Hypothesis {
-  id                     String    @id @default(cuid())
-  strategyId             String    @map("strategy_id")
-  title                  String
-  description            String?
-  direction              String?   @db.VarChar(100)
-  category               String?   @db.VarChar(100)
-  owner                  String?   @db.VarChar(100)
-  status                 String    @default("pending") @db.VarChar(20)
-
-  committeeConclusion    String?   @db.VarChar(20)
-  committeeContent       String?   @db.Text
-  committeeStatus        String?   @default("pending") @db.VarChar(20)
-  committeeCreatorName   String?   @db.VarChar(100)
-  committeeCreatorRole   String?   @db.VarChar(100)
-  committeeCreatedAt     DateTime? @map("committee_created_at")
-
-  verificationConclusion String?   @db.VarChar(20)
-  verificationContent    String?   @db.Text
-  verificationStatus     String?   @default("pending") @db.VarChar(20)
+  id                       String    @id @default(cuid())
+  strategyId               String    @map("strategy_id")
+  title                    String
+  description              String?
+  direction                String?   @db.VarChar(100)
+  category                 String?   @db.VarChar(100)
+  owner                    String?   @db.VarChar(100)
+  status                   String    @default("pending") @db.VarChar(20)
+  committeeConclusion      String?   @db.VarChar(20)
+  committeeContent         String?
+  committeeStatus          String?   @default("pending") @db.VarChar(20)
+  committeeCreatorName     String?   @db.VarChar(100)
+  committeeCreatorRole     String?   @db.VarChar(100)
+  committeeCreatedAt       DateTime? @map("committee_created_at")
+  verificationConclusion   String?   @db.VarChar(20)
+  verificationContent      String?
+  verificationStatus       String?   @default("pending") @db.VarChar(20)
   verificationCreatorName  String?   @db.VarChar(100)
   verificationCreatorRole  String?   @db.VarChar(100)
-  verificationCreatedAt  DateTime? @map("verification_created_at")
-
-  createdAt              DateTime  @default(now()) @map("created_at")
-  updatedAt              DateTime  @updatedAt @map("updated_at")
+  verificationCreatedAt    DateTime? @map("verification_created_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
 

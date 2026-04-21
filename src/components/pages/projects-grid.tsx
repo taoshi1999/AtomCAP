@@ -87,6 +87,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "A轮"],
     status: "投中期",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
+    valuation: "10亿美元",
     round: "A轮",
     owner: { id: "lisi", name: "李四", initials: "李四" },
     strategyId: "2",
@@ -101,6 +102,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "C轮"],
     status: "投后期",
     statusColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    valuation: "30亿美元",
     round: "C轮",
     owner: { id: "wangfang", name: "王芳", initials: "王芳" },
     strategyId: "1",
@@ -115,6 +117,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "B轮"],
     status: "投中期",
     statusColor: "bg-amber-50 text-amber-700 border-amber-200",
+    valuation: "15亿美元",
     round: "B轮",
     owner: { id: "zhangwei", name: "张伟", initials: "张伟" },
     strategyId: "1",
@@ -129,6 +132,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "A轮"],
     status: "投前期",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
+    valuation: "5亿美元",
     round: "A轮",
     owner: { id: "lisi", name: "李四", initials: "李四" },
     strategyId: "2",
@@ -143,6 +147,7 @@ export const initialProjects: Project[] = [
     tags: ["AI", "Pre-A"],
     status: "投前期",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
+    valuation: "2亿美元",
     round: "Pre-A",
     owner: { id: "zhaoqiang", name: "赵强", initials: "赵强" },
     strategyId: "2",
@@ -157,6 +162,7 @@ export const initialProjects: Project[] = [
     tags: ["AI+科学", "B轮"],
     status: "投后期",
     statusColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    valuation: "8亿美元",
     round: "B轮",
     owner: { id: "chenzong", name: "陈总", initials: "陈总" },
     strategyId: "4",
@@ -171,6 +177,7 @@ export const initialProjects: Project[] = [
     tags: ["AI+消费", "A轮"],
     status: "投前期",
     statusColor: "bg-blue-50 text-blue-700 border-blue-200",
+    valuation: "3亿美元",
     round: "A轮",
     owner: { id: "wangfang", name: "王芳", initials: "王芳" },
     strategyId: "6",
@@ -542,7 +549,7 @@ export function ProjectsGrid({ projects, strategies, onProjectsChange, onSelectP
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-[#111827] truncate">{strategy.name}</p>
-                        <p className="text-xs text-[#6B7280]">{strategy.type}</p>
+                        <p className="text-xs text-[#6B7280]">{strategy.frameworkName || "通用框架"}</p>
                       </div>
                     </button>
                   )

@@ -394,6 +394,366 @@ async function seedHypotheses() {
   })
 }
 
+/**
+ * 项目工作流阶段 seed（US-005 项目详情页 - 工作流子页）
+ *
+ * 为每个种子项目创建工作流阶段数据，包含设立期、投前期、投中期、投后期的完整流程。
+ * 幂等策略：按 projectId 删除后重新插入。
+ */
+async function seedProjectWorkflowPhases() {
+  const seedUser = await prisma.user.findUnique({
+    where: { email: 'seed@atomcap.local' },
+    select: { id: true },
+  })
+  if (!seedUser) return
+
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true, stage: true },
+  })
+
+  for (const project of projects) {
+    await prisma.projectWorkflowPhase.deleteMany({ where: { projectId: project.id } })
+  }
+
+  const now = new Date()
+  const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000)
+
+  for (const project of projects) {
+    const baseDate = daysAgo(90)
+    const isPost = project.stage?.includes('投后')
+    const isMid = project.stage?.includes('投中')
+
+    const phases = [
+      {
+        projectId: project.id,
+        sortOrder: 0,
+        groupLabel: '设立期',
+        name: '项目筹备',
+        fullLabel: '设立期 - 项目筹备',
+        hypothesesCount: 0,
+        termsCount: 0,
+        materialsCount: 2,
+        status: 'completed',
+        startDate: baseDate,
+        endDate: new Date(baseDate.getTime() + 7 * 24 * 60 * 60 * 1000),
+      },
+      {
+        projectId: project.id,
+        sortOrder: 1,
+        groupLabel: '投前期',
+        name: '立项',
+        fullLabel: '投前期 - 立项',
+        hypothesesCount: 6,
+        termsCount: 3,
+        materialsCount: 5,
+        status: 'completed',
+        startDate: new Date(baseDate.getTime() + 7 * 24 * 60 * 60 * 1000),
+        endDate: new Date(baseDate.getTime() + 21 * 24 * 60 * 60 * 1000),
+      },
+      {
+        projectId: project.id,
+        sortOrder: 2,
+        groupLabel: '投前期',
+        name: '尽调',
+        fullLabel: '投前期 - 尽调',
+        hypothesesCount: 12,
+        termsCount: 8,
+        materialsCount: 15,
+        status: 'completed',
+        startDate: new Date(baseDate.getTime() + 21 * 24 * 60 * 60 * 1000),
+        endDate: new Date(baseDate.getTime() + 45 * 24 * 60 * 60 * 1000),
+      },
+      {
+        projectId: project.id,
+        sortOrder: 3,
+        groupLabel: '投中期',
+        name: '投决',
+        fullLabel: '投中期 - 投决',
+        hypothesesCount: 15,
+        termsCount: 12,
+        materialsCount: 20,
+        status: isMid || isPost ? 'completed' : 'active',
+        startDate: new Date(baseDate.getTime() + 45 * 24 * 60 * 60 * 1000),
+        endDate: isMid || isPost ? new Date(baseDate.getTime() + 60 * 24 * 60 * 60 * 1000) : null,
+      },
+      ...(isMid || isPost
+        ? [
+            {
+              projectId: project.id,
+              sortOrder: 4,
+              groupLabel: '投中期',
+              name: '交割',
+              fullLabel: '投中期 - 交割',
+              hypothesesCount: 18,
+              termsCount: 15,
+              materialsCount: 25,
+              status: isPost ? 'completed' : 'active',
+              startDate: new Date(baseDate.getTime() + 60 * 24 * 60 * 60 * 1000),
+              endDate: isPost ? new Date(baseDate.getTime() + 75 * 24 * 60 * 60 * 1000) : null,
+            },
+          ]
+        : []),
+      ...(isPost
+        ? [
+            {
+              projectId: project.id,
+              sortOrder: 5,
+              groupLabel: '投后期',
+              name: '存续管理',
+              fullLabel: '投后期 - 存续管理',
+              hypothesesCount: 20,
+              termsCount: 18,
+              materialsCount: 30,
+              status: 'active',
+              startDate: new Date(baseDate.getTime() + 75 * 24 * 60 * 60 * 1000),
+              endDate: null,
+            },
+          ]
+        : []),
+    ]
+
+    await prisma.projectWorkflowPhase.createMany({ data: phases as any })
+  }
+}
+
+/**
+ * 项目级假设清单 seed（US-005 项目详情页 - 假设清单子页）
+ *
+ * 为每个种子项目创建项目级假设数据，继承自策略假设模板。
+ * 幂等策略：按 projectId 删除后重新插入。
+ */
+async function seedProjectHypotheses() {
+  const seedUser = await prisma.user.findUnique({
+    where: { email: 'seed@atomcap.local' },
+    select: { id: true },
+  })
+  if (!seedUser) return
+
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true },
+  })
+
+  for (const project of projects) {
+    await prisma.projectHypothesis.deleteMany({ where: { projectId: project.id } })
+  }
+
+  const hypothesesTemplates = [
+    { direction: '技术攻关', category: '算力与芯片', name: '国产AI芯片可满足大模型推理需求', status: 'verified' },
+    { direction: '技术攻关', category: '算力与芯片', name: '自研芯片在特定场景有成本优势', status: 'pending' },
+    { direction: '市场判断', category: '市场规模', name: '目标市场未来3年复合增长率>30%', status: 'verified' },
+    { direction: '市场判断', category: '市场规模', name: '细分赛道天花板足够高（>100亿）', status: 'pending' },
+    { direction: '团队评估', category: '核心团队', name: '创始人具备行业头部企业高管背景', status: 'verified' },
+    { direction: '团队评估', category: '核心团队', name: '技术团队在大模型领域有深厚积累', status: 'verified' },
+    { direction: '商业模式', category: '盈利能力', name: '单位经济模型可在12个月内转正', status: 'pending' },
+    { direction: '商业模式', category: '盈利能力', name: '客户续约率可维持在80%以上', status: 'pending' },
+    { direction: '竞争格局', category: '竞争优势', name: '相比竞品有2代以上的技术领先优势', status: 'verified' },
+    { direction: '竞争格局', category: '竞争优势', name: '核心算法已形成专利壁垒', status: 'pending' },
+    { direction: '风险控制', category: '合规风险', name: '数据合规方案已通过法务审核', status: 'verified' },
+    { direction: '风险控制', category: '合规风险', name: '算法备案可在投资后6个月内完成', status: 'pending' },
+  ]
+
+  for (const project of projects) {
+    const hypotheses = hypothesesTemplates.map((h, idx) => ({
+      projectId: project.id,
+      direction: h.direction,
+      category: h.category,
+      name: h.name,
+      status: h.status,
+      sortOrder: idx,
+      body: JSON.stringify({
+        valuePoints: [
+          { id: `vp-${idx}-1`, title: '价值点示例：技术领先性', evidence: { description: '示例证据描述', files: [] }, analysis: { content: '示例分析内容', creator: { name: '张伟', role: '投资经理' }, reviewers: [], createdAt: new Date().toISOString().split('T')[0], comments: [] }, comments: [] },
+        ],
+        riskPoints: [
+          { id: `rp-${idx}-1`, title: '风险点示例：市场竞争加剧', evidence: { description: '示例风险描述', files: [] }, analysis: { content: '示例风险分析', creator: { name: '张伟', role: '投资经理' }, reviewers: [], createdAt: new Date().toISOString().split('T')[0], comments: [] }, comments: [] },
+        ],
+        committeeDecision: {
+          conclusion: h.status === 'verified' ? '假设成立' : h.status === 'risky' ? '假设不成立' : '待审议',
+          status: h.status === 'verified' ? 'approved' : h.status === 'risky' ? 'rejected' : 'pending',
+          content: '投委会审议意见示例',
+          creator: { name: '王总', role: '投委会主席' },
+          reviewers: [{ name: '陈总', role: '风控总监' }],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        verification: {
+          conclusion: h.status === 'verified' ? '符合预期' : '待验证',
+          status: h.status === 'verified' ? 'confirmed' : 'pending',
+          content: '验证情况描述示例',
+          creator: { name: '张伟', role: '投资经理' },
+          reviewers: [],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        linkedTerms: [],
+      }),
+    }))
+
+    await prisma.projectHypothesis.createMany({ data: hypotheses })
+  }
+}
+
+/**
+ * 项目级条款清单 seed（US-005 项目详情页 - 条款清单子页）
+ *
+ * 为每个种子项目创建项目级条款数据，涵盖估值、治理、退出等关键条款。
+ * 幂等策略：按 projectId 删除后重新插入。
+ */
+async function seedProjectTerms() {
+  const seedUser = await prisma.user.findUnique({
+    where: { email: 'seed@atomcap.local' },
+    select: { id: true },
+  })
+  if (!seedUser) return
+
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true },
+  })
+
+  for (const project of projects) {
+    await prisma.projectTerm.deleteMany({ where: { projectId: project.id } })
+  }
+
+  const termsTemplates = [
+    { direction: '估值条款', category: '投前估值', name: '本轮投前估值10亿美元', status: 'approved' },
+    { direction: '估值条款', category: '融资规模', name: '本轮融资规模2亿美元', status: 'approved' },
+    { direction: '估值条款', category: '期权池', name: '投后期权池预留15%', status: 'approved' },
+    { direction: '治理条款', category: '董事会', name: '投资人享有1个董事会席位', status: 'approved' },
+    { direction: '治理条款', category: '保护性条款', name: '重大事项需投资人董事同意', status: 'approved' },
+    { direction: '治理条款', category: '信息权', name: '按月提供财务和经营数据', status: 'approved' },
+    { direction: '退出条款', category: '优先清算', name: '投资人享有1倍非参与优先清算权', status: 'approved' },
+    { direction: '退出条款', category: '共同出售', name: '投资人享有共同出售权', status: 'pending' },
+    { direction: '退出条款', category: '反稀释', name: '加权平均反稀释保护', status: 'approved' },
+    { direction: '退出条款', category: '回购', name: '5年后公司未上市创始人回购', status: 'rejected' },
+    { direction: '限制条款', category: '竞业禁止', name: '创始人5年竞业禁止承诺', status: 'approved' },
+    { direction: '限制条款', category: '股份锁定', name: '创始人股份4年成熟期', status: 'approved' },
+  ]
+
+  for (const project of projects) {
+    const terms = termsTemplates.map((t, idx) => ({
+      projectId: project.id,
+      direction: t.direction,
+      category: t.category,
+      name: t.name,
+      status: t.status,
+      sortOrder: idx,
+      body: JSON.stringify({
+        ourDemand: {
+          content: '我方诉求内容示例',
+          files: [{ name: '估值模型.xlsx', size: '1.2MB', date: new Date().toISOString().split('T')[0] }],
+          linkedHypotheses: [],
+          creator: { name: '张伟', role: '投资经理' },
+          reviewers: [{ name: '李娜', role: '高级分析师' }],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        ourBasis: {
+          content: '我方依据内容示例',
+          files: [],
+          linkedHypotheses: [],
+          creator: { name: '张伟', role: '投资经理' },
+          reviewers: [],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        bilateralConflict: {
+          content: '双方分歧点描述',
+          creator: { name: '创始人', role: 'CEO' },
+          reviewers: [],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        ourBottomLine: {
+          content: '我方底线描述',
+          creator: { name: '张伟', role: '投资经理' },
+          reviewers: [],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        compromiseSpace: {
+          content: '妥协空间描述',
+          creator: { name: '张伟', role: '投资经理' },
+          reviewers: [],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        negotiationResult: {
+          conclusion: t.status === 'approved' ? '谈判达成' : t.status === 'rejected' ? '谈判否决' : '部分达成',
+          status: t.status === 'approved' ? 'agreed' : t.status === 'rejected' ? 'rejected' : 'partial',
+          content: '谈判结果详情',
+          creator: { name: '王总', role: '合伙人' },
+          reviewers: [{ name: '陈总', role: '法务总监' }],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+        implementationStatus: {
+          status: t.status === 'approved' ? 'implemented' : 'not-started',
+          conclusion: t.status === 'approved' ? '已落实' : '待落实',
+          content: '落实情况描述',
+          creator: { name: '张伟', role: '投资经理' },
+          reviewers: [],
+          createdAt: new Date().toISOString().split('T')[0],
+          comments: [],
+        },
+      }),
+    }))
+
+    await prisma.projectTerm.createMany({ data: terms })
+  }
+}
+
+/**
+ * 项目材料 seed（US-005 项目详情页 - 项目材料子页）
+ *
+ * 为每个种子项目创建项目级材料数据，包括BP、财务模型、尽调报告等。
+ * 幂等策略：按 projectId 删除后重新插入。
+ */
+async function seedProjectMaterials() {
+  const seedUser = await prisma.user.findUnique({
+    where: { email: 'seed@atomcap.local' },
+    select: { id: true },
+  })
+  if (!seedUser) return
+
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true },
+  })
+
+  for (const project of projects) {
+    await prisma.projectMaterial.deleteMany({ where: { projectId: project.id } })
+  }
+
+  const materialsTemplates = [
+    { name: '商业计划书(BP)', format: 'PDF', size: '12.5 MB', category: '核心材料', description: '项目商业计划书完整版，包含市场分析、产品规划、商业模式、财务预测等内容' },
+    { name: '财务预测模型_2024-2028', format: 'XLSX', size: '3.2 MB', category: '财务材料', description: '未来5年财务预测模型，包含收入、成本、利润、现金流等详细测算' },
+    { name: '技术架构白皮书', format: 'PDF', size: '8.7 MB', category: '技术材料', description: '核心技术架构详细说明，包括系统架构图、技术栈选型、性能指标等' },
+    { name: '竞品分析报告', format: 'PDF', size: '5.4 MB', category: '市场材料', description: '主要竞争对手分析，包括竞品功能对比、市场份额、优劣势评估' },
+    { name: '法律尽调报告', format: 'PDF', size: '2.1 MB', category: '法务材料', description: '法务尽调报告，涵盖股权结构、知识产权、合规风险、重大合同等' },
+    { name: '财务尽调报告', format: 'PDF', size: '4.8 MB', category: '财务材料', description: '财务尽调报告，包含历史财务数据核实、内控评估、税务合规等' },
+    { name: '客户访谈记录汇总', format: 'DOCX', size: '1.6 MB', category: '市场材料', description: 'Top 20客户访谈记录汇总，包含客户画像、需求分析、满意度评估' },
+    { name: '核心团队简历', format: 'PDF', size: '6.3 MB', category: '团队材料', description: '创始团队及核心高管简历，包含教育背景、工作经历、项目经验' },
+    { name: '投资条款清单(Term Sheet)', format: 'PDF', size: '0.8 MB', category: '交易材料', description: '投资条款清单草案，包含估值、治理、退出等核心条款' },
+    { name: '投决会汇报材料', format: 'PPTX', size: '15.2 MB', category: '核心材料', description: '投决会汇报PPT，包含投资逻辑、风险分析、回报预测、投后规划' },
+  ]
+
+  for (const project of projects) {
+    const materials = materialsTemplates.map((m) => ({
+      projectId: project.id,
+      name: m.name,
+      format: m.format,
+      size: m.size,
+      category: m.category,
+      description: m.description,
+    }))
+
+    await prisma.projectMaterial.createMany({ data: materials })
+  }
+}
+
 async function main() {
   console.log('🌱 Seeding database...')
 
@@ -408,6 +768,19 @@ async function main() {
 
   await seedProjects()
   console.log('  ✔ Project (×2)')
+
+  // US-005: 项目详情五子页关联数据（必须按依赖顺序执行：先阶段，后假设/条款/材料）
+  await seedProjectWorkflowPhases()
+  console.log('  ✔ ProjectWorkflowPhase')
+
+  await seedProjectHypotheses()
+  console.log('  ✔ ProjectHypothesis')
+
+  await seedProjectTerms()
+  console.log('  ✔ ProjectTerm')
+
+  await seedProjectMaterials()
+  console.log('  ✔ ProjectMaterial')
 
   await seedStrategies()
   console.log('  ✔ Strategy (×5)')

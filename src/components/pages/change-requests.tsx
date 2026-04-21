@@ -488,7 +488,7 @@ export function ChangeRequests({
                     <p className="text-sm font-medium text-[#111827] truncate">{request.data.changeName}</p>
                     <p className="text-xs text-[#6B7280] truncate">
                       {request.type === "strategy"
-                        ? `策略类型: ${(request.data as PendingStrategy).strategy.type}`
+                        ? `框架: ${(request.data as PendingStrategy).strategy.frameworkName || "通用"}`
                         : request.type === "framework"
                           ? `维度数量: ${(request.data as PendingFramework).framework.dimensionCount}`
                           : request.type === "project"
@@ -642,9 +642,9 @@ export function ChangeRequests({
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#6B7280]">策略类型</span>
-                      <Badge className={cn("text-xs", (selectedRequest.data as PendingStrategy).strategy.typeColor)}>
-                        {(selectedRequest.data as PendingStrategy).strategy.type}
+                      <span className="text-sm text-[#6B7280]">所属框架</span>
+                      <Badge className={cn("text-xs", "bg-blue-100 text-blue-700")}>
+                        {(selectedRequest.data as PendingStrategy).strategy.frameworkName || "通用框架"}
                       </Badge>
                     </div>
                   </>

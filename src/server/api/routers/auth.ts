@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
+import { TRPCError } from '@trpc/server'
 import { createTRPCRouter, publicProcedure, protectedProcedure } from '../trpc'
 import { prisma } from '../../db'
 
@@ -82,6 +83,9 @@ export const authRouter = createTRPCRouter({
    * 获取当前用户信息
    */
   me: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.session?.user?.id) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: '未登录' })
+    }
     const user = await prisma.user.findUnique({
       where: { id: ctx.session.user.id },
       select: {
