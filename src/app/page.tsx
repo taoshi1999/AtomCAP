@@ -166,6 +166,7 @@ export default function Page() {
           name: h.name,
           content: "",
           reason: "",
+          relatedMaterials: [] as string[],
           status: "pending" as const,
           owner: "张伟",
           createdAt: new Date().toISOString().split("T")[0],
