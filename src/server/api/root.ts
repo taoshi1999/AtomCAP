@@ -2,9 +2,9 @@ import { authRouter } from './routers/auth'
 import { projectRouter } from './routers/project'
 import { dashboardRouter } from './routers/dashboard'
 import { strategyRouter } from './routers/strategy'
+import { hypothesisRouter } from './routers/hypothesis'
 import { createTRPCRouter } from './trpc'
 
-import { hypothesisRouter } from './routers/hypothesis'
 
 export const appRouter = createTRPCRouter({
   auth: authRouter,
