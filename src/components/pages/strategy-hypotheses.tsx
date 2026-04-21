@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
+import FileUpload from "@/src/components/FileUpload"
 import {
   Search,
   Lightbulb,
@@ -306,6 +307,16 @@ export function StrategyHypotheses({
   // 弹窗创建表单状态
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [formTitle, setFormTitle] = useState("")
+
+  // 新增的数据结构用于保存多个价值点和风险点
+  const [valuePoints, setValuePoints] = useState<
+    Array<{ id: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
+  >([{ id: "vp1", support: "", analysis: "", attachments: [] }])
+  
+  const [riskPoints, setRiskPoints] = useState<
+    Array<{ id: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
+  >([{ id: "rp1", support: "", analysis: "", attachments: [] }])
+
   const [formDirection, setFormDirection] = useState("")
   const [formCategory, setFormCategory] = useState("")
   const [formContent, setFormContent] = useState("")
@@ -338,6 +349,26 @@ export function StrategyHypotheses({
     },
   })
 
+  const createMutation = api.hypothesis.create.useMutation({
+    onSuccess: (data) => {
+      // 这里如果需要可将新的假设加入待创建的项目队列中
+      onCreatePendingHypothesis({
+        id: data.id,
+        direction: "",
+        category: "",
+        name: data.title,
+        owner: "当前用户", // 实际应从session获取
+      })
+
+      // 也可以清空表单并关闭弹窗
+      setShowCreateDialog(false)
+      setFormTitle("")
+      setValuePoints([{ id: "vp1", support: "", analysis: "", attachments: [] }])
+      setRiskPoints([{ id: "rp1", support: "", analysis: "", attachments: [] }])
+      utils.hypothesis.getByStrategy.invalidate({ strategyId })
+    },
+  })
+
   // 处理预填数据 - 使用 useEffect 避免在渲染期间更新状态
   useEffect(() => {
     if (prefillData && !showCreateDialog) {
@@ -351,6 +382,31 @@ export function StrategyHypotheses({
       onPrefillUsed?.()
     }
   }, [prefillData, showCreateDialog, onPrefillUsed])
+
+  const handleUploadSuccess = (pointId: string, url: string, name: string) => {
+    const newAttachment = { name, url }
+    if (pointId.startsWith("vp")) {
+      setValuePoints(prev => prev.map(vp => 
+        vp.id === pointId ? { ...vp, attachments: [...vp.attachments, newAttachment] } : vp
+      ))
+    } else {
+      setRiskPoints(prev => prev.map(rp => 
+        rp.id === pointId ? { ...rp, attachments: [...rp.attachments, newAttachment] } : rp
+      ))
+    }
+  }
+
+  const removeAttachment = (pointId: string, urlToRemove: string) => {
+    if (pointId.startsWith("vp")) {
+      setValuePoints(prev => prev.map(vp => 
+        vp.id === pointId ? { ...vp, attachments: vp.attachments.filter(a => a.url !== urlToRemove) } : vp
+      ))
+    } else {
+      setRiskPoints(prev => prev.map(rp => 
+        rp.id === pointId ? { ...rp, attachments: rp.attachments.filter(a => a.url !== urlToRemove) } : rp
+      ))
+    }
+  }
 
   // 合并初始数据和从 page.tsx 传来的持久化数据
   const allHypotheses: HypothesisTableItem[] = [
@@ -440,35 +496,18 @@ export function StrategyHypotheses({
     setFormContent("")
     setFormReason("")
     setFormMaterials([])
+    setValuePoints([{ id: "vp1", support: "", analysis: "", attachments: [] }])
+    setRiskPoints([{ id: "rp1", support: "", analysis: "", attachments: [] }])
   }
 
   function handleCreateSubmit() {
-    // 创建变更请求
-    const pending: import("./strategies-grid").PendingHypothesis = {
-      id: `pending-hyp-${Date.now()}`,
-      hypothesis: {
-        strategyId,
-        direction: formDirection,
-        category: formCategory,
-        name: formTitle,
-        content: formContent,
-        reason: formReason,
-        relatedMaterials: formMaterials,
-        owner: "张伟",
-        createdAt: new Date().toISOString().split("T")[0],
-        updatedAt: new Date().toISOString().split("T")[0],
-      },
-      changeId: `CHG-${Date.now().toString().slice(-6)}`,
-      changeName: `新建假设: ${formTitle}`,
-      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
-      initiatedAt: new Date().toISOString().split("T")[0],
-      reviewers: [{ id: "lisi", name: "李四", initials: "李四" }],
-    }
-
-    // 关闭弹窗，跳转到变更请求页面
-    setShowCreateDialog(false)
-    resetForm()
-    onCreatePendingHypothesis(pending)
+    if (!formTitle) return
+    createMutation.mutate({
+      strategyId,
+      title: formTitle,
+      valuePoints: valuePoints.map(vp => ({ support: vp.support, analysis: vp.analysis, attachments: vp.attachments })),
+      riskPoints: riskPoints.map(rp => ({ support: rp.support, analysis: rp.analysis, attachments: rp.attachments })),
+    })
   }
 
   function toggleMaterial(materialId: string) {
@@ -951,7 +990,7 @@ export function StrategyHypotheses({
                 className="w-64 pl-9 bg-white border-[#E5E7EB]"
               />
             </div>
-            <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
+            <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]" onClick={() => setShowCreateDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               新建假设
             </Button>
@@ -1089,6 +1128,134 @@ export function StrategyHypotheses({
                 rows={4}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
               />
+            </div>
+
+            {/* 这里插入价值点和风险点 */}
+            
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-gray-900">价值点</h3>
+              {valuePoints.map((vp, index) => (
+                <div key={vp.id} className="p-4 border rounded-lg space-y-4 relative">
+                  {valuePoints.length > 1 && (
+                    <button 
+                      onClick={() => setValuePoints(prev => prev.filter(p => p.id !== vp.id))}
+                      className="absolute top-2 right-2 text-gray-400 hover:text-red-500"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">论据支持</label>
+                    <textarea
+                      className="w-full min-h-[80px] p-3 text-sm rounded-lg border focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none"
+                      placeholder="请输入论据支持内容..."
+                      value={vp.support}
+                      onChange={(e) => setValuePoints(prev => prev.map(p => p.id === vp.id ? { ...p, support: e.target.value } : p))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">论证分析</label>
+                    <textarea
+                      className="w-full min-h-[80px] p-3 text-sm rounded-lg border focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none"
+                      placeholder="请输入论证分析内容..."
+                      value={vp.analysis}
+                      onChange={(e) => setValuePoints(prev => prev.map(p => p.id === vp.id ? { ...p, analysis: e.target.value } : p))}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium">附件</label>
+                      {/* 使用独立文件上传组件替换之前的输入框触发 */}
+                      <FileUpload 
+                        onUploadSuccess={(url, name) => handleUploadSuccess(vp.id, url, name)} 
+                      />
+                    </div>
+                    {vp.attachments.length > 0 && (
+                      <div className="space-y-2">
+                        {vp.attachments.map((att, i) => (
+                          <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
+                            <a href={att.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate max-w-[200px]">
+                              {att.name}
+                            </a>
+                            <button onClick={() => removeAttachment(vp.id, att.url)} className="text-gray-400 hover:text-red-500">
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button 
+                onClick={() => setValuePoints(prev => [...prev, { id: `vp${Date.now()}`, support: "", analysis: "", attachments: [] }])}
+                className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 flex items-center justify-center gap-2"
+              >
+                <Plus className="h-4 w-4" /> 添加价值点
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-gray-900">风险点</h3>
+              {riskPoints.map((rp, index) => (
+                <div key={rp.id} className="p-4 border border-red-100 bg-red-50/30 rounded-lg space-y-4 relative">
+                  {riskPoints.length > 1 && (
+                    <button 
+                      onClick={() => setRiskPoints(prev => prev.filter(p => p.id !== rp.id))}
+                      className="absolute top-2 right-2 text-gray-400 hover:text-red-500"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                  <div>
+                    <label className="text-sm font-medium mb-1 block text-red-900">论据支持</label>
+                    <textarea
+                      className="w-full min-h-[80px] p-3 text-sm rounded-lg border-red-200 focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none"
+                      placeholder="请输入风险论据支持..."
+                      value={rp.support}
+                      onChange={(e) => setRiskPoints(prev => prev.map(p => p.id === rp.id ? { ...p, support: e.target.value } : p))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block text-red-900">论证分析</label>
+                    <textarea
+                      className="w-full min-h-[80px] p-3 text-sm rounded-lg border-red-200 focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none"
+                      placeholder="请输入风险论证分析..."
+                      value={rp.analysis}
+                      onChange={(e) => setRiskPoints(prev => prev.map(p => p.id === rp.id ? { ...p, analysis: e.target.value } : p))}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-red-900">附件</label>
+                      {/* 使用独立文件上传组件替换 */}
+                      <FileUpload 
+                        onUploadSuccess={(url, name) => handleUploadSuccess(rp.id, url, name)} 
+                      />
+                    </div>
+                    {rp.attachments.length > 0 && (
+                      <div className="space-y-2">
+                        {rp.attachments.map((att, i) => (
+                          <div key={i} className="flex items-center justify-between bg-white p-2 rounded border border-red-100 text-sm">
+                            <a href={att.url} target="_blank" rel="noreferrer" className="text-red-600 hover:underline truncate max-w-[200px]">
+                              {att.name}
+                            </a>
+                            <button onClick={() => removeAttachment(rp.id, att.url)} className="text-gray-400 hover:text-red-500">
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button 
+                onClick={() => setRiskPoints(prev => [...prev, { id: `rp${Date.now()}`, support: "", analysis: "", attachments: [] }])}
+                className="w-full py-2 border-2 border-dashed border-red-200 rounded-lg text-sm text-red-400 hover:border-red-300 hover:text-red-500 flex items-center justify-center gap-2"
+              >
+                <Plus className="h-4 w-4" /> 添加风险点
+              </button>
             </div>
 
             <div>
