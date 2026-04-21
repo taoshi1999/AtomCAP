@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { createTRPCRouter, protectedProcedure } from "@/src/server/api/trpc"
-import { TRPCError } from "@trpc/server"
 
 export const commentRouter = createTRPCRouter({
   getByHypothesis: protectedProcedure
@@ -8,14 +7,6 @@ export const commentRouter = createTRPCRouter({
       hypothesisId: z.string(),
     }))
     .query(async ({ ctx, input }) => {
-      const hypothesis = await ctx.db.hypothesis.findUnique({
-        where: { id: input.hypothesisId },
-      })
-
-      if (!hypothesis) {
-        return []
-      }
-
       const comments = await ctx.db.comment.findMany({
         where: { hypothesisId: input.hypothesisId },
         orderBy: { createdAt: "asc" },
@@ -51,17 +42,6 @@ export const commentRouter = createTRPCRouter({
       content: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      const hypothesis = await ctx.db.hypothesis.findUnique({
-        where: { id: input.hypothesisId },
-      })
-
-      if (!hypothesis) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "假设不存在",
-        })
-      }
-
       return ctx.db.comment.create({
         data: {
           hypothesisId: input.hypothesisId,
