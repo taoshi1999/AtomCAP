@@ -196,6 +196,39 @@ model Hypothesis {
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
   strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  comments Comment[]
+  attachments Attachment[]
 
   @@map("hypotheses")
+}
+
+model Comment {
+  id            String    @id @default(cuid())
+  hypothesisId  String    @map("hypothesis_id")
+  content       String    @db.Text
+  authorName    String    @db.VarChar(100)
+  authorAvatar  String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  hypothesis    Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  attachments   Attachment[]
+
+  @@map("comments")
+}
+
+model Attachment {
+  id            String    @id @default(cuid())
+  hypothesisId  String    @map("hypothesis_id")
+  commentId     String?   @map("comment_id")
+  fileName      String    @db.VarChar(255)
+  fileUrl       String    @db.VarChar(500)
+  fileFormat    String?   @db.VarChar(20)
+  fileSize      String?   @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  hypothesis    Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  comment       Comment?   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
 }

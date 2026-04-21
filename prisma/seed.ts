@@ -394,6 +394,36 @@ async function seedHypotheses() {
   })
 }
 
+async function seedCommentsAndAttachments() {
+  await prisma.comment.deleteMany()
+  await prisma.attachment.deleteMany()
+
+  const strategies = await prisma.strategy.findMany({ select: { id: true, name: true } })
+  const aiStrategy = strategies.find((s) => s.name === 'AI 基础设施')
+  if (!aiStrategy) return
+
+  const hypotheses = await prisma.hypothesis.findMany({ where: { strategyId: aiStrategy.id } })
+  const h1 = hypotheses.find((h) => h.title.includes('国产AI芯片'))
+  if (!h1) return
+
+  await prisma.comment.createMany({
+    data: [
+      {
+        hypothesisId: h1.id,
+        content: '根据最新的行业报告，国产AI芯片在推理场景的性能已经接近英伟达A100的80%，这是一个非常积极的信号。',
+        authorName: '李四',
+        authorAvatar: null,
+      },
+      {
+        hypothesisId: h1.id,
+        content: '我补充一下，国产芯片的软件生态正在快速完善，华为昇腾的CANN和寒武纪的Cambricon都在持续迭代。',
+        authorName: '王芳',
+        authorAvatar: null,
+      },
+    ],
+  })
+}
+
 async function main() {
   console.log('🌱 Seeding database...')
 
@@ -414,6 +444,9 @@ async function main() {
 
   await seedHypotheses()
   console.log('  ✔ Hypothesis')
+
+  await seedCommentsAndAttachments()
+  console.log('  ✔ Comments & Attachments')
 
   console.log('✅ Seed complete')
 }
