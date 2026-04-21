@@ -11,8 +11,30 @@
  */
 
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
+
+async function seedUsers() {
+  await prisma.user.deleteMany()
+
+  const hashedPassword = await bcrypt.hash('test123456', 10)
+
+  await prisma.user.createMany({
+    data: [
+      {
+        email: 'admin@atomcap.com',
+        name: '管理员',
+        password: hashedPassword,
+      },
+      {
+        email: 'seed@atomcap.local',
+        name: 'Seed User',
+        password: hashedPassword,
+      },
+    ],
+  })
+}
 
 async function seedDashboardOverview() {
   // 数据看板顶部 4 个核心卡片只用最新一条，直接清空重写
@@ -171,14 +193,11 @@ async function seedDashboardTodos() {
  *   - 相关 Task / Document 在 schema 里配置了 onDelete: Cascade，会随之清理
  */
 async function seedProjects() {
-  const seedUser = await prisma.user.upsert({
+  const seedUser = await prisma.user.findUnique({
     where: { email: 'seed@atomcap.local' },
-    update: {},
-    create: {
-      email: 'seed@atomcap.local',
-      name: 'Seed User',
-    },
   })
+
+  if (!seedUser) return
 
   await prisma.project.deleteMany({ where: { creatorId: seedUser.id } })
 
@@ -426,6 +445,9 @@ async function seedCommentsAndAttachments() {
 
 async function main() {
   console.log('🌱 Seeding database...')
+
+  await seedUsers()
+  console.log('  ✔ Users (×2)')
 
   await seedDashboardOverview()
   console.log('  ✔ DashboardOverview')
