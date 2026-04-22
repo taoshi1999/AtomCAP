@@ -3,6 +3,8 @@
 import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { HypothesisChecklist } from "@/src/components/pages/hypothesis-checklist"
+import type { HypothesisDetail } from "@/src/components/pages/hypothesis-checklist"
+import type { CommitteeDecisionFormData, VerificationFormData } from "@/src/components/pages/workflow"
 
 export default function HypothesesPage() {
   const params = useParams()
@@ -10,19 +12,24 @@ export default function HypothesesPage() {
 
   const utils = api.useUtils()
 
-  // Fetch project data
   const { data: project, isLoading: projectLoading } = api.project.getById.useQuery({ id: projectId })
-  
-  // Fetch hypotheses for this project
+
   const { data: projectHypotheses, isLoading: hyposLoading } = api.hypothesis.getByProject.useQuery({ projectId })
 
-  // Mutations
   const createMutation = api.hypothesis.create.useMutation({
-    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId })
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
-  
+
   const deleteMutation = api.hypothesis.delete.useMutation({
-    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId })
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
+  const updateCommitteeMutation = api.hypothesis.updateCommitteeDecision.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
+  const updateVerificationMutation = api.hypothesis.updateVerification.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
 
   if (projectLoading || hyposLoading) {
@@ -38,8 +45,7 @@ export default function HypothesesPage() {
 
   const isNewProject = projectId.startsWith("new-project-")
 
-  // Map DB data to UI format
-  const mappedHypotheses = projectHypotheses?.map(h => ({
+  const mappedHypotheses = projectHypotheses?.map((h: any) => ({
     id: h.id,
     direction: h.direction || "未分类",
     category: h.category || "未分类",
@@ -47,16 +53,54 @@ export default function HypothesesPage() {
     owner: h.owner || "未分配",
     createdAt: h.createdAt,
     updatedAt: h.updatedAt,
-    status: h.status as any
+    status: h.status as "verified" | "pending" | "risky",
   })) || []
 
-  const handleCreate = (data: any) => {
+  const extraDetails: Record<string, HypothesisDetail> = {}
+  for (const h of projectHypotheses ?? []) {
+    extraDetails[h.id] = {
+      id: h.id,
+      qaId: `HA-${h.id.slice(-4).toUpperCase()}`,
+      title: h.title,
+      createdAt: h.createdAt,
+      updatedAt: h.updatedAt,
+      status: (h.status as "verified" | "pending" | "risky") || "pending",
+      creator: { name: h.owner || "未分配", role: "投资经理" },
+      valuePoints: [],
+      riskPoints: [],
+      committeeDecision: {
+        conclusion: h.committeeConclusion as "假设成立" | "假设不成立" | "" || "",
+        status: (h.committeeStatus as "approved" | "rejected" | "pending") || "pending",
+        content: h.committeeContent || "",
+        creator: h.committeeCreatorName
+          ? { name: h.committeeCreatorName, role: h.committeeCreatorRole || "" }
+          : { name: "", role: "" },
+        reviewers: [],
+        createdAt: h.committeeCreatedAt || "",
+        comments: [],
+      },
+      verification: {
+        conclusion: h.verificationConclusion as "符合预期" | "不符合预期" | "" || "",
+        status: (h.verificationStatus as "confirmed" | "invalidated" | "pending") || "pending",
+        content: h.verificationContent || "",
+        creator: h.verificationCreatorName
+          ? { name: h.verificationCreatorName, role: h.verificationCreatorRole || "" }
+          : { name: "", role: "" },
+        reviewers: [],
+        createdAt: h.verificationCreatedAt || "",
+        comments: [],
+      },
+      linkedTerms: [],
+    }
+  }
+
+  const handleCreate = (data: { title: string; direction: string; category: string; owner: string }) => {
     createMutation.mutate({
       projectId,
       title: data.title,
       direction: data.direction,
       category: data.category,
-      owner: data.owner
+      owner: data.owner,
     })
   }
 
@@ -64,14 +108,40 @@ export default function HypothesesPage() {
     deleteMutation.mutate({ id })
   }
 
+  const handleCreateCommitteeDecision = (_hypothesisId: string, _hypothesisName: string, data: CommitteeDecisionFormData) => {
+    const h = projectHypotheses?.find((h: any) => h.title === _hypothesisName)
+    if (!h) return
+    updateCommitteeMutation.mutate({
+      hypothesisId: h.id,
+      conclusion: data.conclusion === "假设成立" ? "成立" : "不成立",
+      content: data.content,
+      creatorName: data.reviewers[0]?.name || "张伟",
+      creatorRole: data.reviewers[0]?.role || "投资经理",
+    })
+  }
+
+  const handleCreateVerification = (_hypothesisId: string, _hypothesisName: string, data: VerificationFormData) => {
+    const h = projectHypotheses?.find((h: any) => h.title === _hypothesisName)
+    if (!h) return
+    updateVerificationMutation.mutate({
+      hypothesisId: h.id,
+      conclusion: data.conclusion === "符合预期" ? "符合预期" : "偏离",
+      content: data.content,
+      creatorName: data.responsibles[0]?.name || "张伟",
+      creatorRole: data.responsibles[0]?.role || "投资经理",
+    })
+  }
+
   return (
-    <HypothesisChecklist 
+    <HypothesisChecklist
       project={project as any}
       isNewProject={isNewProject}
       inheritedHypotheses={mappedHypotheses}
+      extraDetails={extraDetails}
       onCreateHypothesis={handleCreate}
       onDeleteHypothesis={handleDelete}
-      // Other props
+      onCreateCommitteeDecision={handleCreateCommitteeDecision}
+      onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
     />
   )
