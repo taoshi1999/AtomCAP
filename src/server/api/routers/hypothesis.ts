@@ -41,6 +41,30 @@ export const hypothesisRouter = createTRPCRouter({
         updatedAt: h.updatedAt.toISOString().split("T")[0],
       }));
     }),
+  
+  getByProject: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+    }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const data = await ctx.db.hypothesis.findMany({
+        where: { projectId: input.projectId },
+        orderBy: { updatedAt: "desc" },
+      });
+
+      return data.map((h: any) => ({
+        id: h.id,
+        projectId: h.projectId,
+        title: h.title,
+        description: h.description || "",
+        direction: h.direction || "",
+        category: h.category || "",
+        owner: h.owner || "",
+        status: h.status || "pending",
+        createdAt: h.createdAt.toISOString().split("T")[0],
+        updatedAt: h.updatedAt.toISOString().split("T")[0],
+      }));
+    }),
 
   updateCommitteeDecision: protectedProcedure
     .input(
@@ -113,5 +137,45 @@ export const hypothesisRouter = createTRPCRouter({
         verificationContent: updated.verificationContent,
         verificationStatus: updated.verificationStatus,
       };
+    }),
+
+  create: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      strategyId: z.string().optional(),
+      title: z.string(),
+      description: z.string().optional(),
+      direction: z.string().optional(),
+      category: z.string().optional(),
+      owner: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      // Default strategy if not provided
+      const strategyId = input.strategyId || "1"; 
+      
+      const hypothesis = await ctx.db.hypothesis.create({
+        data: {
+          projectId: input.projectId,
+          strategyId,
+          title: input.title,
+          description: input.description,
+          direction: input.direction,
+          category: input.category,
+          owner: input.owner,
+          status: "pending",
+        },
+      });
+      return hypothesis;
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      await ctx.db.hypothesis.delete({
+        where: { id: input.id },
+      });
+      return { success: true };
     }),
 });
