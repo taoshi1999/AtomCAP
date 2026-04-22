@@ -193,13 +193,17 @@ async function seedDashboardTodos() {
  *   - 相关 Task / Document 在 schema 里配置了 onDelete: Cascade，会随之清理
  */
 async function seedProjects() {
-  const seedUser = await prisma.user.findUnique({
+  const seedUser = await prisma.user.upsert({
     where: { email: 'seed@atomcap.local' },
+    update: {},
+    create: {
+      email: 'seed@atomcap.local',
+      name: 'Seed User',
+    },
   })
 
-  if (!seedUser) return
-
   await prisma.project.deleteMany({ where: { creatorId: seedUser.id } })
+
 
   await prisma.project.createMany({
     data: [
