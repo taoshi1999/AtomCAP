@@ -13,18 +13,10 @@ import {
 import { initialStrategies } from "@/src/components/pages/strategies-grid"
 
 /**
- * /projects 路由 — 项目列表页
- * 
- * 【需求实现 - US-004】作为投资经理，我可以在项目列表页查看所有项目并筛选
- * - 视图：卡片视图展示所有项目（通过 ProjectsGrid 实现）
- * - 展示字段：公司名、描述、负责人、标签、项目阶段
- * - 筛选功能：支持按阶段、标签、负责人筛选及全局搜索
+ * /projects — 项目列表页（与远端 `origin/main` 一致）
  *
- * 数据源：tRPC `api.project.getProjsForGrid`
- * 新建项目：tRPC `api.project.create`（mutation 成功后自动 refetch）
- *
- * 项目详情 / 变更请求 / 策略中心等视图仍由 "/" 下的 SPA 承载；
- * 点击某张项目卡片会带 ?projectId= 查询参数跳回 "/"。
+ * 【US-004】卡片列表与筛选；`api.project.getProjsForGrid`；新建 `api.project.create`。
+ * 点击卡片进入 `/projects/[projectId]` 项目工作区（概览 / 假设 / 条款 / 工作流）。
  */
 export default function ProjectsPage() {
   const router = useRouter()
@@ -55,21 +47,14 @@ export default function ProjectsPage() {
     } else if (nav === "strategies") {
       router.push("/strategies")
     } else {
-      // change-requests 仍由 "/" 下的 SPA 承载
       router.push(`/?nav=${nav}`)
     }
   }
 
   function handleSelectProject(projectId: string) {
-    router.push(`/?projectId=${encodeURIComponent(projectId)}`)
+    router.push(`/projects/${encodeURIComponent(projectId)}`)
   }
 
-  /**
-   * US-003: 创建新项目
-   * ProjectsGrid 的"新建项目"产出 PendingProject，直接落库。
-   * 支持字段：公司名称、描述、赛道标签、投资轮次、负责人
-   * 项目编号由Prisma自动生成(cuid)
-   */
   function handleCreatePending(pending: PendingProject) {
     const p = pending.project
     createMutation.mutate({
@@ -96,7 +81,7 @@ export default function ProjectsPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <AppTopbar activeNav="projects" onNavigate={handleTopNav} />
-      <main className="flex-1 overflow-hidden">
+      <main className="min-h-0 flex-1 overflow-hidden">
         {isLoading ? (
           <div className="flex h-full items-center justify-center text-sm text-gray-500">
             项目列表加载中...
@@ -110,7 +95,6 @@ export default function ProjectsPage() {
             projects={(data ?? []) as Project[]}
             strategies={initialStrategies}
             onProjectsChange={() => {
-              // 服务端为单一数据源；表单内部若需要同步，触发 refetch 即可
               void utils.project.getProjsForGrid.invalidate()
             }}
             onSelectProject={handleSelectProject}
