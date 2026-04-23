@@ -196,39 +196,35 @@ model Hypothesis {
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
   strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
-  comments Comment[]
-  attachments Attachment[]
 
   @@map("hypotheses")
 }
 
-model Comment {
+model HypothesisComment {
   id            String    @id @default(cuid())
   hypothesisId  String    @map("hypothesis_id")
   content       String    @db.Text
-  authorName    String    @db.VarChar(100)
-  authorAvatar  String?   @db.VarChar(255)
+  creatorId     String    @map("creator_id")
+  creatorName   String    @db.VarChar(100)
+  creatorAvatar String?   @db.VarChar(255)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  hypothesis    Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
-  attachments   Attachment[]
+  attachments   HypothesisAttachment[]
 
-  @@map("comments")
+  @@map("hypothesis_comments")
 }
 
-model Attachment {
-  id            String    @id @default(cuid())
-  hypothesisId  String    @map("hypothesis_id")
-  commentId     String?   @map("comment_id")
-  fileName      String    @db.VarChar(255)
-  fileUrl       String    @db.VarChar(500)
-  fileFormat    String?   @db.VarChar(20)
-  fileSize      String?   @db.VarChar(50)
-  createdAt     DateTime  @default(now()) @map("created_at")
+model HypothesisAttachment {
+  id        String   @id @default(cuid())
+  commentId String   @map("comment_id")
+  name      String
+  format    String?
+  size      String?
+  url       String
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  comment   HypothesisComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
-  hypothesis    Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
-  comment       Comment?   @relation(fields: [commentId], references: [id], onDelete: Cascade)
-
-  @@map("attachments")
+  @@map("hypothesis_attachments")
 }

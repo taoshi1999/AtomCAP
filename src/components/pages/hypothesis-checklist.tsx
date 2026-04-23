@@ -42,7 +42,6 @@ import {
 import { cn } from "@/src/lib/utils"
 import type { CommitteeDecisionFormData, VerificationFormData } from "./workflow"
 import type { StrategyMaterial } from "./strategies-grid"
-import { HypothesisCommentSection } from "@/src/components/pages/hypothesis-comment-section"
 
 /* ------------------------------------------------------------------ */
 /*  Data types                                                         */
@@ -1159,9 +1158,10 @@ interface HypothesisChecklistProps {
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
+  renderHypothesisComments?: (hypothesisId: string) => React.ReactNode
 }
 
-export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification, renderHypothesisComments }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -1899,18 +1899,8 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
             </div>
           </div>
 
-          {/* 评论与附件 */}
-          <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-1 w-1 rounded-full bg-[#6366F1]" />
-              <h2 className="text-base font-semibold text-[#111827]">评论与附件</h2>
-            </div>
-            <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
-              <div className="h-[400px]">
-                <HypothesisCommentSection hypothesisId={selectedId ?? ""} />
-              </div>
-            </div>
-          </div>
+          {/* 假设整体评论与附件区 (US-007) */}
+          {renderHypothesisComments?.(selectedDetail.id)}
         </div>
 
         {/* Add Value Point Dialog */}

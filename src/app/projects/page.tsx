@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { api } from "@/src/trpc/react"
@@ -10,7 +10,13 @@ import {
   type Project,
   type PendingProject,
 } from "@/src/components/pages/projects-grid"
+import { ProjectDetail } from "@/src/components/pages/project-detail"
+import { HypothesisComments } from "@/src/components/pages/hypothesis-comments"
 import { initialStrategies } from "@/src/components/pages/strategies-grid"
+
+type ProjectsViewState =
+  | { type: "list" }
+  | { type: "detail"; projectId: string }
 
 /**
  * /projects 路由 — 项目列表页
@@ -22,19 +28,26 @@ import { initialStrategies } from "@/src/components/pages/strategies-grid"
  *
  * 数据源：tRPC `api.project.getProjsForGrid`
  * 新建项目：tRPC `api.project.create`（mutation 成功后自动 refetch）
- *
- * 项目详情 / 变更请求 / 策略中心等视图仍由 "/" 下的 SPA 承载；
- * 点击某张项目卡片会带 ?projectId= 查询参数跳回 "/"。
+ * 项目详情：同样由当前 `/projects` 路由承载，通过 `?projectId=` 切换详情视图
  */
 export default function ProjectsPage() {
   const router = useRouter()
   const { status } = useSession()
+  const [view, setView] = useState<ProjectsViewState>({ type: "list" })
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.replace("/login")
     }
   }, [status, router])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const projectId = new URLSearchParams(window.location.search).get("projectId")
+    if (projectId) {
+      setView({ type: "detail", projectId })
+    }
+  }, [])
 
   const utils = api.useUtils()
   const { data, isLoading, isError } = api.project.getProjsForGrid.useQuery(
@@ -48,8 +61,17 @@ export default function ProjectsPage() {
     },
   })
 
+  const selectedProject = useMemo(() => {
+    if (view.type !== "detail") return undefined
+    return (data ?? []).find((item) => item.id === view.projectId) as Project | undefined
+  }, [data, view])
+
   function handleTopNav(nav: TopNavKey) {
-    if (nav === "projects") return
+    if (nav === "projects") {
+      setView({ type: "list" })
+      router.push("/projects")
+      return
+    }
     if (nav === "dashboard") {
       router.push("/dashboard")
     } else if (nav === "strategies") {
@@ -61,7 +83,13 @@ export default function ProjectsPage() {
   }
 
   function handleSelectProject(projectId: string) {
-    router.push(`/?projectId=${encodeURIComponent(projectId)}`)
+    setView({ type: "detail", projectId })
+    router.push(`/projects?projectId=${encodeURIComponent(projectId)}`)
+  }
+
+  function handleBackToList() {
+    setView({ type: "list" })
+    router.push("/projects")
   }
 
   /**
@@ -105,6 +133,30 @@ export default function ProjectsPage() {
           <div className="flex h-full items-center justify-center text-sm text-red-500">
             项目数据加载失败，请稍后重试
           </div>
+        ) : view.type === "detail" ? (
+          selectedProject ? (
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="flex-1 overflow-hidden">
+                <ProjectDetail
+                  projectId={selectedProject.id}
+                  project={selectedProject}
+                  renderHypothesisComments={(hypothesisId) => (
+                    <HypothesisComments hypothesisId={hypothesisId} />
+                  )}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-4 text-sm text-gray-500">
+              <div>未找到该项目，可能已被删除或尚未加载完成</div>
+              <button
+                onClick={handleBackToList}
+                className="rounded-lg bg-[#2563EB] px-4 py-2 text-white transition-colors hover:bg-[#1D4ED8]"
+              >
+                返回项目列表
+              </button>
+            </div>
+          )
         ) : (
           <ProjectsGrid
             projects={(data ?? []) as Project[]}

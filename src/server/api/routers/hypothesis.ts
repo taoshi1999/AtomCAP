@@ -114,4 +114,54 @@ export const hypothesisRouter = createTRPCRouter({
         verificationStatus: updated.verificationStatus,
       };
     }),
+
+  getComments: protectedProcedure
+    .input(z.object({ hypothesisId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      return ctx.db.hypothesisComment.findMany({
+        where: { hypothesisId: input.hypothesisId },
+        include: { attachments: true },
+        orderBy: { createdAt: "desc" },
+      });
+    }),
+
+  addComment: protectedProcedure
+    .input(
+      z.object({
+        hypothesisId: z.string(),
+        content: z.string().optional(),
+        attachments: z.array(
+          z.object({
+            name: z.string(),
+            format: z.string().optional(),
+            size: z.string().optional(),
+            url: z.string(),
+          })
+        ).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const user = ctx.session.user;
+      
+      // Allow creation if either content or attachments exist
+      if ((!input.content || input.content.trim() === "") && (!input.attachments || input.attachments.length === 0)) {
+        throw new Error("Cannot add empty comment");
+      }
+      
+      return ctx.db.hypothesisComment.create({
+        data: {
+          hypothesisId: input.hypothesisId,
+          content: input.content || "",
+          creatorId: user.id,
+          creatorName: user.name || "Unknown User",
+          creatorAvatar: user.image,
+          attachments: input.attachments && input.attachments.length > 0
+            ? {
+                create: input.attachments,
+              }
+            : undefined,
+        },
+        include: { attachments: true },
+      });
+    }),
 });
