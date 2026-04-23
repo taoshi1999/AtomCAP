@@ -1,63 +1,169 @@
 "use client"
 
-import Link from "next/link"
 import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
-import { HypothesisChecklist, type HypothesisDetail } from "@/src/components/pages/hypothesis-checklist"
-import type { Project } from "@/src/components/pages/projects-grid"
+import { HypothesisChecklist } from "@/src/components/pages/hypothesis-checklist"
+import type { HypothesisDetail } from "@/src/components/pages/hypothesis-checklist"
+import type { CommitteeDecisionFormData, VerificationFormData } from "@/src/components/pages/workflow"
 
 /**
  * /projects/[projectId]/hypotheses — 假设清单
+ * 与 main 一致：`hypotheses` 表按 projectId 查询与变更；与 `ProjectHypothesis`（概览 bundle）并存。
  */
-export default function ProjectHypothesesPage() {
+export default function HypothesesPage() {
   const params = useParams()
   const projectId = typeof params?.projectId === "string" ? params.projectId : ""
 
-  const { data, isLoading, isError, error } = api.project.getDetailBundle.useQuery(
+  const utils = api.useUtils()
+
+  const { data: project, isLoading: projectLoading } = api.project.getById.useQuery(
+    { id: projectId },
+    { enabled: projectId.length > 0 },
+  )
+
+  const { data: projectHypotheses, isLoading: hyposLoading } = api.hypothesis.getByProject.useQuery(
     { projectId },
     { enabled: projectId.length > 0 },
   )
 
+  const createMutation = api.hypothesis.create.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
+  const deleteMutation = api.hypothesis.delete.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
+  const updateCommitteeMutation = api.hypothesis.updateCommitteeDecision.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
+  const updateVerificationMutation = api.hypothesis.updateVerification.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
   if (!projectId) return null
 
-  if (isLoading) {
+  if (projectLoading || hyposLoading) {
     return (
-      <div className="flex h-full min-h-[240px] items-center justify-center">
-        <div className="text-sm text-muted-foreground">正在加载假设清单...</div>
-      </div>
-    )
-  }
-
-  if (isError || !data) {
-    return (
-      <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 px-4">
-        <p className="text-sm font-medium text-slate-800">无法加载假设清单</p>
-        <p className="max-w-md text-center text-xs text-slate-500">{error?.message ?? "请返回列表重试。"}</p>
-        <Link href="/projects" className="text-sm text-blue-600 underline">
-          返回项目列表
-        </Link>
+      <div className="flex h-full items-center justify-center">
+        <div className="flex items-center gap-2 text-sm italic text-muted-foreground">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          正在加载假设清单...
+        </div>
       </div>
     )
   }
 
   const isNewProject = projectId.startsWith("new-project-")
-  const phases = data.phases
-  const isMidInvestment = isNewProject && phases.some((p) => p.groupLabel === "投中期")
-  const isPostInvestment = isNewProject && phases.some((p) => p.groupLabel === "投后期")
-  const isInDuration = phases.some((p) => p.groupLabel === "存续期") || isPostInvestment
-  const isHypothesisLocked = isInDuration || isMidInvestment
+
+  const mappedHypotheses =
+    projectHypotheses?.map((h: any) => ({
+      id: h.id,
+      direction: h.direction || "未分类",
+      category: h.category || "未分类",
+      name: h.title,
+      owner: h.owner || "未分配",
+      createdAt: h.createdAt,
+      updatedAt: h.updatedAt,
+      status: h.status as "verified" | "pending" | "risky",
+    })) || []
+
+  const extraDetails: Record<string, HypothesisDetail> = {}
+  for (const h of projectHypotheses ?? []) {
+    extraDetails[h.id] = {
+      id: h.id,
+      qaId: `HA-${h.id.slice(-4).toUpperCase()}`,
+      title: h.title,
+      createdAt: h.createdAt,
+      updatedAt: h.updatedAt,
+      status: (h.status as "verified" | "pending" | "risky") || "pending",
+      creator: { name: h.owner || "未分配", role: "投资经理" },
+      valuePoints: [],
+      riskPoints: [],
+      committeeDecision: {
+        conclusion: (h.committeeConclusion as "假设成立" | "假设不成立" | "") || "",
+        status: (h.committeeStatus as "approved" | "rejected" | "pending") || "pending",
+        content: h.committeeContent || "",
+        creator: h.committeeCreatorName
+          ? { name: h.committeeCreatorName, role: h.committeeCreatorRole || "" }
+          : { name: "", role: "" },
+        reviewers: [],
+        createdAt: h.committeeCreatedAt || "",
+        comments: [],
+      },
+      verification: {
+        conclusion: (h.verificationConclusion as "符合预期" | "不符合预期" | "") || "",
+        status: (h.verificationStatus as "confirmed" | "invalidated" | "pending") || "pending",
+        content: h.verificationContent || "",
+        creator: h.verificationCreatorName
+          ? { name: h.verificationCreatorName, role: h.verificationCreatorRole || "" }
+          : { name: "", role: "" },
+        reviewers: [],
+        createdAt: h.verificationCreatedAt || "",
+        comments: [],
+      },
+      linkedTerms: [],
+    }
+  }
+
+  const handleCreate = (data: { title: string; direction: string; category: string; owner: string }) => {
+    createMutation.mutate({
+      projectId,
+      title: data.title,
+      direction: data.direction,
+      category: data.category,
+      owner: data.owner,
+    })
+  }
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate({ id })
+  }
+
+  const handleCreateCommitteeDecision = (
+    _hypothesisId: string,
+    _hypothesisName: string,
+    data: CommitteeDecisionFormData,
+  ) => {
+    const h = projectHypotheses?.find((row: any) => row.title === _hypothesisName)
+    if (!h) return
+    updateCommitteeMutation.mutate({
+      hypothesisId: h.id,
+      conclusion: data.conclusion === "假设成立" ? "成立" : "不成立",
+      content: data.content,
+      creatorName: data.reviewers[0]?.name || "张伟",
+      creatorRole: data.reviewers[0]?.role || "投资经理",
+    })
+  }
+
+  const handleCreateVerification = (
+    _hypothesisId: string,
+    _hypothesisName: string,
+    data: VerificationFormData,
+  ) => {
+    const h = projectHypotheses?.find((row: any) => row.title === _hypothesisName)
+    if (!h) return
+    updateVerificationMutation.mutate({
+      hypothesisId: h.id,
+      conclusion: data.conclusion === "符合预期" ? "符合预期" : "偏离",
+      content: data.content,
+      creatorName: data.responsibles[0]?.name || "张伟",
+      creatorRole: data.responsibles[0]?.role || "投资经理",
+    })
+  }
 
   return (
     <HypothesisChecklist
-      project={data.project as unknown as Project}
-      projectMaterials={data.materials}
-      inheritedHypotheses={data.hypotheses}
-      extraDetails={data.hypothesisDetails as Record<string, HypothesisDetail>}
+      project={project as any}
       isNewProject={isNewProject}
-      isInDuration={isHypothesisLocked || data.isExited}
-      isExited={data.isExited}
-      isMidInvestment={isMidInvestment}
-      isPostInvestment={isPostInvestment}
+      inheritedHypotheses={mappedHypotheses}
+      extraDetails={extraDetails}
+      onCreateHypothesis={handleCreate}
+      onDeleteHypothesis={handleDelete}
+      onCreateCommitteeDecision={handleCreateCommitteeDecision}
+      onCreateVerification={handleCreateVerification}
+      isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
     />
   )
 }

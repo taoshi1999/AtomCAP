@@ -6,9 +6,7 @@ import { api } from "@/src/trpc/react"
 import { ProjectOverview } from "@/src/components/pages/project-overview"
 import type { Project } from "@/src/components/pages/projects-grid"
 
-/**
- * /projects/[projectId] — 默认「项目概览」（与远端 main 路由一致；数据来自 `getDetailBundle`）。
- */
+/** /projects/[projectId] — 默认项目概览（`getDetailBundle`） */
 export default function ProjectOverviewPage() {
   const params = useParams()
   const projectId = typeof params?.projectId === "string" ? params.projectId : ""

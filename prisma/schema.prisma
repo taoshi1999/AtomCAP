@@ -70,6 +70,7 @@ model Project {
   projectTerms       ProjectTerm[]
   projectMaterials   ProjectMaterial[]
   workflowPhases     ProjectWorkflowPhase[]
+  hypotheses         Hypothesis[]
 
   @@map("projects")
 }
@@ -305,6 +306,7 @@ model Strategy {
 model Hypothesis {
   id                       String    @id @default(cuid())
   strategyId               String    @map("strategy_id")
+  projectId                String?   @map("project_id")
   title                    String
   description              String?
   direction                String?   @db.VarChar(100)
@@ -312,13 +314,13 @@ model Hypothesis {
   owner                    String?   @db.VarChar(100)
   status                   String    @default("pending") @db.VarChar(20)
   committeeConclusion      String?   @db.VarChar(20)
-  committeeContent         String?
+  committeeContent         String?   @db.Text
   committeeStatus          String?   @default("pending") @db.VarChar(20)
   committeeCreatorName     String?   @db.VarChar(100)
   committeeCreatorRole     String?   @db.VarChar(100)
   committeeCreatedAt       DateTime? @map("committee_created_at")
   verificationConclusion   String?   @db.VarChar(20)
-  verificationContent      String?
+  verificationContent      String?   @db.Text
   verificationStatus       String?   @default("pending") @db.VarChar(20)
   verificationCreatorName  String?   @db.VarChar(100)
   verificationCreatorRole  String?   @db.VarChar(100)
@@ -327,6 +329,7 @@ model Hypothesis {
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
   strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  project  Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("hypotheses")
 }

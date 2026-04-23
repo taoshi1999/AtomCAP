@@ -5,9 +5,7 @@ import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { Workflow } from "@/src/components/pages/workflow"
 
-/**
- * /projects/[projectId]/workflow — 工作流
- */
+/** /projects/[projectId]/workflow — 工作流（`getDetailBundle`） */
 export default function ProjectWorkflowPage() {
   const params = useParams()
   const projectId = typeof params?.projectId === "string" ? params.projectId : ""

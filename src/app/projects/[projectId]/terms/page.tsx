@@ -6,9 +6,7 @@ import { api } from "@/src/trpc/react"
 import { TermSheet, type TermDetail } from "@/src/components/pages/term-sheet"
 import type { Project } from "@/src/components/pages/projects-grid"
 
-/**
- * /projects/[projectId]/terms — 条款构建
- */
+/** /projects/[projectId]/terms — 条款构建（`getDetailBundle`） */
 export default function ProjectTermsPage() {
   const params = useParams()
   const projectId = typeof params?.projectId === "string" ? params.projectId : ""

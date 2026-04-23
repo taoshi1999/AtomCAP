@@ -7,9 +7,7 @@ import { useRouter, useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { Badge } from "@/src/components/ui/badge"
 
-/**
- * 与远端 `origin/main` 一致：项目工作区外壳 — 顶栏、左侧深色菜单、顶部项目信息条；子路由为概览 / 假设 / 条款 / 工作流。
- */
+/** 项目工作区：顶栏、左侧深色菜单、顶部项目信息条；子路由为概览 / 假设 / 条款 / 工作流。 */
 export default function ProjectDetailLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const params = useParams()

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import {
   Search,
   FileText,
@@ -925,9 +925,9 @@ const hypothesisDetails: Record<string, HypothesisDetail> = {
 /*  Status helpers                                                     */
 /* ------------------------------------------------------------------ */
 const statusConfig = {
-  verified: { label: "成立", color: "bg-[#DCFCE7] text-[#166534]" },
-  pending: { label: "待验证", color: "bg-[#FEF3C7] text-[#92400E]" },
-  risky: { label: "不成立", color: "bg-[#FEE2E2] text-[#991B1B]" },
+  verified: { label: "成立", color: "bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]" },
+  pending: { label: "待验证", color: "bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]" },
+  risky: { label: "不成立", color: "bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]" },
 }
 
 /* ------------------------------------------------------------------ */
@@ -1158,10 +1158,13 @@ interface HypothesisChecklistProps {
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
+  onCreateHypothesis?: (data: { title: string; direction: string; category: string; owner: string }) => void
+  onDeleteHypothesis?: (id: string) => void
 }
 
-export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification, onCreateHypothesis, onDeleteHypothesis }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
+  const [filterStatus, setFilterStatus] = useState<string>("ALL")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const [showTemplateBanner, setShowTemplateBanner] = useState(true)
@@ -1197,6 +1200,10 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   const [vfResponsibles, setVfResponsibles] = useState<string[]>([])
   const [vfSearch, setVfSearch] = useState("")
 
+  // Add hypothesis dialog state
+  const [showAddHypothesis, setShowAddHypothesis] = useState(false)
+  const [newHypoForm, setNewHypoForm] = useState({ title: "", direction: "", category: "", owner: "张伟" })
+
   // Priority: inherited (from approved project) > template > existing mock data
   const sourceData = inheritedHypotheses
     ? inheritedHypotheses
@@ -1207,23 +1214,59 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   // Filter data
   const filteredData = sourceData
     .filter((item) => {
-      const query = searchQuery.toLowerCase()
-      return (
-        item.direction.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
-        item.name.toLowerCase().includes(query) ||
-        item.owner.toLowerCase().includes(query)
+      const matchSearch = searchQuery === "" || (
+        item.direction.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.owner.toLowerCase().includes(searchQuery.toLowerCase())
       )
+      const matchStatus = filterStatus === "ALL" || item.status === filterStatus
+      return matchSearch && matchStatus
     })
     .sort((a, b) => {
       const order: Record<string, number> = { verified: 0, risky: 1, pending: 2 }
       return (order[a.status] ?? 2) - (order[b.status] ?? 2)
     })
 
-  // Get detail for selected item - check extraDetails first (for newly created hypotheses), then static mock data
-  const selectedDetail = selectedId
-    ? (extraDetails?.[selectedId] ?? hypothesisDetails[selectedId] ?? null)
-    : null
+  // Get detail for selected item
+  const selectedDetail = useMemo(() => {
+    if (!selectedId) return null
+    
+    // 1. Try extraDetails/mocks (for old data)
+    let detail = extraDetails?.[selectedId] ?? hypothesisDetails[selectedId]
+    
+    // 2. If not found, try to reconstruct from sourceData (for new DB data)
+    if (!detail) {
+      const basicInfo = sourceData.find(h => h.id === selectedId)
+      if (basicInfo) {
+        detail = {
+          id: basicInfo.id,
+          qaId: `HA-${basicInfo.id.slice(-4).toUpperCase()}`, // Mock a QA ID
+          title: basicInfo.name,
+          createdAt: basicInfo.createdAt,
+          updatedAt: basicInfo.updatedAt,
+          creator: { name: basicInfo.owner, role: "投资经理" },
+          status: basicInfo.status,
+          valuePoints: [],
+          riskPoints: [],
+          committeeDecision: {
+            content: "",
+            reviewers: [],
+            comments: []
+          },
+          verification: {
+            content: "",
+            materials: [],
+            responsibles: [],
+            comments: []
+          },
+          linkedTerms: []
+        } as any
+      }
+    }
+    
+    return detail || null
+  }, [selectedId, extraDetails, sourceData])
 
   // Handle view detail
   function handleViewDetail(id: string) {
@@ -1239,8 +1282,16 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
 
   // Handle delete
   function handleDelete(id: string) {
-    // In real app, this would call an API
-    console.log("[v0] Delete hypothesis:", id)
+    if (window.confirm("确定要删除这条假设吗？")) {
+      onDeleteHypothesis?.(id)
+    }
+  }
+
+  function handleSubmitHypothesis() {
+    if (!newHypoForm.title.trim()) return
+    onCreateHypothesis?.(newHypoForm)
+    setNewHypoForm({ title: "", direction: "", category: "", owner: "张伟" })
+    setShowAddHypothesis(false)
   }
 
   // Comment helpers
@@ -2303,6 +2354,76 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Add Hypothesis Dialog */}
+        <Dialog open={showAddHypothesis} onOpenChange={setShowAddHypothesis}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-[#111827]">新建假设</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设名称 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="请输入假设名称..."
+                  value={newHypoForm.title}
+                  onChange={(e) => setNewHypoForm((f) => ({ ...f, title: e.target.value }))}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设方向</label>
+                  <input
+                    type="text"
+                    placeholder="如: 技术攻关"
+                    value={newHypoForm.direction}
+                    onChange={(e) => setNewHypoForm((f) => ({ ...f, direction: e.target.value }))}
+                    className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设类别</label>
+                  <input
+                    type="text"
+                    placeholder="如: 算力与芯片"
+                    value={newHypoForm.category}
+                    onChange={(e) => setNewHypoForm((f) => ({ ...f, category: e.target.value }))}
+                    className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-[#374151] mb-1.5 block">负责人</label>
+                <select
+                  value={newHypoForm.owner}
+                  onChange={(e) => setNewHypoForm((f) => ({ ...f, owner: e.target.value }))}
+                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                >
+                  {Object.entries(PEOPLE).map(([key, p]) => (
+                    <option key={key} value={p.name}>{p.name} ({p.role})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowAddHypothesis(false)}
+                className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitHypothesis}
+                disabled={!newHypoForm.title.trim()}
+                className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                创建
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -2361,8 +2482,22 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 className="w-64 pl-9 bg-white border-[#E5E7EB]"
               />
             </div>
+            
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="h-9 w-28 rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-sm text-[#374151] outline-none hover:border-[#D1D5DB] focus:border-[#2563EB] transition-all cursor-pointer"
+            >
+              <option value="ALL">所有状态</option>
+              <option value="pending">待验证</option>
+              <option value="verified">成立</option>
+              <option value="risky">不成立</option>
+            </select>
             {!isInDuration && (
-              <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
+              <Button 
+                onClick={() => setShowAddHypothesis(true)}
+                className="bg-[#2563EB] hover:bg-[#1D4ED8]"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 新建假设
               </Button>
