@@ -9,6 +9,11 @@ export const hypothesisRouter = createTRPCRouter({
     .query(async ({ ctx, input }: { ctx: any; input: any }) => {
       const data = await ctx.db.hypothesis.findMany({
         where: { strategyId: input.strategyId },
+        include: {
+          valuePoints: { include: { attachments: true } },
+          riskPoints: { include: { attachments: true } },
+          attachments: true,
+        },
         orderBy: { createdAt: "asc" },
       });
 
@@ -37,6 +42,9 @@ export const hypothesisRouter = createTRPCRouter({
         verificationCreatedAt: h.verificationCreatedAt
           ? h.verificationCreatedAt.toISOString().split("T")[0]
           : "",
+        valuePoints: h.valuePoints || [],
+        riskPoints: h.riskPoints || [],
+        attachments: h.attachments || [],
         createdAt: h.createdAt.toISOString().split("T")[0],
         updatedAt: h.updatedAt.toISOString().split("T")[0],
       }));
@@ -49,6 +57,11 @@ export const hypothesisRouter = createTRPCRouter({
     .query(async ({ ctx, input }: { ctx: any; input: any }) => {
       const data = await ctx.db.hypothesis.findMany({
         where: { projectId: input.projectId },
+        include: {
+          valuePoints: { include: { attachments: true } },
+          riskPoints: { include: { attachments: true } },
+          attachments: true,
+        },
         orderBy: { updatedAt: "desc" },
       });
 
@@ -77,6 +90,9 @@ export const hypothesisRouter = createTRPCRouter({
         verificationCreatedAt: h.verificationCreatedAt
           ? h.verificationCreatedAt.toISOString().split("T")[0]
           : "",
+        valuePoints: h.valuePoints || [],
+        riskPoints: h.riskPoints || [],
+        attachments: h.attachments || [],
         createdAt: h.createdAt.toISOString().split("T")[0],
         updatedAt: h.updatedAt.toISOString().split("T")[0],
       }));
@@ -164,6 +180,8 @@ export const hypothesisRouter = createTRPCRouter({
       direction: z.string().optional(),
       category: z.string().optional(),
       owner: z.string().optional(),
+      valuePoints: z.array(z.any()).optional(),
+      riskPoints: z.array(z.any()).optional(),
     }))
     .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
       // Default strategy if not provided
@@ -175,10 +193,34 @@ export const hypothesisRouter = createTRPCRouter({
           strategyId,
           title: input.title,
           description: input.description,
-          direction: input.direction,
-          category: input.category,
-          owner: input.owner,
+          direction: input.direction || "未分类",
+          category: input.category || "未分类",
+          owner: input.owner || "投资经理",
           status: "pending",
+          valuePoints: {
+            create: (input.valuePoints || []).map((vp: any) => ({
+              support: vp.support,
+              analysis: vp.analysis,
+              attachments: {
+                create: (vp.attachments || []).map((a: any) => ({
+                  name: a.name,
+                  url: a.url,
+                })),
+              },
+            })),
+          },
+          riskPoints: {
+            create: (input.riskPoints || []).map((rp: any) => ({
+              support: rp.support,
+              analysis: rp.analysis,
+              attachments: {
+                create: (rp.attachments || []).map((a: any) => ({
+                  name: a.name,
+                  url: a.url,
+                })),
+              },
+            })),
+          },
         },
       });
       return hypothesis;

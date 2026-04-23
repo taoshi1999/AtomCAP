@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
+import FileUpload from "@/src/components/FileUpload"
 import {
   Search,
   FileText,
@@ -1150,7 +1151,7 @@ interface HypothesisChecklistProps {
   isExited?: boolean
   isMidInvestment?: boolean
   isPostInvestment?: boolean
-  project?: { strategyId?: string; strategyName?: string; id?: string; name?: string }
+  project?: { strategyId?: string; strategyName?: string; id?: string; name?: string; stage?: string; status?: string }
   projectMaterials?: StrategyMaterial[]
   inheritedHypotheses?: HypothesisTableItem[]
   extraDetails?: Record<string, HypothesisDetail>
@@ -1158,7 +1159,7 @@ interface HypothesisChecklistProps {
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
-  onCreateHypothesis?: (data: { title: string; direction: string; category: string; owner: string }) => void
+  onCreateHypothesis?: (data: { title: string; direction: string; category: string; owner: string; valuePoints?: any[]; riskPoints?: any[] }) => void
   onDeleteHypothesis?: (id: string) => void
 }
 
@@ -1203,6 +1204,39 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   // Add hypothesis dialog state
   const [showAddHypothesis, setShowAddHypothesis] = useState(false)
   const [newHypoForm, setNewHypoForm] = useState({ title: "", direction: "", category: "", owner: "张伟" })
+
+  // US006 新增的状态，用于在创建时填写价值点和风险点
+  const [valuePoints, setValuePoints] = useState<
+    Array<{ id: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
+  >([{ id: "vp1", support: "", analysis: "", attachments: [] }])
+  const [riskPoints, setRiskPoints] = useState<
+    Array<{ id: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
+  >([{ id: "rp1", support: "", analysis: "", attachments: [] }])
+
+  const handleUploadSuccess = (pointId: string, url: string, name: string) => {
+    const newAttachment = { name, url }
+    if (pointId.startsWith("vp")) {
+      setValuePoints(prev => prev.map(vp => 
+        vp.id === pointId ? { ...vp, attachments: [...vp.attachments, newAttachment] } : vp
+      ))
+    } else {
+      setRiskPoints(prev => prev.map(rp => 
+        rp.id === pointId ? { ...rp, attachments: [...rp.attachments, newAttachment] } : rp
+      ))
+    }
+  }
+
+  const removeAttachment = (pointId: string, urlToRemove: string) => {
+    if (pointId.startsWith("vp")) {
+      setValuePoints(prev => prev.map(vp => 
+        vp.id === pointId ? { ...vp, attachments: vp.attachments.filter(a => a.url !== urlToRemove) } : vp
+      ))
+    } else {
+      setRiskPoints(prev => prev.map(rp => 
+        rp.id === pointId ? { ...rp, attachments: rp.attachments.filter(a => a.url !== urlToRemove) } : rp
+      ))
+    }
+  }
 
   // Priority: inherited (from approved project) > template > existing mock data
   const sourceData = inheritedHypotheses
@@ -1289,8 +1323,14 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
 
   function handleSubmitHypothesis() {
     if (!newHypoForm.title.trim()) return
-    onCreateHypothesis?.(newHypoForm)
+    onCreateHypothesis?.({
+      ...newHypoForm,
+      valuePoints: valuePoints.map(vp => ({ support: vp.support, analysis: vp.analysis, attachments: vp.attachments })),
+      riskPoints: riskPoints.map(rp => ({ support: rp.support, analysis: rp.analysis, attachments: rp.attachments })),
+    })
     setNewHypoForm({ title: "", direction: "", category: "", owner: "张伟" })
+    setValuePoints([{ id: "vp1", support: "", analysis: "", attachments: [] }])
+    setRiskPoints([{ id: "rp1", support: "", analysis: "", attachments: [] }])
     setShowAddHypothesis(false)
   }
 
@@ -2357,57 +2397,180 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
 
         {/* Add Hypothesis Dialog */}
         <Dialog open={showAddHypothesis} onOpenChange={setShowAddHypothesis}>
-          <DialogContent className="sm:max-w-[480px]">
+          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-base font-semibold text-[#111827]">新建假设</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div>
-                <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设名称 <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  placeholder="请输入假设名称..."
-                  value={newHypoForm.title}
-                  onChange={(e) => setNewHypoForm((f) => ({ ...f, title: e.target.value }))}
-                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-6 py-2">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-[#111827] border-b pb-2">基本信息</h3>
                 <div>
-                  <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设方向</label>
+                  <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设名称 <span className="text-red-500">*</span></label>
                   <input
                     type="text"
-                    placeholder="如: 技术攻关"
-                    value={newHypoForm.direction}
-                    onChange={(e) => setNewHypoForm((f) => ({ ...f, direction: e.target.value }))}
+                    placeholder="请输入假设名称..."
+                    value={newHypoForm.title}
+                    onChange={(e) => setNewHypoForm((f) => ({ ...f, title: e.target.value }))}
                     className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设方向</label>
+                    <input
+                      type="text"
+                      placeholder="如: 技术攻关"
+                      value={newHypoForm.direction}
+                      onChange={(e) => setNewHypoForm((f) => ({ ...f, direction: e.target.value }))}
+                      className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设类别</label>
+                    <input
+                      type="text"
+                      placeholder="如: 算力与芯片"
+                      value={newHypoForm.category}
+                      onChange={(e) => setNewHypoForm((f) => ({ ...f, category: e.target.value }))}
+                      className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                    />
+                  </div>
+                </div>
                 <div>
-                  <label className="text-sm font-medium text-[#374151] mb-1.5 block">假设类别</label>
-                  <input
-                    type="text"
-                    placeholder="如: 算力与芯片"
-                    value={newHypoForm.category}
-                    onChange={(e) => setNewHypoForm((f) => ({ ...f, category: e.target.value }))}
+                  <label className="text-sm font-medium text-[#374151] mb-1.5 block">负责人</label>
+                  <select
+                    value={newHypoForm.owner}
+                    onChange={(e) => setNewHypoForm((f) => ({ ...f, owner: e.target.value }))}
                     className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-                  />
+                  >
+                    {Object.entries(PEOPLE).map(([key, p]) => (
+                      <option key={key} value={p.name}>{p.name} ({p.role})</option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-[#374151] mb-1.5 block">负责人</label>
-                <select
-                  value={newHypoForm.owner}
-                  onChange={(e) => setNewHypoForm((f) => ({ ...f, owner: e.target.value }))}
-                  className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-                >
-                  {Object.entries(PEOPLE).map(([key, p]) => (
-                    <option key={key} value={p.name}>{p.name} ({p.role})</option>
-                  ))}
-                </select>
+
+              {/* 价值点部分 */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h3 className="text-sm font-semibold text-[#111827]">价值点</h3>
+                  <button
+                    type="button"
+                    onClick={() => setValuePoints([...valuePoints, { id: `vp-${Date.now()}`, support: "", analysis: "", attachments: [] }])}
+                    className="flex items-center text-sm h-8 px-3 text-[#2563EB] hover:text-[#1D4ED8] hover:bg-[#F0F7FF] rounded"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    添加价值点
+                  </button>
+                </div>
+                {valuePoints.map((vp, index) => (
+                  <div key={vp.id} className="p-4 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] space-y-4 relative">
+                    {valuePoints.length > 1 && (
+                      <button
+                        onClick={() => setValuePoints(valuePoints.filter(v => v.id !== vp.id))}
+                        className="absolute top-2 right-2 text-[#9CA3AF] hover:text-red-500"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                    <div>
+                      <label className="text-xs font-medium text-[#6B7280] mb-1 block">论据支持</label>
+                      <textarea
+                        value={vp.support}
+                        onChange={(e) => setValuePoints(valuePoints.map(v => v.id === vp.id ? { ...v, support: e.target.value } : v))}
+                        placeholder="请输入论据支持..."
+                        className="w-full text-sm border border-[#E5E7EB] rounded px-3 py-2 min-h-[80px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-[#6B7280] mb-1 block">论证分析</label>
+                      <textarea
+                        value={vp.analysis}
+                        onChange={(e) => setValuePoints(valuePoints.map(v => v.id === vp.id ? { ...v, analysis: e.target.value } : v))}
+                        placeholder="请输入论证分析..."
+                        className="w-full text-sm border border-[#E5E7EB] rounded px-3 py-2 min-h-[80px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-[#6B7280] mb-1 block">附件</label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {vp.attachments.map(att => (
+                          <div key={att.url} className="flex items-center gap-2 bg-white px-2 py-1 border rounded text-xs">
+                            <FileText className="h-3 w-3 text-[#2563EB]" />
+                            <span className="truncate max-w-[150px]">{att.name}</span>
+                            <button onClick={() => removeAttachment(vp.id, att.url)} className="text-[#9CA3AF] hover:text-red-500">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <FileUpload onUploadSuccess={(url, name) => handleUploadSuccess(vp.id, url, name)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 风险点部分 */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h3 className="text-sm font-semibold text-[#111827]">风险点</h3>
+                  <button
+                    type="button"
+                    onClick={() => setRiskPoints([...riskPoints, { id: `rp-${Date.now()}`, support: "", analysis: "", attachments: [] }])}
+                    className="flex items-center text-sm h-8 px-3 text-[#2563EB] hover:text-[#1D4ED8] hover:bg-[#F0F7FF] rounded"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    添加风险点
+                  </button>
+                </div>
+                {riskPoints.map((rp, index) => (
+                  <div key={rp.id} className="p-4 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] space-y-4 relative">
+                    {riskPoints.length > 1 && (
+                      <button
+                        onClick={() => setRiskPoints(riskPoints.filter(r => r.id !== rp.id))}
+                        className="absolute top-2 right-2 text-[#9CA3AF] hover:text-red-500"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                    <div>
+                      <label className="text-xs font-medium text-[#6B7280] mb-1 block">论据支持</label>
+                      <textarea
+                        value={rp.support}
+                        onChange={(e) => setRiskPoints(riskPoints.map(r => r.id === rp.id ? { ...r, support: e.target.value } : r))}
+                        placeholder="请输入论据支持..."
+                        className="w-full text-sm border border-[#E5E7EB] rounded px-3 py-2 min-h-[80px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-[#6B7280] mb-1 block">论证分析</label>
+                      <textarea
+                        value={rp.analysis}
+                        onChange={(e) => setRiskPoints(riskPoints.map(r => r.id === rp.id ? { ...r, analysis: e.target.value } : r))}
+                        placeholder="请输入论证分析..."
+                        className="w-full text-sm border border-[#E5E7EB] rounded px-3 py-2 min-h-[80px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-[#6B7280] mb-1 block">附件</label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {rp.attachments.map(att => (
+                          <div key={att.url} className="flex items-center gap-2 bg-white px-2 py-1 border rounded text-xs">
+                            <FileText className="h-3 w-3 text-[#2563EB]" />
+                            <span className="truncate max-w-[150px]">{att.name}</span>
+                            <button onClick={() => removeAttachment(rp.id, att.url)} className="text-[#9CA3AF] hover:text-red-500">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <FileUpload onUploadSuccess={(url, name) => handleUploadSuccess(rp.id, url, name)} />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="flex justify-end gap-3 pt-2">
+            <div className="flex justify-end gap-3 pt-6 border-t mt-4">
               <button
                 onClick={() => setShowAddHypothesis(false)}
                 className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"

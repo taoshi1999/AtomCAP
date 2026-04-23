@@ -66,8 +66,46 @@ export default function HypothesesPage() {
       updatedAt: h.updatedAt,
       status: (h.status as "verified" | "pending" | "risky") || "pending",
       creator: { name: h.owner || "未分配", role: "投资经理" },
-      valuePoints: [],
-      riskPoints: [],
+      valuePoints: (h.valuePoints as any[])?.map((vp) => ({
+        id: vp.id,
+        title: `价值点`,
+        evidence: {
+          description: vp.support || "",
+          files: (vp.attachments as any[])?.map(a => ({ 
+            name: a.name, 
+            size: "0 B", 
+            date: h.createdAt, 
+            url: a.url 
+          })) || [],
+        },
+        analysis: {
+          content: vp.analysis || "",
+          creator: { name: h.owner || "张伟", role: "投资经理" },
+          reviewers: [],
+          createdAt: h.createdAt,
+        },
+        comments: [],
+      })) || [],
+      riskPoints: (h.riskPoints as any[])?.map((rp) => ({
+        id: rp.id,
+        title: `风险点`,
+        evidence: {
+          description: rp.support || "",
+          files: (rp.attachments as any[])?.map(a => ({ 
+            name: a.name, 
+            size: "0 B", 
+            date: h.createdAt, 
+            url: a.url 
+          })) || [],
+        },
+        analysis: {
+          content: rp.analysis || "",
+          creator: { name: h.owner || "张伟", role: "投资经理" },
+          reviewers: [],
+          createdAt: h.createdAt,
+        },
+        comments: [],
+      })) || [],
       committeeDecision: {
         conclusion: h.committeeConclusion as "假设成立" | "假设不成立" | "" || "",
         status: (h.committeeStatus as "approved" | "rejected" | "pending") || "pending",
@@ -94,13 +132,22 @@ export default function HypothesesPage() {
     }
   }
 
-  const handleCreate = (data: { title: string; direction: string; category: string; owner: string }) => {
+  const handleCreate = (data: { 
+    title: string; 
+    direction: string; 
+    category: string; 
+    owner: string;
+    valuePoints?: any[];
+    riskPoints?: any[];
+  }) => {
     createMutation.mutate({
       projectId,
       title: data.title,
       direction: data.direction,
       category: data.category,
       owner: data.owner,
+      valuePoints: data.valuePoints,
+      riskPoints: data.riskPoints,
     })
   }
 

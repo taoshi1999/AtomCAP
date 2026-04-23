@@ -200,5 +200,55 @@ model Hypothesis {
   strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
   project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  valuePoints ValuePoint[]
+  riskPoints  RiskPoint[]
+  attachments Attachment[]
+
   @@map("hypotheses")
+}
+
+//US006 新增价值点、风险点、附件表
+model ValuePoint {
+  id           String    @id @default(cuid())
+  hypothesisId String    @map("hypothesis_id")
+  support      String?   @db.Text
+  analysis     String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  hypothesis   Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
+
+  @@map("value_points")
+}
+
+model RiskPoint {
+  id           String    @id @default(cuid())
+  hypothesisId String    @map("hypothesis_id")
+  support      String?   @db.Text
+  analysis     String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  hypothesis   Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
+
+  @@map("risk_points")
+}
+
+model Attachment {
+  id           String    @id @default(cuid())
+  name         String
+  url          String
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  hypothesisId String?   @map("hypothesis_id")
+  valuePointId String?   @map("value_point_id")
+  riskPointId  String?   @map("risk_point_id")
+
+  hypothesis   Hypothesis? @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  valuePoint   ValuePoint? @relation(fields: [valuePointId], references: [id], onDelete: Cascade)
+  riskPoint    RiskPoint?  @relation(fields: [riskPointId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
 }
