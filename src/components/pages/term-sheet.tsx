@@ -614,15 +614,20 @@ interface TermSheetProps {
   isInDuration?: boolean
   isExited?: boolean
   termLockPeriod?: string
-  project?: { strategyId?: string; strategyName?: string }
+  project?: { strategyId?: string; strategyName?: string; id?: string; name?: string }
   projectMaterials?: StrategyMaterial[]
   inheritedTerms?: TermTableItem[]
   extraDetails?: Record<string, TermDetail>
+  linkedHypothesesMap?: Record<string, LinkedHypothesis[]>
+  availableHypotheses?: { id: string; title: string; status: string }[]
+  onAddHypothesisLink?: (termId: string, hypothesisId: string) => void
+  onRemoveHypothesisLink?: (linkId: string) => void
+  onNavigateToHypothesis?: (hypothesisId: string) => void
   onCreateNegotiationDecision?: (termId: string, termName: string, data: NegotiationDecisionFormData) => void
   onCreateImplementationStatus?: (termId: string, termName: string, data: ImplementationStatusFormData) => void
 }
 
-export function TermSheet({ isNewProject = false, isInDuration = false, isExited = false, termLockPeriod, project, projectMaterials, inheritedTerms, extraDetails, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
+export function TermSheet({ isNewProject = false, isInDuration = false, isExited = false, termLockPeriod, project, projectMaterials, inheritedTerms, extraDetails, linkedHypothesesMap, availableHypotheses, onAddHypothesisLink, onRemoveHypothesisLink, onNavigateToHypothesis, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -641,6 +646,10 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
   const [isMaterials, setIsMaterials] = useState<string[]>([])
   const [isResponsibles, setIsResponsibles] = useState<string[]>([])
   const [isSearch, setIsSearch] = useState("")
+
+  // Hypothesis selector dialog state
+  const [showHypoSelector, setShowHypoSelector] = useState(false)
+  const [hypoSearch, setHypoSearch] = useState("")
 
   const ALL_REVIEWERS = [
     { name: "张伟", role: "投资经理" },
@@ -1316,6 +1325,126 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
               </div>
             )}
           </div>
+
+          {/* 关联假设 */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full bg-[#8B5CF6]" />
+                <h2 className="text-base font-semibold text-[#8B5CF6]">关联假设</h2>
+              </div>
+              <button
+                onClick={() => { setHypoSearch(""); setShowHypoSelector(true); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#8B5CF6] border border-[#8B5CF6] rounded-lg hover:bg-[#F5F3FF] transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                添加关联
+              </button>
+            </div>
+            <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
+              <div className="border-l-4 border-[#8B5CF6] p-5">
+                {(() => {
+                  const linked = linkedHypothesesMap?.[selectedId ?? ""] || []
+                  return linked.length === 0 ? (
+                    <p className="text-sm text-[#9CA3AF]">暂无关联假设</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {linked.map((h) => (
+                        <div key={h.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
+                          <button
+                            onClick={() => onNavigateToHypothesis?.(h.id)}
+                            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                          >
+                            <Link2 className="h-4 w-4 text-[#8B5CF6]" />
+                            <div className="text-left">
+                              <span className="text-sm text-[#111827] hover:text-[#2563EB]">{h.title}</span>
+                            </div>
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <Badge className={cn(
+                              "text-xs",
+                              h.status === "verified"
+                                ? "bg-[#DCFCE7] text-[#166534]"
+                                : h.status === "risky"
+                                  ? "bg-[#FEE2E2] text-[#991B1B]"
+                                  : "bg-[#FEF3C7] text-[#92400E]"
+                            )}>
+                              {h.status === "verified" ? "已验证" : h.status === "risky" ? "有风险" : "待验证"}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            </div>
+          </div>
+
+          {/* Hypothesis Selector Dialog */}
+          {showHypoSelector && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
+                <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-[#E5E7EB] shrink-0">
+                  <h3 className="text-base font-semibold text-[#111827]">选择假设</h3>
+                  <button onClick={() => setShowHypoSelector(false)} className="p-1 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="px-6 py-4 flex-1 overflow-y-auto">
+                  <div className="relative mb-4">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                    <input
+                      type="text"
+                      placeholder="搜索假设..."
+                      value={hypoSearch}
+                      onChange={(e) => setHypoSearch(e.target.value)}
+                      className="w-full pl-9 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6]"
+                    />
+                  </div>
+                  {(() => {
+                    const linked = linkedHypothesesMap?.[selectedId ?? ""] || []
+                    const linkedIds = new Set(linked.map((l) => l.id))
+                    const filtered = (availableHypotheses || []).filter((h) =>
+                      !linkedIds.has(h.id) &&
+                      (hypoSearch === "" || h.title.toLowerCase().includes(hypoSearch.toLowerCase()))
+                    )
+                    return filtered.length === 0 ? (
+                      <p className="text-sm text-[#9CA3AF] text-center py-6">没有可关联的假设</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {filtered.map((h) => (
+                          <button
+                            key={h.id}
+                            onClick={() => {
+                              if (selectedId) onAddHypothesisLink?.(selectedId, h.id)
+                              setShowHypoSelector(false)
+                            }}
+                            className="w-full flex items-center gap-3 p-3 rounded-lg border border-[#E5E7EB] hover:bg-[#F5F3FF] hover:border-[#8B5CF6] transition-colors text-left"
+                          >
+                            <Link2 className="h-4 w-4 text-[#8B5CF6] shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-[#111827] truncate">{h.title}</p>
+                            </div>
+                            <Badge className={cn(
+                              "text-xs shrink-0",
+                              h.status === "verified"
+                                ? "bg-[#DCFCE7] text-[#166534]"
+                                : h.status === "risky"
+                                  ? "bg-[#FEE2E2] text-[#991B1B]"
+                                  : "bg-[#FEF3C7] text-[#92400E]"
+                            )}>
+                              {h.status === "verified" ? "已验证" : h.status === "risky" ? "有风险" : "待验证"}
+                            </Badge>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Implementation Status Dialog */}
           {showAddIS && (
