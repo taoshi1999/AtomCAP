@@ -66,8 +66,36 @@ export default function HypothesesPage() {
       updatedAt: h.updatedAt,
       status: (h.status as "verified" | "pending" | "risky") || "pending",
       creator: { name: h.owner || "未分配", role: "投资经理" },
-      valuePoints: [],
-      riskPoints: [],
+      valuePoints: (h.valuePoints || []).map((vp: any, idx: number) => ({
+        id: vp.id,
+        title: `价值点 ${idx + 1}`,
+        evidence: {
+          description: vp.support || "",
+          files: (vp.attachments || []).map((a: any) => ({ name: a.name, url: a.url, size: "-", date: (a.createdAt || "").toString().split("T")[0] }))
+        },
+        analysis: {
+          content: vp.analysis || "",
+          creator: { name: h.owner || "投资经理", role: "投资经理" },
+          reviewers: [],
+          createdAt: (vp.createdAt || "").toString().split("T")[0]
+        },
+        comments: []
+      })),
+      riskPoints: (h.riskPoints || []).map((rp: any, idx: number) => ({
+        id: rp.id,
+        title: `风险点 ${idx + 1}`,
+        evidence: {
+          description: rp.support || "",
+          files: (rp.attachments || []).map((a: any) => ({ name: a.name, url: a.url, size: "-", date: (a.createdAt || "").toString().split("T")[0] }))
+        },
+        analysis: {
+          content: rp.analysis || "",
+          creator: { name: h.owner || "投资经理", role: "投资经理" },
+          reviewers: [],
+          createdAt: (rp.createdAt || "").toString().split("T")[0]
+        },
+        comments: []
+      })),
       committeeDecision: {
         conclusion: h.committeeConclusion as "假设成立" | "假设不成立" | "" || "",
         status: (h.committeeStatus as "approved" | "rejected" | "pending") || "pending",
@@ -138,7 +166,7 @@ export default function HypothesesPage() {
       isNewProject={isNewProject}
       inheritedHypotheses={mappedHypotheses}
       extraDetails={extraDetails}
-      onCreateHypothesis={handleCreate}
+      
       onDeleteHypothesis={handleDelete}
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
