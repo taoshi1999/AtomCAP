@@ -209,8 +209,12 @@ export const hypothesisRouter = createTRPCRouter({
       };
     }),
 
-   getComments: protectedProcedure
-    .input(z.object({ hypothesisId: z.string() }))
+  getComments: protectedProcedure
+    .input(
+      z.object({
+        hypothesisId: z.string(),
+      })
+    )
     .query(async ({ ctx, input }: { ctx: any; input: any }) => {
       return ctx.db.hypothesisComment.findMany({
         where: { hypothesisId: input.hypothesisId },
@@ -224,14 +228,16 @@ export const hypothesisRouter = createTRPCRouter({
       z.object({
         hypothesisId: z.string(),
         content: z.string().optional(),
-        attachments: z.array(
-          z.object({
-            name: z.string(),
-            format: z.string().optional(),
-            size: z.string().optional(),
-            url: z.string(),
-          })
-        ).optional(),
+        attachments: z
+          .array(
+            z.object({
+              name: z.string(),
+              format: z.string().optional(),
+              size: z.string().optional(),
+              url: z.string(),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
@@ -261,47 +267,4 @@ export const hypothesisRouter = createTRPCRouter({
         include: { attachments: true },
       });
     }),
-
-  create: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.string(),
-        strategyId: z.string().optional(),
-        title: z.string(),
-        description: z.string().optional(),
-        direction: z.string().optional(),
-        category: z.string().optional(),
-        owner: z.string().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
-      const strategyId = input.strategyId || "1";
-
-      const hypothesis = await ctx.db.hypothesis.create({
-        data: {
-          projectId: input.projectId,
-          strategyId,
-          title: input.title,
-          description: input.description,
-          direction: input.direction,
-          category: input.category,
-          owner: input.owner,
-          status: "pending",
-        },
-      });
-
-      return hypothesis;
-    }),
-
-  delete: protectedProcedure
-    .input(
-      z.object({
-        id: z.string(),
-      })
-    )
-    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
-      await ctx.db.hypothesis.delete({
-        where: { id: input.id },
-      });
-      return { success: true };
-    }),
+});

@@ -1160,45 +1160,10 @@ interface HypothesisChecklistProps {
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
-interface HypothesisChecklistProps {
-  isNewProject?: boolean
-  isInDuration?: boolean
-  isExited?: boolean
-  isMidInvestment?: boolean
-  isPostInvestment?: boolean
-  project?: { strategyId?: string; strategyName?: string; id?: string; name?: string }
-  projectMaterials?: StrategyMaterial[]
-  inheritedHypotheses?: HypothesisTableItem[]
-  extraDetails?: Record<string, HypothesisDetail>
-  onAddValuePoint?: (hypothesisId: string, vp: ValuePoint) => void
-  onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
-  onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
-  onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
   renderHypothesisComments?: (hypothesisId: string) => React.ReactNode
-  onCreateHypothesis?: (data: { title: string; direction: string; category: string; owner: string }) => void
-  onDeleteHypothesis?: (id: string) => void
 }
 
-export function HypothesisChecklist({
-  isNewProject = false,
-  isInDuration = false,
-  isExited = false,
-  isMidInvestment = false,
-  isPostInvestment = false,
-  project,
-  projectMaterials,
-  inheritedHypotheses,
-  extraDetails,
-  onAddValuePoint,
-  onAddRiskPoint,
-  onCreateCommitteeDecision,
-  onCreateVerification,
-  renderHypothesisComments,
-  onCreateHypothesis,
-  onDeleteHypothesis,
-}: HypothesisChecklistProps) {
-
-export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification, renderHypothesisComments }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -1998,7 +1963,6 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
             </div>
           </div>
 
-          {/* 假设整体评论与附件区 (US-007) */}
           {renderHypothesisComments?.(selectedDetail.id)}
         </div>
 
