@@ -1156,13 +1156,16 @@ interface HypothesisChecklistProps {
   projectMaterials?: StrategyMaterial[]
   inheritedHypotheses?: HypothesisTableItem[]
   extraDetails?: Record<string, HypothesisDetail>
+  linkedTermsMap?: Record<string, { id: string; termId: string; title: string; status: string }[]>
+  onDeleteHypothesis?: (id: string) => void
   onAddValuePoint?: (hypothesisId: string, vp: ValuePoint) => void
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
+  onNavigateToTerm?: (termId: string) => void
 }
 
-export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, linkedTermsMap, onDeleteHypothesis, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification, onNavigateToTerm }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -1932,33 +1935,48 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
               <h2 className="text-base font-semibold text-[#111827]">该假设所支持的条款</h2>
             </div>
             <div className="bg-white rounded-xl border border-[#E5E7EB] p-5">
-              {selectedDetail.linkedTerms.length === 0 ? (
-                <p className="text-sm text-[#9CA3AF]">暂无关联条款</p>
-              ) : (
-                <div className="space-y-3">
-                  {selectedDetail.linkedTerms.map((term) => (
-                    <div key={term.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <FileCheck className="h-4 w-4 text-[#6B7280]" />
-                        <div>
-                          <span className="text-sm text-[#111827]">{term.title}</span>
-                          <p className="text-xs text-[#9CA3AF]">ID: {term.termId}</p>
-                        </div>
+              {(() => {
+                const dbLinked = linkedTermsMap?.[selectedId ?? ""] || []
+                const mergedTerms = [
+                  ...selectedDetail.linkedTerms,
+                  ...dbLinked.filter((lt) => !selectedDetail.linkedTerms.some((t) => t.id === lt.termId)).map((lt) => ({
+                    id: lt.termId,
+                    title: lt.title,
+                    termId: lt.termId,
+                    status: (lt.status || "pending") as "approved" | "pending" | "rejected",
+                  })),
+                ]
+                return mergedTerms.length === 0 ? (
+                  <p className="text-sm text-[#9CA3AF]">暂无关联条款</p>
+                ) : (
+                  <div className="space-y-3">
+                    {mergedTerms.map((term) => (
+                      <div key={term.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
+                        <button
+                          onClick={() => onNavigateToTerm?.(term.id)}
+                          className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                        >
+                          <FileCheck className="h-4 w-4 text-[#6B7280]" />
+                          <div className="text-left">
+                            <span className="text-sm text-[#111827] hover:text-[#2563EB]">{term.title}</span>
+                            <p className="text-xs text-[#9CA3AF]">ID: {term.termId}</p>
+                          </div>
+                        </button>
+                        <Badge className={cn(
+                          "text-xs",
+                          term.status === "approved"
+                            ? "bg-[#DCFCE7] text-[#166534]"
+                            : term.status === "rejected"
+                              ? "bg-[#FEE2E2] text-[#991B1B]"
+                              : "bg-[#FEF3C7] text-[#92400E]"
+                        )}>
+                          {term.status === "approved" ? "通过" : term.status === "rejected" ? "拒绝" : "待审"}
+                        </Badge>
                       </div>
-                      <Badge className={cn(
-                        "text-xs",
-                        term.status === "approved"
-                          ? "bg-[#DCFCE7] text-[#166534]"
-                          : term.status === "rejected"
-                            ? "bg-[#FEE2E2] text-[#991B1B]"
-                            : "bg-[#FEF3C7] text-[#92400E]"
-                      )}>
-                        {term.status === "approved" ? "通过" : term.status === "rejected" ? "拒绝" : "待审"}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>

@@ -7,6 +7,9 @@ export const hypothesisRouter = createTRPCRouter({
       z.object({
         projectId: z.string(),
         title: z.string(),
+        direction: z.string().optional(),
+        category: z.string().optional(),
+        owner: z.string().optional(),
         valuePoints: z
           .array(
             z.object({
@@ -42,14 +45,15 @@ export const hypothesisRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
-      const { projectId, title, valuePoints, riskPoints } = input;
+      const { projectId, title, direction, category, owner, valuePoints, riskPoints } = input;
 
-      // 在同一事事务内利用 Prisma 的 nested writes (嵌套写入) 特性
-      // 一次性创建假设及其从属的 valuePoints / riskPoints / attachments 子记录
       const newHypothesis = await ctx.db.hypothesis.create({
         data: {
           projectId,
           title,
+          direction,
+          category,
+          owner,
           status: "pending",
           valuePoints: {
             create:
@@ -83,6 +87,12 @@ export const hypothesisRouter = createTRPCRouter({
       });
 
       return newHypothesis;
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      return ctx.db.hypothesis.delete({ where: { id: input.id } });
     }),
 
   getByProject: protectedProcedure
@@ -207,5 +217,92 @@ export const hypothesisRouter = createTRPCRouter({
         verificationContent: updated.verificationContent,
         verificationStatus: updated.verificationStatus,
       };
+    }),
+
+  getLinkedTerms: protectedProcedure
+    .input(z.object({ hypothesisId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const links = await ctx.db.termHypothesis.findMany({
+        where: { hypothesisId: input.hypothesisId },
+      });
+      return links.map((l: any) => ({
+        id: l.id,
+        termId: l.termId,
+        hypothesisId: l.hypothesisId,
+      }));
+    }),
+
+  getLinkedTermsByProject: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const hypotheses = await ctx.db.hypothesis.findMany({
+        where: { projectId: input.projectId },
+        select: { id: true },
+      });
+      const hypothesisIds = hypotheses.map((h: any) => h.id);
+      if (hypothesisIds.length === 0) return {};
+      const links = await ctx.db.termHypothesis.findMany({
+        where: { hypothesisId: { in: hypothesisIds } },
+      });
+      const map: Record<string, { id: string; termId: string; title: string; status: string }[]> = {};
+      for (const l of links) {
+        if (!map[l.hypothesisId]) map[l.hypothesisId] = [];
+        map[l.hypothesisId].push({
+          id: l.id,
+          termId: l.termId,
+          title: `条款 ${l.termId.slice(-4).toUpperCase()}`,
+          status: "pending",
+        });
+      }
+      return map;
+    }),
+
+  getLinkedHypothesesByProject: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const links = await ctx.db.termHypothesis.findMany({
+        where: { hypothesis: { projectId: input.projectId } },
+        include: { hypothesis: { select: { id: true, title: true, status: true } } },
+      });
+      const map: Record<string, { id: string; hypothesisId: string; title: string; status: string }[]> = {};
+      for (const l of links) {
+        if (!map[l.termId]) map[l.termId] = [];
+        map[l.termId].push({
+          id: l.id,
+          hypothesisId: l.hypothesisId,
+          title: l.hypothesis.title,
+          status: l.hypothesis.status || "pending",
+        });
+      }
+      return map;
+    }),
+
+  getLinkedHypotheses: protectedProcedure
+    .input(z.object({ termId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const links = await ctx.db.termHypothesis.findMany({
+        where: { termId: input.termId },
+        include: { hypothesis: { select: { id: true, title: true, status: true } } },
+      });
+      return links.map((l: any) => ({
+        id: l.id,
+        termId: l.termId,
+        hypothesisId: l.hypothesisId,
+        hypothesis: l.hypothesis,
+      }));
+    }),
+
+  addTermHypothesisLink: protectedProcedure
+    .input(z.object({ termId: z.string(), hypothesisId: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      return ctx.db.termHypothesis.create({
+        data: { termId: input.termId, hypothesisId: input.hypothesisId },
+      });
+    }),
+
+  removeTermHypothesisLink: protectedProcedure
+    .input(z.object({ linkId: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      return ctx.db.termHypothesis.delete({ where: { id: input.linkId } });
     }),
 });

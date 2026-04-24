@@ -204,6 +204,7 @@ model Hypothesis {
   valuePoints ValuePoint[]
   riskPoints  RiskPoint[]
   attachments Attachment[]
+  termLinks   TermHypothesis[]
 
   @@map("hypotheses")
 }
@@ -251,5 +252,17 @@ model Attachment {
   riskPoint    RiskPoint?  @relation(fields: [riskPointId], references: [id], onDelete: Cascade)
 
   @@map("attachments")
+}
+
+model TermHypothesis {
+  id           String   @id @default(cuid())
+  termId       String   @map("term_id")
+  hypothesisId String   @map("hypothesis_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  hypothesis Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+
+  @@unique([termId, hypothesisId])
+  @@map("term_hypotheses")
 }
 
