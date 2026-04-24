@@ -199,11 +199,12 @@ model Hypothesis {
 
   // US006新增价值点(ValuePoint)、风险点(RiskPoint)、附件(Attachment)表，用以支持US006中多价值点风险点、每个点包含附件的需求。
   // 通过 onDelete: Cascade 实现假设本身被删除时，级联清理这些从属数据
-  strategy   Strategy? @relation(fields: [strategyId], references: [id], onDelete: Cascade)
-  project    Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  strategy   Strategy?           @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  project    Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   valuePoints ValuePoint[]
   riskPoints  RiskPoint[]
   attachments Attachment[]
+  comments    HypothesisComment[]
 
   @@map("hypotheses")
 }
@@ -253,3 +254,32 @@ model Attachment {
   @@map("attachments")
 }
 
+model HypothesisComment {
+  id            String                 @id @default(cuid())
+  hypothesisId  String                 @map("hypothesis_id")
+  content       String                 @db.Text
+  creatorId     String                 @map("creator_id")
+  creatorName   String                 @db.VarChar(100)
+  creatorAvatar String?                @db.VarChar(255)
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  hypothesis    Hypothesis             @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  attachments   HypothesisAttachment[]
+
+  @@map("hypothesis_comments")
+}
+
+model HypothesisAttachment {
+  id        String            @id @default(cuid())
+  commentId String            @map("comment_id")
+  name      String
+  format    String?
+  size      String?
+  url       String
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  comment   HypothesisComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@map("hypothesis_attachments")
+}

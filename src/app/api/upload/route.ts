@@ -10,16 +10,21 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const fileBuffer = await request.arrayBuffer();
-
-    const blob = await put(filename, fileBuffer, {
-      access: 'public',
-      allowOverwrite: true, // 允许覆盖同名文件
+    const blob = await put(filename, request.body, {
+      access: 'private',
+      addRandomSuffix: true,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
     });
 
-    return NextResponse.json(blob);
+    return NextResponse.json({
+      ...blob,
+      url: blob.url,
+    });
   } catch (error) {
     console.error('Upload failed:', error);
-    return NextResponse.json({ error: 'Upload failed: ' + String(error) }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Upload failed' },
+      { status: 500 }
+    );
   }
 }
