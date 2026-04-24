@@ -1160,9 +1160,10 @@ interface HypothesisChecklistProps {
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
+  renderHypothesisComments?: (hypothesisId: string) => React.ReactNode
 }
 
-export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification, renderHypothesisComments }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
@@ -1961,6 +1962,8 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
               )}
             </div>
           </div>
+
+          {renderHypothesisComments?.(selectedDetail.id)}
         </div>
 
         {/* Add Value Point Dialog */}

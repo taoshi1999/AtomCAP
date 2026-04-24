@@ -4,6 +4,7 @@ import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { HypothesisChecklist } from "@/src/components/pages/hypothesis-checklist"
 import type { HypothesisDetail } from "@/src/components/pages/hypothesis-checklist"
+import { HypothesisComments } from "@/src/components/pages/hypothesis-comments"
 import type { CommitteeDecisionFormData, VerificationFormData } from "@/src/components/pages/workflow"
 
 export default function HypothesesPage() {
@@ -166,11 +167,13 @@ export default function HypothesesPage() {
       isNewProject={isNewProject}
       inheritedHypotheses={mappedHypotheses}
       extraDetails={extraDetails}
-      
       onDeleteHypothesis={handleDelete}
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
+      renderHypothesisComments={(hypothesisId) => (
+        <HypothesisComments hypothesisId={hypothesisId} />
+      )}
     />
   )
 }

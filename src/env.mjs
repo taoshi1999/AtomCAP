@@ -12,6 +12,7 @@ export const env = createEnv({
       (str) => process.env.VERCEL_URL ?? str,
       process.env.VERCEL ? z.string() : z.string().url()
     ),
+    BLOB_READ_WRITE_TOKEN: z.string().min(1),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -32,6 +33,7 @@ export const env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
