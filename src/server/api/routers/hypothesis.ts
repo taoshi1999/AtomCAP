@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/src/server/api/trpc";
 
+const commentScopeSchema = z.enum([
+  "hypothesis",
+  "value_point",
+  "risk_point",
+  "committee_decision",
+  "verification",
+]);
+
 export const hypothesisRouter = createTRPCRouter({
   create: protectedProcedure
     .input(
@@ -213,11 +221,17 @@ export const hypothesisRouter = createTRPCRouter({
     .input(
       z.object({
         hypothesisId: z.string(),
+        scopeType: commentScopeSchema.default("hypothesis"),
+        scopeRefId: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }: { ctx: any; input: any }) => {
       return ctx.db.hypothesisComment.findMany({
-        where: { hypothesisId: input.hypothesisId },
+        where: {
+          hypothesisId: input.hypothesisId,
+          scopeType: input.scopeType,
+          scopeRefId: input.scopeRefId ?? null,
+        },
         include: { attachments: true },
         orderBy: { createdAt: "desc" },
       });
@@ -227,6 +241,8 @@ export const hypothesisRouter = createTRPCRouter({
     .input(
       z.object({
         hypothesisId: z.string(),
+        scopeType: commentScopeSchema.default("hypothesis"),
+        scopeRefId: z.string().optional(),
         content: z.string().optional(),
         attachments: z
           .array(
@@ -253,6 +269,8 @@ export const hypothesisRouter = createTRPCRouter({
       return ctx.db.hypothesisComment.create({
         data: {
           hypothesisId: input.hypothesisId,
+          scopeType: input.scopeType,
+          scopeRefId: input.scopeRefId,
           content: input.content || "",
           creatorId: user.id,
           creatorName: user.name || "Unknown User",

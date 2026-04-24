@@ -11,6 +11,7 @@
  */
 
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
@@ -171,12 +172,17 @@ async function seedDashboardTodos() {
  *   - 相关 Task / Document 在 schema 里配置了 onDelete: Cascade，会随之清理
  */
 async function seedProjects() {
+  const seedPasswordHash = await bcrypt.hash('123456', 10)
   const seedUser = await prisma.user.upsert({
     where: { email: 'seed@atomcap.local' },
-    update: {},
+    update: {
+      name: '测试账号',
+      password: seedPasswordHash,
+    },
     create: {
       email: 'seed@atomcap.local',
-      name: 'Seed User',
+      name: '测试账号',
+      password: seedPasswordHash,
     },
   })
 

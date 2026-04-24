@@ -10,6 +10,7 @@ import type { AnalysisFramework, PendingFramework } from "@/src/components/pages
 import { ProjectDetail } from "@/src/components/pages/project-detail"
 import { StrategyDetail } from "@/src/components/pages/strategy-detail"
 import { ChangeRequests } from "@/src/components/pages/change-requests"
+import { HypothesisComments } from "@/src/components/pages/hypothesis-comments"
 import type { Phase, PendingPhase, LiXiangRecord, TouJueRecord, HuaKuanRecord, TuiChuRecord, PendingProjectHypothesis, ProjectHypothesisFormData, GeneratedSuggestion, GeneratedTermSuggestion, PendingProjectTerm, PendingProjectMaterial, GeneratedMaterialSuggestion, GeneratedAiResearchGroup, PendingCommitteeDecision, CommitteeDecisionFormData, PendingNegotiationDecision, NegotiationDecisionFormData, PendingVerification, VerificationFormData, PendingImplementationStatus, ImplementationStatusFormData } from "@/src/components/pages/workflow"
 import { type HypothesisTableItem, type HypothesisDetail, type ValuePoint, type RiskPoint, getTemplateHypothesesForStrategy, midInvestmentHypotheses } from "@/src/components/pages/hypothesis-checklist"
 import { type TermTableItem, type TermDetail, getTemplateTermsForStrategy, midInvestmentTerms, postInvestmentTerms } from "@/src/components/pages/term-sheet"
@@ -1378,6 +1379,15 @@ export default function Page() {
             onCreateNegotiationDecision={(termId, termName, data) => handleCreateNegotiationDecision(view.projectId, termId, termName, data)}
             onCreateVerification={(hypothesisId, hypothesisName, data) => handleCreateVerification(view.projectId, hypothesisId, hypothesisName, data)}
             onCreateImplementationStatus={(termId, termName, data) => handleCreateImplementationStatus(view.projectId, termId, termName, data)}
+            renderHypothesisComments={(target) => (
+              <HypothesisComments
+                hypothesisId={target.hypothesisId}
+                scopeType={target.scopeType}
+                scopeRefId={target.scopeRefId}
+                title={target.title}
+                compact={target.compact}
+              />
+            )}
             isExited={exitedProjects[view.projectId] === true}
             liXiangRecord={liXiangRecords[view.projectId]}
             touJueRecord={touJueRecords[view.projectId]}

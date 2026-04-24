@@ -18,6 +18,7 @@ import { Workflow, type Phase, type PendingPhase, type PendingProjectHypothesis,
 import { ProjectMaterials } from "@/src/components/pages/project-materials"
 import { type Project } from "@/src/components/pages/projects-grid"
 import { type StrategyMaterial } from "@/src/components/pages/strategies-grid"
+import type { HypothesisCommentScope } from "@/src/components/pages/hypothesis-comments"
 
 type SubPageKey =
   | "overview"
@@ -76,7 +77,13 @@ interface ProjectDetailProps {
   onCreateNegotiationDecision?: (termId: string, termName: string, data: NegotiationDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
   onCreateImplementationStatus?: (termId: string, termName: string, data: ImplementationStatusFormData) => void
-  renderHypothesisComments?: (hypothesisId: string) => React.ReactNode
+  renderHypothesisComments?: (target: {
+    hypothesisId: string
+    scopeType: HypothesisCommentScope
+    scopeRefId?: string
+    title?: string
+    compact?: boolean
+  }) => React.ReactNode
   isExited?: boolean
   liXiangRecord?: LiXiangRecord
   touJueRecord?: TouJueRecord

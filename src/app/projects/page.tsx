@@ -61,7 +61,7 @@ export default function ProjectsPage() {
   }
 
   function handleSelectProject(projectId: string) {
-    router.push(`/projects/${encodeURIComponent(projectId)}`)
+    router.push(`/?projectId=${encodeURIComponent(projectId)}`)
   }
 
   /**

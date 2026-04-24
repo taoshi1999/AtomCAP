@@ -14,11 +14,28 @@ import {
 } from "lucide-react"
 import { Button } from "@/src/components/ui/button"
 
+export type HypothesisCommentScope =
+  | "hypothesis"
+  | "value_point"
+  | "risk_point"
+  | "committee_decision"
+  | "verification"
+
 interface HypothesisCommentsProps {
   hypothesisId: string
+  scopeType?: HypothesisCommentScope
+  scopeRefId?: string
+  title?: string
+  compact?: boolean
 }
 
-export function HypothesisComments({ hypothesisId }: HypothesisCommentsProps) {
+export function HypothesisComments({
+  hypothesisId,
+  scopeType = "hypothesis",
+  scopeRefId,
+  title = "评论与附件区",
+  compact = false,
+}: HypothesisCommentsProps) {
   const [content, setContent] = useState("")
   const [attachments, setAttachments] = useState<
     Array<{ name: string; url: string; format?: string; size?: string }>
@@ -27,10 +44,11 @@ export function HypothesisComments({ hypothesisId }: HypothesisCommentsProps) {
   const inputFileRef = useRef<HTMLInputElement>(null)
 
   const utils = api.useUtils()
-  const { data: comments, isLoading } = api.hypothesis.getComments.useQuery({ hypothesisId })
+  const queryInput = { hypothesisId, scopeType, scopeRefId }
+  const { data: comments, isLoading } = api.hypothesis.getComments.useQuery(queryInput)
   const addCommentMutation = api.hypothesis.addComment.useMutation({
     onSuccess: () => {
-      void utils.hypothesis.getComments.invalidate({ hypothesisId })
+      void utils.hypothesis.getComments.invalidate(queryInput)
       setContent("")
       setAttachments([])
     },
@@ -84,6 +102,8 @@ export function HypothesisComments({ hypothesisId }: HypothesisCommentsProps) {
     if (!content.trim() && attachments.length === 0) return
     addCommentMutation.mutate({
       hypothesisId,
+      scopeType,
+      scopeRefId,
       content,
       attachments,
     })
@@ -100,8 +120,11 @@ export function HypothesisComments({ hypothesisId }: HypothesisCommentsProps) {
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-[#E5E7EB] bg-white p-6">
-      <h2 className="mb-4 text-base font-semibold text-[#111827]">评论与附件区</h2>
+    <div className={compact
+      ? "mt-4 rounded-lg border border-[#E5E7EB] bg-[#FCFCFD] p-4"
+      : "mt-4 rounded-xl border border-[#E5E7EB] bg-white p-6"}
+    >
+      <h2 className="mb-4 text-base font-semibold text-[#111827]">{title}</h2>
 
       <div className="mb-6 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4">
         <textarea

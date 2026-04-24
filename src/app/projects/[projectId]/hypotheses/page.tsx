@@ -171,8 +171,14 @@ export default function HypothesesPage() {
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
-      renderHypothesisComments={(hypothesisId) => (
-        <HypothesisComments hypothesisId={hypothesisId} />
+      renderHypothesisComments={(target) => (
+        <HypothesisComments
+          hypothesisId={target.hypothesisId}
+          scopeType={target.scopeType}
+          scopeRefId={target.scopeRefId}
+          title={target.title}
+          compact={target.compact}
+        />
       )}
     />
   )
