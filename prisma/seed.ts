@@ -182,37 +182,82 @@ async function seedProjects() {
 
   await prisma.project.deleteMany({ where: { creatorId: seedUser.id } })
 
-  await prisma.project.createMany({
+  const moonshot = await prisma.project.create({
+    data: {
+      name: '月之暗面',
+      description: '新一代 AI 搜索与对话平台，聚焦长上下文与复杂推理能力。',
+      logo: '月',
+      tags: 'AI,A轮,长上下文',
+      status: '投中期',
+      stage: '投中阶段',
+      priority: '高',
+      round: 'A轮',
+      industry: '人工智能',
+      budget: 2.0,
+      valuation: '30亿',
+      managerId: 'lisi',
+      managerName: '李四',
+      totalInvestment: 1.2,
+      irr: 18.6,
+      creatorId: seedUser.id,
+    },
+  })
+
+  const zhipu = await prisma.project.create({
+    data: {
+      name: '智谱 AI',
+      description: '认知大模型技术与企业级应用开发，国产大模型第一梯队。',
+      logo: '智',
+      tags: 'AI,C轮,大模型',
+      status: '投后期',
+      stage: '投后阶段',
+      priority: '高',
+      round: 'C轮',
+      industry: '人工智能',
+      budget: 5.0,
+      valuation: '120亿',
+      managerId: 'wangfang',
+      managerName: '王芳',
+      totalInvestment: 3.5,
+      irr: 28.4,
+      creatorId: seedUser.id,
+    },
+  })
+
+  const minimax = await prisma.project.create({
+    data: {
+      name: 'MiniMax',
+      description: '通用人工智能科技公司，专注于大模型研发与多模态应用。',
+      logo: 'M',
+      tags: 'AI,B轮,多模态',
+      status: '投中期',
+      stage: '投中阶段',
+      priority: '中',
+      round: 'B轮',
+      industry: '人工智能',
+      budget: 3.5,
+      valuation: '10亿',
+      managerId: 'zhangwei',
+      managerName: '张伟',
+      totalInvestment: 3.2,
+      irr: 22.1,
+      creatorId: seedUser.id,
+    },
+  })
+
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000)
+
+  await prisma.document.createMany({
     data: [
-      {
-        name: '月之暗面',
-        description: '新一代 AI 搜索与对话平台，聚焦长上下文与复杂推理能力。',
-        logo: '月',
-        tags: 'AI,A轮',
-        status: '投中期',
-        stage: '投中阶段',
-        round: 'A轮',
-        industry: '人工智能',
-        managerId: 'lisi',
-        managerName: '李四',
-        totalInvestment: 1.2, // 亿元
-        creatorId: seedUser.id,
-      },
-      {
-        name: '智谱 AI',
-        description: '认知大模型技术与企业级应用开发，国产大模型第一梯队。',
-        logo: '智',
-        tags: 'AI,C轮',
-        status: '投后期',
-        stage: '投后阶段',
-        round: 'C轮',
-        industry: '人工智能',
-        managerId: 'wangfang',
-        managerName: '王芳',
-        totalInvestment: 3.5,
-        irr: 28.4,
-        creatorId: seedUser.id,
-      },
+      { projectId: moonshot.id, name: '月之暗面_财务数据_2024Q1.xlsx', format: 'xlsx', size: '2.1MB', category: '财务', createdAt: hoursAgo(3) },
+      { projectId: moonshot.id, name: '技术尽调报告_v1.pdf', format: 'pdf', size: '5.6MB', category: '尽调', createdAt: hoursAgo(12) },
+      { projectId: zhipu.id, name: '智谱AI_商业计划书_v3.pdf', format: 'pdf', size: '8.4MB', category: '商业', createdAt: hoursAgo(6) },
+      { projectId: zhipu.id, name: 'C轮投资条款_v2.docx', format: 'docx', size: '1.2MB', category: '条款', createdAt: hoursAgo(30) },
+      { projectId: zhipu.id, name: '行业对标分析.pptx', format: 'pptx', size: '4.8MB', category: '分析', createdAt: hoursAgo(72) },
+      { projectId: minimax.id, name: 'MiniMax_财务数据_2023Q4.xlsx', format: 'xlsx', size: '2.1MB', category: '财务', createdAt: hoursAgo(2) },
+      { projectId: minimax.id, name: 'AI模型架构评估报告.pdf', format: 'pdf', size: '6.2MB', category: '尽调', createdAt: hoursAgo(5) },
+      { projectId: minimax.id, name: 'B轮投资条款 v2.1.docx', format: 'docx', size: '1.5MB', category: '条款', createdAt: hoursAgo(22) },
+      { projectId: minimax.id, name: '智谱AI vs MiniMax 对比报告.pdf', format: 'pdf', size: '3.9MB', category: '分析', createdAt: hoursAgo(34) },
     ],
   })
 }
@@ -407,7 +452,7 @@ async function main() {
   console.log('  ✔ DashboardTodo')
 
   await seedProjects()
-  console.log('  ✔ Project (×2)')
+  console.log('  ✔ Project (×3) + Document seeds')
 
   await seedStrategies()
   console.log('  ✔ Strategy (×5)')
