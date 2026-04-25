@@ -20,6 +20,10 @@ export default function HypothesesPage() {
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
 
+  const deleteMutation = api.hypothesis.delete.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+
   const updateCommitteeMutation = api.hypothesis.updateCommitteeDecision.useMutation({
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
@@ -51,7 +55,6 @@ export default function HypothesesPage() {
     updatedAt: h.updatedAt,
     status: h.status as "verified" | "pending" | "risky",
   })) || []
-  const inheritedHypotheses = mappedHypotheses.length > 0 ? mappedHypotheses : undefined
 
   const extraDetails: Record<string, HypothesisDetail> = {}
   for (const h of projectHypotheses ?? []) {
@@ -119,6 +122,20 @@ export default function HypothesesPage() {
     }
   }
 
+  const handleCreate = (data: { title: string; direction: string; category: string; owner: string }) => {
+    createMutation.mutate({
+      projectId,
+      title: data.title,
+      direction: data.direction,
+      category: data.category,
+      owner: data.owner,
+    })
+  }
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate({ id })
+  }
+
   const handleCreateCommitteeDecision = (_hypothesisId: string, _hypothesisName: string, data: CommitteeDecisionFormData) => {
     const h = projectHypotheses?.find((h: any) => h.title === _hypothesisName)
     if (!h) return
@@ -147,8 +164,10 @@ export default function HypothesesPage() {
     <HypothesisChecklist
       project={project as any}
       isNewProject={isNewProject}
-      inheritedHypotheses={inheritedHypotheses}
+      inheritedHypotheses={mappedHypotheses}
       extraDetails={extraDetails}
+      
+      onDeleteHypothesis={handleDelete}
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
