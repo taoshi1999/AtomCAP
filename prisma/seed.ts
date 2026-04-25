@@ -335,8 +335,11 @@ async function seedHypotheses() {
   await prisma.hypothesis.deleteMany()
 
   const strategies = await prisma.strategy.findMany({ select: { id: true, name: true } })
+  const projects = await prisma.project.findMany({ select: { id: true, name: true } })
+  
   const aiStrategy = strategies.find((s) => s.name === 'AI 基础设施')
   const llmStrategy = strategies.find((s) => s.name === '大模型应用')
+  const minimaxProject = projects.find((p) => p.name === 'MiniMax')
 
   if (!aiStrategy) return
 
@@ -435,6 +438,100 @@ async function seedHypotheses() {
         owner: '李四',
         status: 'pending',
       }] : []),
+      ...(minimaxProject ? [
+        {
+          projectId: minimaxProject.id,
+          title: 'MiniMax 并发处理能力可支撑千万级用户实时交互',
+          description: '通过自研推理引擎优化，单节点并发处理能力提升 4 倍。',
+          direction: '技术架构',
+          category: '性能瓶颈',
+          owner: '张伟',
+          status: 'verified',
+        },
+        {
+          projectId: minimaxProject.id,
+          title: '多模态模型在中文语义理解上优于同类竞品 15%',
+          description: '基于高质量中文语料库，在 C-Eval 等基准评估中取得领先。',
+          direction: '产品竞争力',
+          category: '核心算法',
+          owner: '李四',
+          status: 'pending',
+        },
+        {
+          projectId: minimaxProject.id,
+          title: 'B 端企业级私有化部署市场占有率将在明年达到 20%',
+          description: '锁定金融、能源等对合规要求极高的头部客户。',
+          direction: '市场拓展',
+          category: '商业化落地',
+          owner: '王芳',
+          status: 'pending',
+        },
+        {
+          projectId: minimaxProject.id,
+          title: '算力成本结构在未来 18 个月内可降低 30%',
+          description: '通过模型压缩和 KV Cache 优化降低单元推理成本。',
+          direction: '经营效能',
+          category: '核心成本',
+          owner: '张伟',
+          status: 'risky',
+        },
+        {
+          projectId: minimaxProject.id,
+          title: '核心研发团队人才流失率可控制在 5% 以内',
+          description: '完善的股权激励和全员持股计划保证团队稳定性。',
+          direction: '组织能力',
+          category: '人力资源',
+          owner: '李四',
+          status: 'verified',
+        }
+      ] : [])
+    ],
+  })
+}
+
+async function seedTerms() {
+  await prisma.term.deleteMany()
+
+  const project = await prisma.project.findFirst({
+    where: { name: 'MiniMax' },
+  })
+
+  if (!project) return
+
+  await prisma.term.createMany({
+    data: [
+      {
+        projectId: project.id,
+        direction: '控制权条款',
+        category: '董事会席位',
+        title: '投资方有权委派一名董事进入公司董事会',
+        owner: '张伟',
+        status: 'approved',
+      },
+      {
+        projectId: project.id,
+        direction: '控制权条款',
+        category: '重大事项否决权',
+        title: '对核心技术IP转让和授权享有一票否决权',
+        owner: '李四',
+        status: 'negotiating',
+      },
+      {
+        projectId: project.id,
+        direction: '经济条款',
+        category: '反稀释条款',
+        title: '采用完全棘轮反稀释条款保护投资方权益',
+        owner: '王芳',
+        status: 'drafted',
+      },
+      {
+        projectId: project.id,
+        direction: '退出条款',
+        category: '回购权',
+        title: '若公司未能在4年内完成合格上市，投资方有权要求回购',
+        owner: '张伟',
+        status: 'implemented',
+      },
     ],
   })
 }
@@ -459,6 +556,9 @@ async function main() {
 
   await seedHypotheses()
   console.log('  ✔ Hypothesis')
+
+  await seedTerms()
+  console.log('  ✔ Terms')
 
   console.log('✅ Seed complete')
 }

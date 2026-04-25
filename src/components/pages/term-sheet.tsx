@@ -40,7 +40,7 @@ export interface TermTableItem {
   owner: string      // 负责人
   createdAt: string  // 创建时间
   updatedAt: string  // 更改时间
-  status: "approved" | "pending" | "rejected"
+  status: string
 }
 
 interface PersonInfo {
@@ -90,7 +90,7 @@ export interface TermDetail {
   termId: string
   createdAt: string
   updatedAt: string
-  status: "approved" | "pending" | "rejected"
+  status: string
   creator: PersonInfo
   ourDemand: SectionContent           // 我方诉求
   ourBasis: SectionContent            // 我方依据
@@ -600,10 +600,13 @@ export function getTemplateTermsForStrategy(strategyId: string): TermTableItem[]
 /* ------------------------------------------------------------------ */
 /*  Status helpers                                                     */
 /* ------------------------------------------------------------------ */
-const statusConfig = {
+const statusConfig: Record<string, { label: string; color: string }> = {
   approved: { label: "通过", color: "bg-[#DCFCE7] text-[#166534]" },
   pending: { label: "待审批", color: "bg-[#FEF3C7] text-[#92400E]" },
   rejected: { label: "否决", color: "bg-[#FEE2E2] text-[#991B1B]" },
+  drafted: { label: "草拟", color: "bg-[#F3F4F6] text-[#4B5563]" },
+  negotiating: { label: "谈判中", color: "bg-[#DBEAFE] text-[#1E3A8A]" },
+  implemented: { label: "已落实", color: "bg-[#D1FAE5] text-[#065F46]" },
 }
 
 /* ------------------------------------------------------------------ */
@@ -618,15 +621,18 @@ interface TermSheetProps {
   projectMaterials?: StrategyMaterial[]
   inheritedTerms?: TermTableItem[]
   extraDetails?: Record<string, TermDetail>
+  onDelete?: (id: string) => void
   onCreateNegotiationDecision?: (termId: string, termName: string, data: NegotiationDecisionFormData) => void
   onCreateImplementationStatus?: (termId: string, termName: string, data: ImplementationStatusFormData) => void
 }
 
-export function TermSheet({ isNewProject = false, isInDuration = false, isExited = false, termLockPeriod, project, projectMaterials, inheritedTerms, extraDetails, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
+export function TermSheet({ isNewProject = false, isInDuration = false, isExited = false, termLockPeriod, project, projectMaterials, inheritedTerms, extraDetails, onDelete, onCreateNegotiationDecision, onCreateImplementationStatus }: TermSheetProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const [showTemplateBanner, setShowTemplateBanner] = useState(true)
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [categoryFilter, setCategoryFilter] = useState("all")
 
   // Negotiation decision dialog state
   const [showNegotiationDialog, setShowNegotiationDialog] = useState(false)
@@ -728,12 +734,16 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
   const filteredData = sourceData
     .filter((item) => {
       const query = searchQuery.toLowerCase()
-      return (
+      const matchesSearch = 
         item.direction.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query) ||
         item.name.toLowerCase().includes(query) ||
         item.owner.toLowerCase().includes(query)
-      )
+      
+      const matchesStatus = statusFilter === "all" || item.status === statusFilter
+      const matchesCategory = categoryFilter === "all" || item.category === categoryFilter
+      
+      return matchesSearch && matchesStatus && matchesCategory
     })
     .sort((a, b) => {
       const order: Record<string, number> = { approved: 0, rejected: 1, pending: 2 }
@@ -741,9 +751,32 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
     })
 
   // Get detail for selected item — extraDetails takes priority over built-in mock data
-  const selectedDetail = selectedId
+  let selectedDetail = selectedId
     ? (extraDetails?.[selectedId] ?? termDetails[selectedId] ?? null)
     : null
+
+  // If no detail found (e.g. for database items), create a default one
+  if (selectedId && !selectedDetail) {
+    const item = sourceData.find(t => t.id === selectedId)
+    if (item) {
+      selectedDetail = {
+        id: item.id,
+        title: item.name,
+        termId: "DB-" + item.id.slice(-6).toUpperCase(),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        status: item.status,
+        creator: PEOPLE.zhangwei,
+        ourDemand: emptySection(PEOPLE.zhangwei),
+        ourBasis: emptySection(PEOPLE.zhangwei),
+        bilateralConflict: emptySection(PEOPLE.lisi),
+        ourBottomLine: emptySection(PEOPLE.wangwu),
+        compromiseSpace: emptySection(PEOPLE.zhangwei),
+        negotiationResult: emptyNegotiation,
+        implementationStatus: emptyImplementation,
+      }
+    }
+  }
 
   // Handle view detail
   function handleViewDetail(id: string) {
@@ -759,7 +792,11 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
 
   // Handle delete
   function handleDelete(id: string) {
-    console.log("[v0] Delete term:", id)
+    console.log("TermSheet: handleDelete triggered for id:", id)
+    if (confirm("确定要删除这条条款吗？")) {
+      console.log("TermSheet: Calling onDelete prop for id:", id)
+      onDelete?.(id)
+    }
   }
 
   // For new projects without a strategy template, show empty state
@@ -1534,11 +1571,38 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
               <Input
                 type="text"
-                placeholder="搜索条款..."
+                placeholder="搜索标题..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64 pl-9 bg-white border-[#E5E7EB]"
+                className="w-48 pl-9 bg-white border-[#E5E7EB]"
               />
+            </div>
+            {/* Filters */}
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-sm text-[#6B7280] whitespace-nowrap">状态:</span>
+              <select 
+                className="text-sm border border-[#E5E7EB] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">全部</option>
+                {Object.entries(statusConfig).map(([val, cfg]) => (
+                  <option key={val} value={val}>{cfg.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[#6B7280] whitespace-nowrap">类别:</span>
+              <select 
+                className="text-sm border border-[#E5E7EB] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[#2563EB]/20 w-32"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="all">全部</option>
+                {Array.from(new Set(sourceData.map(d => d.category))).map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
             </div>
             {!(isNewProject && isInDuration) && (
               <Button className="bg-[#2563EB] hover:bg-[#1D4ED8]">
@@ -1549,17 +1613,18 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
           </div>
         </div>
 
+        {/* Filters section removed as it's now internal to header */}
+
         {/* Table */}
         <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="bg-[#1E3A5F] text-white">
-                <th className="px-4 py-3 text-left text-sm font-medium">条款方向</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">条款类别</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">条款名称</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">负责人</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">创建时间</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">更改时间</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">标题</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-center">状态</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">创建人</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">更新时间</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">操作</th>
               </tr>
             </thead>
@@ -1572,15 +1637,12 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
                     index % 2 === 1 && "bg-[#F9FAFB]"
                   )}
                 >
-                  <td className="px-4 py-3 text-sm text-[#374151]">{item.direction}</td>
                   <td className="px-4 py-3 text-sm text-[#374151]">{item.category}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-[#111827]">{item.name}</span>
-                      <Badge className={cn("text-[10px]", statusConfig[item.status].color)}>
-                        {statusConfig[item.status].label}
-                      </Badge>
-                    </div>
+                  <td className="px-4 py-3 text-sm text-[#374151] font-medium">{item.name}</td>
+                  <td className="px-4 py-3 text-center">
+                    <Badge className={cn("text-[10px] px-2", statusConfig[item.status].color)}>
+                      {statusConfig[item.status].label}
+                    </Badge>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -1590,8 +1652,7 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
                       <span className="text-sm text-[#374151]">{item.owner}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-[#6B7280]">{item.createdAt}</td>
-                  <td className="px-4 py-3 text-sm text-[#6B7280]">{item.updatedAt}</td>
+                  <td className="px-4 py-3 text-sm text-[#6B7280] whitespace-nowrap">{item.updatedAt}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button
@@ -1603,7 +1664,13 @@ export function TermSheet({ isNewProject = false, isInDuration = false, isExited
                       </button>
                       {!(isNewProject && isInDuration) && (
                         <button
-                          onClick={() => handleDelete(item.id)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (window.confirm("确定要删除这条条款吗？")) {
+                              onDelete?.(item.id)
+                            }
+                          }}
                           className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#EF4444] hover:bg-[#FEF2F2] rounded transition-colors"
                         >
                           <Trash2 className="h-3 w-3" />

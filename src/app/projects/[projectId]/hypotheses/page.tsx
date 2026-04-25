@@ -4,6 +4,7 @@ import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { HypothesisChecklist } from "@/src/components/pages/hypothesis-checklist"
 import type { HypothesisDetail } from "@/src/components/pages/hypothesis-checklist"
+import { toast } from "sonner"
 import type { CommitteeDecisionFormData, VerificationFormData } from "@/src/components/pages/workflow"
 
 export default function HypothesesPage() {
@@ -21,7 +22,13 @@ export default function HypothesesPage() {
   })
 
   const deleteMutation = api.hypothesis.delete.useMutation({
-    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+    onSuccess: () => {
+      void utils.hypothesis.getByProject.invalidate({ projectId })
+      toast.success("假设已成功删除")
+    },
+    onError: (err) => {
+      toast.error("删除失败: " + err.message)
+    }
   })
 
   const updateCommitteeMutation = api.hypothesis.updateCommitteeDecision.useMutation({
@@ -51,8 +58,8 @@ export default function HypothesesPage() {
     category: h.category || "未分类",
     name: h.title,
     owner: h.owner || "未分配",
-    createdAt: h.createdAt,
-    updatedAt: h.updatedAt,
+    createdAt: h.createdAt instanceof Date ? h.createdAt.toISOString().split("T")[0] : h.createdAt,
+    updatedAt: h.updatedAt instanceof Date ? h.updatedAt.toISOString().split("T")[0] : h.updatedAt,
     status: h.status as "verified" | "pending" | "risky",
   })) || []
 

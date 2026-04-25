@@ -208,4 +208,13 @@ export const hypothesisRouter = createTRPCRouter({
         verificationStatus: updated.verificationStatus,
       };
     }),
+  
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      // Prisma 会连带删除级联的 valuePoints 和 riskPoints (根据 schema 配置)
+      return ctx.db.hypothesis.delete({
+        where: { id: input.id },
+      });
+    }),
 });
