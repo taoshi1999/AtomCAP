@@ -24,6 +24,7 @@ const subNavItems = [
   { key: "overview", label: "项目概览", icon: LayoutDashboard, href: "" },
   { key: "hypotheses", label: "假设清单", icon: ListChecks, href: "/hypotheses" },
   { key: "terms", label: "条款清单", icon: FileText, href: "/terms" },
+  { key: "materials", label: "项目材料", icon: FolderOpen, href: "/materials" },
   { key: "workflow", label: "工作流", icon: GitBranch, href: "/workflow" },
 ]
 
