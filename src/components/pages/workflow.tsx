@@ -162,7 +162,7 @@ interface ChatMessage {
   role: "user" | "assistant"
   content: string
   suggestedQuestions?: string[]
-  downloadFile?: { name: string; url: string; size?: string }
+  downloadFile?: { name: string; url: string }
 }
 
 // Deep thinking animation steps
@@ -5755,7 +5755,7 @@ ${logs}
                     className="flex-1"
                   />
                   <button
-                    onClick={() => handleSendChat()}
+                    onClick={handleSendChat}
                     className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#2563EB] text-white transition-colors hover:bg-[#1D4ED8]"
                   >
                     <Send className="h-4 w-4" />
