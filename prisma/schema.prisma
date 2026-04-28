@@ -204,6 +204,7 @@ model Hypothesis {
   valuePoints ValuePoint[]
   riskPoints  RiskPoint[]
   attachments Attachment[]
+  comments    HypothesisComment[]
 
   @@map("hypotheses")
 }
@@ -253,3 +254,35 @@ model Attachment {
   @@map("attachments")
 }
 
+model HypothesisComment {
+  id            String                 @id @default(cuid())
+  hypothesisId  String                 @map("hypothesis_id")
+  scopeType     String                 @default("hypothesis") @map("scope_type")
+  scopeRefId    String?                @map("scope_ref_id")
+  content       String                 @db.Text
+  creatorId     String                 @map("creator_id")
+  creatorName   String                 @db.VarChar(100)
+  creatorAvatar String?                @db.VarChar(255)
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  hypothesis    Hypothesis             @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  attachments   HypothesisAttachment[]
+
+  @@index([hypothesisId, scopeType, scopeRefId])
+  @@map("hypothesis_comments")
+}
+
+model HypothesisAttachment {
+  id        String            @id @default(cuid())
+  commentId String            @map("comment_id")
+  name      String
+  format    String?
+  size      String?
+  url       String
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  comment   HypothesisComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@map("hypothesis_attachments")
+}

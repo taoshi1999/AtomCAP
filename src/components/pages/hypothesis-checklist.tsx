@@ -13,7 +13,6 @@ import {
   PanelLeft,
   PanelRightClose,
   PanelRightOpen,
-  Send,
   Plus,
   Link2,
   FileCheck,
@@ -44,6 +43,7 @@ import {
 import { cn } from "@/src/lib/utils"
 import type { CommitteeDecisionFormData, VerificationFormData } from "./workflow"
 import type { StrategyMaterial } from "./strategies-grid"
+import type { HypothesisCommentScope } from "./hypothesis-comments"
 
 /* ------------------------------------------------------------------ */
 /*  Data types                                                         */
@@ -1160,18 +1160,20 @@ interface HypothesisChecklistProps {
   onAddRiskPoint?: (hypothesisId: string, rp: RiskPoint) => void
   onCreateCommitteeDecision?: (hypothesisId: string, hypothesisName: string, data: CommitteeDecisionFormData) => void
   onCreateVerification?: (hypothesisId: string, hypothesisName: string, data: VerificationFormData) => void
+  renderHypothesisComments?: (target: {
+    hypothesisId: string
+    scopeType: HypothesisCommentScope
+    scopeRefId?: string
+    title?: string
+    compact?: boolean
+  }) => React.ReactNode
 }
 
-export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification }: HypothesisChecklistProps) {
+export function HypothesisChecklist({ isNewProject = false, isInDuration = false, isExited = false, isMidInvestment = false, isPostInvestment = false, project, projectMaterials, inheritedHypotheses, extraDetails, onAddValuePoint, onAddRiskPoint, onCreateCommitteeDecision, onCreateVerification, renderHypothesisComments }: HypothesisChecklistProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const [showTemplateBanner, setShowTemplateBanner] = useState(true)
-
-  // Comment input state: key = `{hypothesisId}-{pointId}`
-  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
-  // Extra comments added by user: key = `{hypothesisId}-{pointId}`, value = array of comment objects
-  const [extraComments, setExtraComments] = useState<Record<string, { author: string; content: string; time: string }[]>>({})
   // Locally added value/risk points: keyed by hypothesisId for immediate display
   const [localValuePoints, setLocalValuePoints] = useState<Record<string, ValuePoint[]>>({})
   const [localRiskPoints, setLocalRiskPoints] = useState<Record<string, RiskPoint[]>>({})
@@ -1305,28 +1307,6 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   function handleDelete(id: string) {
     // In real app, this would call an API
     console.log("[v0] Delete hypothesis:", id)
-  }
-
-  // Comment helpers
-  function getCommentKey(pointId: string) {
-    return `${selectedId}-${pointId}`
-  }
-
-  function handleCommentInput(pointId: string, value: string) {
-    setCommentInputs((prev) => ({ ...prev, [getCommentKey(pointId)]: value }))
-  }
-
-  function handleSendComment(pointId: string) {
-    const key = getCommentKey(pointId)
-    const text = (commentInputs[key] || "").trim()
-    if (!text) return
-    const now = new Date()
-    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-    setExtraComments((prev) => ({
-      ...prev,
-      [key]: [...(prev[key] || []), { author: "张伟", content: text, time: timeStr }],
-    }))
-    setCommentInputs((prev) => ({ ...prev, [key]: "" }))
   }
 
   function handleSubmitValuePoint() {
@@ -1573,7 +1553,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   {/* Comments */}
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                    {[...vp.comments, ...(extraComments[getCommentKey(vp.id)] || [])].map((c, idx) => (
+                    {vp.comments.map((c, idx) => (
                       <div key={idx} className="flex items-start gap-2 mb-2">
                         <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                           <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -1587,22 +1567,13 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                         </div>
                       </div>
                     ))}
-                    <div className="flex items-center gap-2 mt-3">
-                      <input
-                        type="text"
-                        placeholder="添加评论..."
-                        value={commentInputs[getCommentKey(vp.id)] || ""}
-                        onChange={(e) => handleCommentInput(vp.id, e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") handleSendComment(vp.id) }}
-                        className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-                      />
-                      <button
-                        onClick={() => handleSendComment(vp.id)}
-                        className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors"
-                      >
-                        <Send className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {selectedDetail && renderHypothesisComments?.({
+                      hypothesisId: selectedDetail.id,
+                      scopeType: "value_point",
+                      scopeRefId: vp.id,
+                      title: `${vp.title}评论与附件`,
+                      compact: true,
+                    })}
                   </div>
                 </div>
               </div>
@@ -1687,7 +1658,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   {/* Comments */}
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                    {[...rp.comments, ...(extraComments[getCommentKey(rp.id)] || [])].map((c, idx) => (
+                    {rp.comments.map((c, idx) => (
                       <div key={idx} className="flex items-start gap-2 mb-2">
                         <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                           <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -1701,22 +1672,13 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                         </div>
                       </div>
                     ))}
-                    <div className="flex items-center gap-2 mt-3">
-                      <input
-                        type="text"
-                        placeholder="添加评论..."
-                        value={commentInputs[getCommentKey(rp.id)] || ""}
-                        onChange={(e) => handleCommentInput(rp.id, e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") handleSendComment(rp.id) }}
-                        className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-                      />
-                      <button
-                        onClick={() => handleSendComment(rp.id)}
-                        className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors"
-                      >
-                        <Send className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {selectedDetail && renderHypothesisComments?.({
+                      hypothesisId: selectedDetail.id,
+                      scopeType: "risk_point",
+                      scopeRefId: rp.id,
+                      title: `${rp.title}评论与附件`,
+                      compact: true,
+                    })}
                   </div>
                 </div>
               </div>
@@ -1816,16 +1778,13 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                       </div>
                     </div>
                   ))}
-                  <div className="flex items-center gap-2 mt-3">
-                    <input
-                      type="text"
-                      placeholder="添加评论..."
-                      className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
-                    />
-                    <button className="p-2 text-[#2563EB] hover:bg-[#EFF6FF] rounded-lg transition-colors">
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {selectedDetail && renderHypothesisComments?.({
+                    hypothesisId: selectedDetail.id,
+                    scopeType: "committee_decision",
+                    scopeRefId: `${selectedDetail.id}-committee`,
+                    title: "投委会审议结果评论与附件",
+                    compact: true,
+                  })}
                 </div>
               </div>
             </div>
@@ -1910,16 +1869,13 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 {/* Comments */}
                 <div>
                   <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                  <div className="flex items-center gap-2 mt-3">
-                    <input
-                      type="text"
-                      placeholder="添加评论..."
-                      className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6]"
-                    />
-                    <button className="p-2 text-[#8B5CF6] hover:bg-[#F5F3FF] rounded-lg transition-colors">
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {selectedDetail && renderHypothesisComments?.({
+                    hypothesisId: selectedDetail.id,
+                    scopeType: "verification",
+                    scopeRefId: `${selectedDetail.id}-verification`,
+                    title: "验证情况评论与附件",
+                    compact: true,
+                  })}
                 </div>
               </div>
             </div>
