@@ -176,7 +176,7 @@ async function seedProjects() {
     update: {},
     create: {
       email: 'seed@atomcap.local',
-      
+      name: 'Seed User',
     },
   })
 
@@ -407,7 +407,7 @@ async function main() {
   console.log('  ✔ DashboardTodo')
 
   await seedProjects()
-  console.log('  ✔ Project (×3)')
+  console.log('  ✔ Project (×2)')
 
   await seedStrategies()
   console.log('  ✔ Strategy (×5)')
