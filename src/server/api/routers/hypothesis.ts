@@ -1,14 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/src/server/api/trpc";
 
-const commentScopeSchema = z.enum([
-  "hypothesis",
-  "value_point",
-  "risk_point",
-  "committee_decision",
-  "verification",
-]);
-
 export const hypothesisRouter = createTRPCRouter({
   create: protectedProcedure
     .input(
@@ -215,90 +207,5 @@ export const hypothesisRouter = createTRPCRouter({
         verificationContent: updated.verificationContent,
         verificationStatus: updated.verificationStatus,
       };
-    }),
-
-  getComments: protectedProcedure
-    .input(
-      z.object({
-        hypothesisId: z.string(),
-        scopeType: commentScopeSchema.default("hypothesis"),
-        scopeRefId: z.string().optional(),
-      })
-    )
-    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
-      return ctx.db.hypothesisComment.findMany({
-        where: {
-          hypothesisId: input.hypothesisId,
-          scopeType: input.scopeType,
-          scopeRefId: input.scopeRefId ?? null,
-        },
-        include: { attachments: true },
-        orderBy: { createdAt: "desc" },
-      });
-    }),
-
-  addComment: protectedProcedure
-    .input(
-      z.object({
-        hypothesisId: z.string(),
-        scopeType: commentScopeSchema.default("hypothesis"),
-        scopeRefId: z.string().optional(),
-        content: z.string().optional(),
-        attachments: z
-          .array(
-            z.object({
-              name: z.string(),
-              format: z.string().optional(),
-              size: z.string().optional(),
-              url: z.string(),
-            })
-          )
-          .optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
-      const user = ctx.session.user;
-
-      if (
-        (!input.content || input.content.trim() === "") &&
-        (!input.attachments || input.attachments.length === 0)
-      ) {
-        throw new Error("Cannot add empty comment");
-      }
-
-      // 如果数据库中不存在该 hypothesisId，为了避免外键约束错误，先创建一个空的假数据占位
-      // 这主要是因为当前项目部分列表数据(如 tech-bg)是硬编码在前端的，并不在数据库里
-      const existingHypothesis = await ctx.db.hypothesis.findUnique({
-        where: { id: input.hypothesisId }
-      });
-
-      if (!existingHypothesis) {
-        await ctx.db.hypothesis.create({
-          data: {
-            id: input.hypothesisId,
-            title: input.hypothesisId, // 使用 id 作为标题占位
-            status: "pending",
-          }
-        });
-      }
-
-      return ctx.db.hypothesisComment.create({
-        data: {
-          hypothesisId: input.hypothesisId,
-          scopeType: input.scopeType,
-          scopeRefId: input.scopeRefId,
-          content: input.content || "",
-          creatorId: user.id,
-          creatorName: user.name || "Unknown User",
-          creatorAvatar: user.image,
-          attachments:
-            input.attachments && input.attachments.length > 0
-              ? {
-                  create: input.attachments,
-                }
-              : undefined,
-        },
-        include: { attachments: true },
-      });
     }),
 });

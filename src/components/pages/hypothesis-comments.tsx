@@ -13,21 +13,6 @@ import {
 } from "lucide-react"
 import { Button } from "@/src/components/ui/button"
 
-export type HypothesisCommentScope =
-  | "hypothesis"
-  | "value_point"
-  | "risk_point"
-  | "committee_decision"
-  | "verification"
-
-interface HypothesisCommentsProps {
-  hypothesisId: string
-  scopeType?: HypothesisCommentScope
-  scopeRefId?: string
-  title?: string
-  compact?: boolean
-}
-
 interface CommentAttachment {
   id: string
   name: string
@@ -45,27 +30,39 @@ interface StoredComment {
   attachments: CommentAttachment[]
 }
 
-export function HypothesisComments({
-  hypothesisId,
-  scopeType = "hypothesis",
-  scopeRefId,
-  title = "评论与附件区",
-  compact = false,
-}: HypothesisCommentsProps) {
+function uid() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return (crypto as any).randomUUID() as string
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function formatIcon(fmt: string) {
+  const f = (fmt || "").toUpperCase()
+  if (f === "XLSX" || f === "XLS") return <Sheet className="h-4 w-4 text-emerald-600" />
+  if (f === "DOCX" || f === "DOC") return <FileText className="h-4 w-4 text-blue-600" />
+  if (f === "PDF") return <FileIcon className="h-4 w-4 text-rose-500" />
+  if (["PNG", "JPG", "JPEG", "GIF", "WEBP"].includes(f)) {
+    return <ImageIcon className="h-4 w-4 text-purple-500" />
+  }
+  return <FileIcon className="h-4 w-4 text-gray-500" />
+}
+
+export function HypothesisComments({ hypothesisId, title = "评论与附件" }: { hypothesisId: string; title?: string }) {
   const [content, setContent] = useState("")
   const [attachments, setAttachments] = useState<CommentAttachment[]>([])
   const [comments, setComments] = useState<StoredComment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const inputFileRef = useRef<HTMLInputElement>(null)
-  const storageKey = `atomcap:hypothesis-comments:${hypothesisId}:${scopeType}:${scopeRefId ?? "root"}`
+
+  const storageKey = `atomcap:hypothesis-comments:${hypothesisId}`
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(storageKey)
       setComments(raw ? (JSON.parse(raw) as StoredComment[]) : [])
-    } catch (error) {
-      console.error("读取评论缓存失败:", error)
+    } catch {
       setComments([])
     } finally {
       setIsLoading(false)
@@ -74,39 +71,25 @@ export function HypothesisComments({
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return
-    setIsUploading(true)
     const file = e.target.files[0]
-
+    setIsUploading(true)
     try {
       const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
         method: "POST",
         body: file,
       })
-      const newBlob = await response.json()
-
-      if (!response.ok) {
-        throw new Error(newBlob?.error || "附件上传失败")
-      }
-
-      if (!newBlob?.url) {
-        throw new Error("上传成功但未返回文件地址")
-      }
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload?.error || "附件上传失败")
+      if (!payload?.url) throw new Error("上传成功但未返回文件地址")
 
       const format = file.name.split(".").pop()?.toUpperCase() || "UNKNOWN"
       const sizeStr = (file.size / 1024 / 1024).toFixed(2) + " MB"
 
       setAttachments((prev) => [
         ...prev,
-        {
-          id: crypto.randomUUID(),
-          name: file.name,
-          url: newBlob.url,
-          format,
-          size: sizeStr,
-        },
+        { id: uid(), name: file.name, url: payload.url, format, size: sizeStr },
       ])
     } catch (error) {
-      console.error("上传出错:", error)
       alert(error instanceof Error ? error.message : "附件上传失败")
     } finally {
       setIsUploading(false)
@@ -121,9 +104,9 @@ export function HypothesisComments({
   const handleSubmit = () => {
     if (!content.trim() && attachments.length === 0) return
 
-    const nextComments = [
+    const nextComments: StoredComment[] = [
       {
-        id: crypto.randomUUID(),
+        id: uid(),
         content: content.trim(),
         creatorName: "当前用户",
         createdAt: new Date().toISOString(),
@@ -137,27 +120,13 @@ export function HypothesisComments({
       setComments(nextComments)
       setContent("")
       setAttachments([])
-    } catch (error) {
-      console.error("保存评论失败:", error)
+    } catch {
       alert("保存评论失败，请稍后重试")
     }
   }
 
-  const formatIcon = (fmt: string) => {
-    if (fmt === "XLSX" || fmt === "XLS") return <Sheet className="h-4 w-4 text-emerald-600" />
-    if (fmt === "DOCX" || fmt === "DOC") return <FileText className="h-4 w-4 text-blue-600" />
-    if (fmt === "PDF") return <FileIcon className="h-4 w-4 text-rose-500" />
-    if (["PNG", "JPG", "JPEG", "GIF"].includes(fmt)) {
-      return <ImageIcon className="h-4 w-4 text-purple-500" />
-    }
-    return <FileIcon className="h-4 w-4 text-gray-500" />
-  }
-
   return (
-    <div className={compact
-      ? "mt-4 rounded-lg border border-[#E5E7EB] bg-[#FCFCFD] p-4"
-      : "mt-4 rounded-xl border border-[#E5E7EB] bg-white p-6"}
-    >
+    <div className="rounded-xl border border-[#E5E7EB] bg-white p-6">
       <h2 className="mb-4 text-base font-semibold text-[#111827]">{title}</h2>
 
       <div className="mb-6 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4">
@@ -172,16 +141,13 @@ export function HypothesisComments({
           <div className="mt-3 flex flex-wrap gap-2">
             {attachments.map((att, i) => (
               <div
-                key={`${att.name}-${i}`}
+                key={`${att.id}`}
                 className="flex items-center gap-2 rounded border border-[#E5E7EB] bg-white px-2 py-1 text-xs"
               >
                 {formatIcon(att.format || "")}
                 <span className="max-w-[150px] truncate">{att.name}</span>
                 <span className="text-[#9CA3AF]">{att.size}</span>
-                <button
-                  onClick={() => removeAttachment(i)}
-                  className="text-[#9CA3AF] hover:text-red-500"
-                >
+                <button onClick={() => removeAttachment(i)} className="text-[#9CA3AF] hover:text-red-500">
                   <X className="h-3 w-3" />
                 </button>
               </div>
@@ -196,7 +162,7 @@ export function HypothesisComments({
               ref={inputFileRef}
               onChange={handleUpload}
               className="hidden"
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
             />
             <button
               onClick={() => inputFileRef.current?.click()}
@@ -272,3 +238,4 @@ export function HypothesisComments({
     </div>
   )
 }
+

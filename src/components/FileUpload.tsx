@@ -23,7 +23,7 @@ export default function FileUpload({ onUploadSuccess }: FileUploadProps) {
 
     try {
       // 向我们刚才写的后端 API 发送请求
-      const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+      const response = await fetch(`/api/upload?filename=${file.name}`, {
         method: 'POST',
         body: file,
       });

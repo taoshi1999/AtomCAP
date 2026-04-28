@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
 import Providers from '@/src/components/Providers'
 
 import './globals.css'
+
+const _inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
   title: 'AtomCAP - PE/VC投资决策管理系统',

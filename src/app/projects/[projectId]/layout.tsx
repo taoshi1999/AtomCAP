@@ -35,15 +35,15 @@ export default function ProjectDetailLayout({
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <AppTopbar activeNav="projects" onNavigate={handleTopNav} />
-      
+
       <div className="flex flex-1 overflow-hidden">
-        <ProjectSidebar 
-          projectId={projectId} 
-          collapsed={collapsed} 
+        <ProjectSidebar
+          projectId={projectId}
+          collapsed={collapsed}
           setCollapsed={setCollapsed}
           currentPhase={project?.stage || "无"}
         />
-        
+
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Top Project Info Bar */}
           <header className="flex h-14 items-center justify-between border-b border-border bg-white px-6 shrink-0 shadow-sm">
@@ -59,13 +59,24 @@ export default function ProjectDetailLayout({
                   {project?.description || "..."}
                 </p>
               </div>
-              <Badge variant="outline" className="text-[10px] h-5">
-                {project?.stage || "未知阶段"}
-              </Badge>
+              {project?.stage && (
+                <Badge variant="outline" className="text-[10px] h-5">
+                  {project.stage}
+                </Badge>
+              )}
+              {project?.round && (
+                <Badge variant="outline" className="text-[10px] h-5 border-amber-200 text-amber-700">
+                  {project.round}
+                </Badge>
+              )}
+              {project?.industry && (
+                <Badge variant="outline" className="text-[10px] h-5 border-blue-200 text-blue-700">
+                  {project.industry}
+                </Badge>
+              )}
             </div>
-            
+
             <div className="flex items-center gap-2">
-              {/* Other project-wide actions could go here */}
               <div className="text-[10px] text-muted-foreground mr-2">
                 负责人: {project?.managerName || "未分配"}
               </div>

@@ -165,14 +165,16 @@ export default function HypothesesPage() {
     <HypothesisChecklist
       project={project as any}
       isNewProject={isNewProject}
-      inheritedHypotheses={mappedHypotheses.length > 0 ? mappedHypotheses : undefined}
+      inheritedHypotheses={mappedHypotheses}
       extraDetails={extraDetails}
       
       onDeleteHypothesis={handleDelete}
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
-      renderHypothesisComments={(props) => <HypothesisComments {...props} />}
+      renderHypothesisComments={(hypothesisId) => (
+        <HypothesisComments hypothesisId={hypothesisId} />
+      )}
     />
   )
 }
