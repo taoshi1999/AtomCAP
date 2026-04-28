@@ -177,6 +177,7 @@ async function seedProjects() {
     create: {
       email: 'seed@atomcap.local',
       name: 'Seed User',
+      password: '$2b$10$t1GwOtItBM9hOiuatpSZBe5e7HFfsE7p8mpDnuwzQQShjZjxRi8/O', // password123
     },
   })
 
