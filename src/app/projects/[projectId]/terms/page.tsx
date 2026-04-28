@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { TermSheet } from "@/src/components/pages/term-sheet"
+import { toast } from "sonner"
 
 export default function TermsPage() {
   const params = useParams()
@@ -10,8 +11,22 @@ export default function TermsPage() {
 
   // Fetch project data
   const { data: project, isLoading: projectLoading } = api.project.getById.useQuery({ id: projectId })
+  
+  // Fetch term sheets
+  const utils = api.useUtils()
+  const { data: terms = [], isLoading: termsLoading } = api.term.getAllByProjectId.useQuery({ projectId })
+  
+  const deleteMutation = api.term.delete.useMutation({
+    onSuccess: () => {
+      void utils.term.getAllByProjectId.invalidate({ projectId })
+      toast.success("条款已成功删除")
+    },
+    onError: (err) => {
+      toast.error("删除失败: " + err.message)
+    }
+  })
 
-  if (projectLoading) {
+  if (projectLoading || termsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-sm text-muted-foreground">加载条款清单...</div>
@@ -28,8 +43,11 @@ export default function TermsPage() {
       isInDuration={false}
       isExited={false}
       termLockPeriod="存续期"
-      inheritedTerms={[]}
+      inheritedTerms={terms as any}
       extraDetails={{}}
+      onDelete={(id) => {
+        deleteMutation.mutate({ id });
+      }}
     />
   )
 }

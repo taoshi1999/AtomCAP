@@ -65,7 +65,8 @@ model Project {
   creator   User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
   tasks     Task[]
   documents Document[]
-  hypotheses Hypothesis[]
+  hypotheses      Hypothesis[]
+  terms           Term[]
 
   @@map("projects")
 }
@@ -253,3 +254,20 @@ model Attachment {
   @@map("attachments")
 }
 
+// ==================== 条款清单 ====================
+
+model Term {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  title     String
+  direction String?  @db.VarChar(100)
+  category  String?  @db.VarChar(100)
+  owner     String?  @db.VarChar(100)
+  status    String   @default("drafted") @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("terms")
+}

@@ -3,6 +3,7 @@
 import { SessionProvider } from "next-auth/react"
 import { ReactNode } from "react"
 import { TRPCReactProvider } from "@/src/trpc/react"
+import { Toaster } from "sonner"
 
 interface ProvidersProps {
   children: ReactNode
@@ -17,6 +18,7 @@ export default function Providers({ children }: ProvidersProps) {
     <SessionProvider>
       <TRPCReactProvider>
         {children}
+        <Toaster position="top-center" richColors />
       </TRPCReactProvider>
     </SessionProvider>
   )
