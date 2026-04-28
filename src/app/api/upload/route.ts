@@ -15,7 +15,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const result = await get(blobUrl, { access: 'private' });
+    const result = await get(blobUrl, { access: 'public' });
 
     if (!result || result.statusCode !== 200) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
