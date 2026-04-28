@@ -1,7 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { api } from "@/src/trpc/react"
+import { useEffect, useRef, useState } from "react"
 import {
   File as FileIcon,
   FileText,
@@ -29,6 +28,23 @@ interface HypothesisCommentsProps {
   compact?: boolean
 }
 
+interface CommentAttachment {
+  id: string
+  name: string
+  url: string
+  format?: string
+  size?: string
+}
+
+interface StoredComment {
+  id: string
+  content: string
+  creatorName: string
+  creatorAvatar?: string
+  createdAt: string
+  attachments: CommentAttachment[]
+}
+
 export function HypothesisComments({
   hypothesisId,
   scopeType = "hypothesis",
@@ -37,26 +53,24 @@ export function HypothesisComments({
   compact = false,
 }: HypothesisCommentsProps) {
   const [content, setContent] = useState("")
-  const [attachments, setAttachments] = useState<
-    Array<{ name: string; url: string; format?: string; size?: string }>
-  >([])
+  const [attachments, setAttachments] = useState<CommentAttachment[]>([])
+  const [comments, setComments] = useState<StoredComment[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const inputFileRef = useRef<HTMLInputElement>(null)
+  const storageKey = `atomcap:hypothesis-comments:${hypothesisId}:${scopeType}:${scopeRefId ?? "root"}`
 
-  const utils = api.useUtils()
-  const queryInput = { hypothesisId, scopeType, scopeRefId }
-  const { data: comments, isLoading } = api.hypothesis.getComments.useQuery(queryInput)
-  const addCommentMutation = api.hypothesis.addComment.useMutation({
-    onSuccess: () => {
-      void utils.hypothesis.getComments.invalidate(queryInput)
-      setContent("")
-      setAttachments([])
-    },
-    onError: (error) => {
-      console.error("发表评论失败:", error)
-      alert("发表评论失败: " + error.message)
-    },
-  })
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      setComments(raw ? (JSON.parse(raw) as StoredComment[]) : [])
+    } catch (error) {
+      console.error("读取评论缓存失败:", error)
+      setComments([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [storageKey])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return
@@ -83,7 +97,13 @@ export function HypothesisComments({
 
       setAttachments((prev) => [
         ...prev,
-        { name: file.name, url: newBlob.url, format, size: sizeStr },
+        {
+          id: crypto.randomUUID(),
+          name: file.name,
+          url: newBlob.url,
+          format,
+          size: sizeStr,
+        },
       ])
     } catch (error) {
       console.error("上传出错:", error)
@@ -100,13 +120,27 @@ export function HypothesisComments({
 
   const handleSubmit = () => {
     if (!content.trim() && attachments.length === 0) return
-    addCommentMutation.mutate({
-      hypothesisId,
-      scopeType,
-      scopeRefId,
-      content,
-      attachments,
-    })
+
+    const nextComments = [
+      {
+        id: crypto.randomUUID(),
+        content: content.trim(),
+        creatorName: "当前用户",
+        createdAt: new Date().toISOString(),
+        attachments,
+      },
+      ...comments,
+    ]
+
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(nextComments))
+      setComments(nextComments)
+      setContent("")
+      setAttachments([])
+    } catch (error) {
+      console.error("保存评论失败:", error)
+      alert("保存评论失败，请稍后重试")
+    }
   }
 
   const formatIcon = (fmt: string) => {
@@ -175,7 +209,7 @@ export function HypothesisComments({
           </div>
           <Button
             onClick={handleSubmit}
-            disabled={addCommentMutation.isPending || (!content.trim() && attachments.length === 0)}
+            disabled={!content.trim() && attachments.length === 0}
             className="h-8 bg-[#2563EB] text-white hover:bg-[#1D4ED8]"
           >
             <Send className="mr-1 h-3.5 w-3.5" />
@@ -187,10 +221,10 @@ export function HypothesisComments({
       <div className="space-y-4">
         {isLoading ? (
           <div className="py-4 text-center text-sm text-[#9CA3AF]">加载评论中...</div>
-        ) : comments?.length === 0 ? (
+        ) : comments.length === 0 ? (
           <div className="py-4 text-center text-sm text-[#9CA3AF]">暂无评论</div>
         ) : (
-          comments?.map((comment: any) => (
+          comments.map((comment) => (
             <div key={comment.id} className="flex gap-3 border-b border-[#F3F4F6] pb-4 last:border-0">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E5E7EB]">
                 {comment.creatorAvatar ? (
@@ -211,7 +245,7 @@ export function HypothesisComments({
                 )}
                 {comment.attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {comment.attachments.map((att: any) => (
+                    {comment.attachments.map((att) => (
                       <a
                         key={att.id}
                         href={att.url}

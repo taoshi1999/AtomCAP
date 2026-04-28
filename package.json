@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbo",
-    "build": "prisma db push --accept-data-loss && prisma db seed && cross-env SKIP_ENV_VALIDATION=1 next build",
+    "build": "cross-env SKIP_ENV_VALIDATION=1 next build",
+    "db:prepare": "prisma db push --accept-data-loss && prisma db seed",
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
