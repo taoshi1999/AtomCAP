@@ -407,7 +407,7 @@ async function main() {
   console.log('  ✔ DashboardTodo')
 
   await seedProjects()
-  console.log('  ✔ Project (×2)')
+  console.log('  ✔ Project (×3)')
 
   await seedStrategies()
   console.log('  ✔ Strategy (×5)')

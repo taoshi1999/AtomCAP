@@ -266,6 +266,22 @@ export const hypothesisRouter = createTRPCRouter({
         throw new Error("Cannot add empty comment");
       }
 
+      // 如果数据库中不存在该 hypothesisId，为了避免外键约束错误，先创建一个空的假数据占位
+      // 这主要是因为当前项目部分列表数据(如 tech-bg)是硬编码在前端的，并不在数据库里
+      const existingHypothesis = await ctx.db.hypothesis.findUnique({
+        where: { id: input.hypothesisId }
+      });
+
+      if (!existingHypothesis) {
+        await ctx.db.hypothesis.create({
+          data: {
+            id: input.hypothesisId,
+            title: input.hypothesisId, // 使用 id 作为标题占位
+            status: "pending",
+          }
+        });
+      }
+
       return ctx.db.hypothesisComment.create({
         data: {
           hypothesisId: input.hypothesisId,
