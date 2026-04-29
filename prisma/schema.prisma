@@ -66,6 +66,7 @@ model Project {
   tasks     Task[]
   documents Document[]
   hypotheses Hypothesis[]
+  terms     Term[]
 
   @@map("projects")
 }
@@ -236,19 +237,42 @@ model RiskPoint {
   @@map("risk_points")
 }
 
+model Term {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  title           String
+  ourRequest      String?  @db.Text
+  ourBasis        String?  @db.Text
+  conflict        String?  @db.Text
+  ourBottomLine   String?  @db.Text
+  compromiseSpace String?  @db.Text
+  negotiationResult String? @db.Text
+  implementation  String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+
+  @@map("terms")
+}
+
 model Attachment {
   id           String    @id @default(cuid())
   name         String
   url          String
   createdAt    DateTime  @default(now()) @map("created_at")
+  section      String?   // Used to identify which section of the term this attachment belongs to
 
   hypothesisId String?   @map("hypothesis_id")
   valuePointId String?   @map("value_point_id")
   riskPointId  String?   @map("risk_point_id")
+  termId       String?   @map("term_id")
 
   hypothesis   Hypothesis? @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
   valuePoint   ValuePoint? @relation(fields: [valuePointId], references: [id], onDelete: Cascade)
   riskPoint    RiskPoint?  @relation(fields: [riskPointId], references: [id], onDelete: Cascade)
+  term         Term?       @relation(fields: [termId], references: [id], onDelete: Cascade)
 
   @@map("attachments")
 }
