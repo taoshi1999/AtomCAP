@@ -166,6 +166,8 @@ export default function HypothesesPage() {
       isNewProject={isNewProject}
       inheritedHypotheses={inheritedHypotheses}
       extraDetails={extraDetails}
+      
+      onDeleteHypothesis={handleDelete}
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
