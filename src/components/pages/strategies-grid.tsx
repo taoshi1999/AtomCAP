@@ -31,8 +31,6 @@ export interface Strategy {
   name: string
   icon: typeof Cpu
   iconBg: string
-  type?: "主题策略" | "赛道策略"
-  typeColor?: string
   description: string
   projectCount: number
   totalInvest: string
