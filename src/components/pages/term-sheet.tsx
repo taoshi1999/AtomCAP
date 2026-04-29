@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   Upload,
   Pencil,
+  ArrowLeft,
 } from "lucide-react"
 import { Badge } from "@/src/components/ui/badge"
 import { Button } from "@/src/components/ui/button"
@@ -764,83 +765,194 @@ export function TermSheet({ project, ...props }: any) {
 
   return (
     <div className="h-full overflow-auto bg-[#F9FAFB]">
-      <div className="px-6 py-6 max-w-7xl mx-auto">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-[#111827]">条款清单</h1>
-            <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
-              <Input
-                type="text"
-                placeholder="搜索条款..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64 pl-9 bg-white border-[#E5E7EB]"
-              />
+      {!selectedTermId ? (
+        <div className="px-6 py-6 max-w-7xl mx-auto">
+          
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-[#111827]">条款清单</h1>
+              <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
             </div>
-            <Button onClick={handleStartCreate} className="bg-[#2563EB] hover:bg-[#1D4ED8]">
-              <Plus className="h-4 w-4 mr-2" />
-              新建条款
-            </Button>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                <Input
+                  type="text"
+                  placeholder="搜索条款..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-64 pl-9 bg-white border-[#E5E7EB]"
+                />
+              </div>
+              <Button onClick={handleStartCreate} className="bg-[#2563EB] hover:bg-[#1D4ED8]">
+                <Plus className="h-4 w-4 mr-2" />
+                新建条款
+              </Button>
+            </div>
           </div>
-        </div>
 
-        {/* Table View */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-[#1E3A5F] text-white">
-                <th className="px-4 py-3 text-left text-sm font-medium">条款名称</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">创建时间</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.map((item, index) => (
-                <tr
-                  key={item.id}
-                  className={cn(
-                    "border-b border-[#E5E7EB] hover:bg-[#F9FAFB] transition-colors",
-                    index % 2 === 1 && "bg-[#F9FAFB]"
-                  )}
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-[#111827] font-medium">{item.title}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-[#6B7280]">
-                     {new Date(item.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                       <button
-                        onClick={() => setSelectedTermId(item.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#2563EB] hover:bg-[#EFF6FF] rounded transition-colors"
-                      >
-                        <Eye className="h-3 w-3" />
-                        详情
-                      </button>
-                    </div>
-                  </td>
+          {/* Table View */}
+          <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-[#1E3A5F] text-white">
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[15%]">条款方向</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[15%]">条款类别</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[30%]">条款名称</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[10%]">负责人</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[10%]">创建时间</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[10%]">更改时间</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium w-[10%] whitespace-nowrap">操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredData.map((item, index) => {
+                  const status = (item as any).status || "approved";
+                  const statusInfo = 
+                    status === "approved" || status === "已批准" ? { label: "已批准", classes: "bg-[#DCFCE7] text-[#166534]" } :
+                    status === "pending" || status === "待审批" ? { label: "待审批", classes: "bg-[#FEF3C7] text-[#92400E]" } :
+                    { label: "已拒绝", classes: "bg-[#FEE2E2] text-[#991B1B]" };
 
-          {filteredData.length === 0 && (
-            <div className="py-12 text-center">
-              <FileText className="mx-auto h-12 w-12 text-[#D1D5DB]" />
-              <p className="mt-4 text-sm text-[#6B7280]">暂无条款</p>
-            </div>
-          )}
+                  return (
+                    <tr
+                      key={item.id}
+                      className="border-b border-[#E5E7EB] hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <td className="px-4 py-4 text-sm text-[#4B5563]">{item.direction || "控制权条款"}</td>
+                      <td className="px-4 py-4 text-sm text-[#4B5563]">{item.category || "董事会条款"}</td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center">
+                          <span className="text-sm text-[#111827] font-medium">{item.title}</span>
+                          <Badge className={cn("ml-3 font-normal border-none hover:opacity-80 px-2 py-0.5", statusInfo.classes)}>
+                            {statusInfo.label}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-[#E5E7EB] flex items-center justify-center text-[#6B7280]">
+                            <User className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="text-sm text-[#4B5563]">{item.creator?.name || "张伟"}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-[#6B7280]">
+                         {new Date(item.createdAt).toISOString().split('T')[0]}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-[#6B7280]">
+                         {new Date(item.updatedAt || item.createdAt).toISOString().split('T')[0]}
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-4 whitespace-nowrap">
+                           <button
+                            onClick={() => setSelectedTermId(item.id)}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-[#2563EB] hover:opacity-80 transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            详情
+                          </button>
+                          <button
+                            onClick={() => {}}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-[#EF4444] hover:opacity-80 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+
+            {filteredData.length === 0 && (
+              <div className="py-12 text-center">
+                <FileText className="mx-auto h-12 w-12 text-[#D1D5DB]" />
+                <p className="mt-4 text-sm text-[#6B7280]">暂无条款</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : selectedTerm ? (
+        <div className="px-6 py-6 max-w-5xl mx-auto">
+          {/* Inline Detail View */}
+          <div className="mb-6">
+            <div className="flex items-center text-sm text-[#6B7280] mb-4">
+              <span className="hover:text-[#111827] cursor-pointer" onClick={() => setSelectedTermId(null)}>项目库</span>
+              <ChevronRight className="h-4 w-4 mx-2 text-[#D1D5DB]" />
+              <span className="hover:text-[#111827] cursor-pointer font-medium text-[#111827]">{project?.name || "MiniMax"}</span>
+              <ChevronRight className="h-4 w-4 mx-2 text-[#D1D5DB]" />
+              <span className="hover:text-[#111827] cursor-pointer" onClick={() => setSelectedTermId(null)}>条款清单</span>
+            </div>
+
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-8 shadow-sm">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-[#111827] mb-2">{selectedTerm.title}</h1>
+                  <div className="flex items-center gap-4 text-sm text-[#6B7280]">
+                    {selectedTerm.termId && <span>ID: {selectedTerm.termId}</span>}
+                    <span>创建时间: {new Date(selectedTerm.createdAt).toLocaleDateString()}</span>
+                    <span>更新时间: {new Date(selectedTerm.updatedAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <Badge className="bg-[#DCFCE7] text-[#166534] hover:bg-[#DCFCE7] text-sm px-3 py-1">
+                  已批准
+                </Badge>
+              </div>
+              
+              <div className="mt-6 flex items-center gap-2 pt-4 border-t border-[#E5E7EB]">
+                <div className="w-8 h-8 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-sm font-medium">
+                  {selectedTerm.creator?.name?.[0] || "张"}
+                </div>
+                <span className="text-sm text-[#374151]">创建者: {selectedTerm.creator?.name || "张伟"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {SECTIONS.map((sec) => {
+              const content = (selectedTerm as any)[sec.key] || ""
+              const isEditing = editSectionKey === sec.key
+              const sectionAttachments = selectedTerm.attachments?.filter((a: any) => a.section === sec.key) || []
+
+              return (
+                <div key={sec.key} className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden shadow-sm">
+                  <div className={cn("border-l-4 p-5", sec.border)}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className={cn("text-base font-semibold flex items-center gap-2", sec.color)}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                        {sec.label}
+                      </h3>
+                    </div>
+                    
+                    <div className="bg-[#F9FAFB] rounded-lg p-5 text-sm text-[#374151] whitespace-pre-wrap min-h-[40px] mb-4">
+                        {content || "暂无内容"}
+                    </div>
+
+                    {sectionAttachments.length > 0 ? (
+                      <div className="border-t border-[#E5E7EB] pt-4 mt-4">
+                        <p className="text-xs font-medium text-[#6B7280] mb-3">附件列表</p>
+                        <div className="space-y-2 mb-3">
+                          {sectionAttachments.map((att: any) => (
+                            <div key={att.id} className="flex items-center gap-2 p-3 bg-[#F3F4F6] rounded-lg w-max pr-8">
+                              <FileText className="h-4 w-4 text-[#2563EB]" />
+                              <a href={att.url} target="_blank" rel="noreferrer" className="text-sm text-[#2563EB] hover:underline">
+                                {att.name}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {/* Creation Modal (Dialog) */}
       <Dialog open={isCreating} onOpenChange={setIsCreating}>
@@ -908,92 +1020,6 @@ export function TermSheet({ project, ...props }: any) {
                </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Detail Modal (Dialog) */}
-      <Dialog open={!!selectedTermId} onOpenChange={(open) => !open && setSelectedTermId(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-[#F9FAFB]">
-          <DialogHeader>
-             <DialogTitle className="text-xl">{selectedTerm?.title}</DialogTitle>
-          </DialogHeader>
-
-          {selectedTerm && (
-             <div className="mt-4 space-y-6">
-                {SECTIONS.map((sec) => {
-                  const content = (selectedTerm as any)[sec.key] || ""
-                  const isEditing = editSectionKey === sec.key
-                  const sectionAttachments = selectedTerm.attachments.filter(a => a.section === sec.key)
-
-                  return (
-                    <div key={sec.key} className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden shadow-sm">
-                      <div className={cn("border-l-4 p-5", sec.border)}>
-                        <div className="flex items-center justify-between mb-4">
-                           <h3 className={cn("text-base font-semibold", sec.color)}>{sec.label}</h3>
-                           {!isEditing && (
-                             <Button variant="ghost" size="sm" onClick={() => {
-                               setEditSectionKey(sec.key)
-                               setEditContent(content)
-                             }}>编辑内容</Button>
-                           )}
-                        </div>
-                        
-                        {isEditing ? (
-                          <div className="mb-4">
-                            <textarea 
-                              className="w-full rounded-lg border border-[#E5E7EB] p-3 text-sm min-h-[100px] outline-none focus:border-[#2563EB] mb-2"
-                              value={editContent}
-                              onChange={(e) => setEditContent(e.target.value)}
-                              placeholder={`输入${sec.label}...`}
-                            />
-                            <div className="flex justify-end gap-2">
-                               <Button variant="ghost" size="sm" onClick={() => setEditSectionKey(null)}>取消</Button>
-                               <Button size="sm" onClick={() => handleSaveSection(selectedTerm.id, sec.key)} disabled={updateMutation.isPending}>
-                                 {updateMutation.isPending ? "保存中..." : "保存"}
-                               </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="bg-[#F9FAFB] rounded-lg p-4 text-sm text-[#374151] whitespace-pre-wrap min-h-[40px] mb-4">
-                             {content || "暂无内容"}
-                          </div>
-                        )}
-
-                        <div className="border-t border-[#E5E7EB] pt-4 mt-4">
-                          <p className="text-xs font-medium text-[#6B7280] mb-3">附件列表</p>
-                          
-                          {sectionAttachments.length > 0 ? (
-                            <div className="space-y-2 mb-3">
-                              {sectionAttachments.map(att => (
-                                <div key={att.id} className="flex items-center gap-2 p-2 bg-[#F3F4F6] rounded-lg">
-                                  <FileText className="h-4 w-4 text-[#2563EB]" />
-                                  <a href={att.url} target="_blank" rel="noreferrer" className="text-sm text-[#2563EB] hover:underline">
-                                    {att.name}
-                                  </a>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-[#9CA3AF] mb-3">未上传附件</p>
-                          )}
-
-                          <FileUpload
-                            onUploadSuccess={(url: string, name: string) => {
-                              attachmentMutation.mutate({
-                                termId: selectedTerm.id,
-                                section: sec.key,
-                                name,
-                                url
-                              })
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-             </div>
-          )}
         </DialogContent>
       </Dialog>
     </div>
