@@ -24,6 +24,7 @@ export default function WorkflowPage() {
       projectId={projectId}
       projectName={project?.name || ""}
       isNewProject={projectId.startsWith("new-project-")}
+      phases={[]} // In a real app, you'd fetch these
       isExited={false}
     />
   )
