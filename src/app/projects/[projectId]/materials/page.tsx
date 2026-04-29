@@ -16,6 +16,7 @@ import {
 import { api } from "@/src/trpc/react"
 import { Badge } from "@/src/components/ui/badge"
 import { Button } from "@/src/components/ui/button"
+import { cn } from "@/src/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -126,6 +127,8 @@ export default function ProjectMaterialsPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [localMaterials, setLocalMaterials] = useState<MaterialItem[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dropZoneRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -263,6 +266,54 @@ export default function ProjectMaterialsPage() {
 
   function handleRemoveFile(id: string) {
     setPendingFiles((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  function handleDragOver(event: React.DragEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragOver(true)
+  }
+
+  function handleDragLeave(event: React.DragEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  function handleDrop(event: React.DragEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragOver(false)
+
+    const files = Array.from(event.dataTransfer.files)
+    if (files.length === 0) {
+      return
+    }
+
+    setPendingFiles((prev) => {
+      const next = [...prev]
+
+      for (const file of files) {
+        const duplicate = next.some(
+          (item) =>
+            item.file.name === file.name &&
+            item.file.size === file.size &&
+            item.file.lastModified === file.lastModified
+        )
+
+        if (!duplicate) {
+          next.push({
+            id: `${file.name}-${file.size}-${file.lastModified}`,
+            file,
+            description: "",
+          })
+        }
+      }
+
+      return next
+    })
+
+    setUploadError("")
   }
 
   async function handleUpload() {
@@ -477,6 +528,9 @@ export default function ProjectMaterialsPage() {
             <DialogTitle>上传项目材料</DialogTitle>
             <DialogDescription>
               支持一次上传多个文件；每个文件都必须填写单独的简介。
+              {pendingFiles.length > 0 && (
+                <span className="ml-2 text-[#2563EB] font-medium">{selectedCountText}</span>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -492,8 +546,28 @@ export default function ProjectMaterialsPage() {
                 disabled={isUploading}
                 className="hidden"
               />
-              <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
-                <div className="flex flex-wrap items-center gap-3">
+              <div
+                ref={dropZoneRef}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={cn(
+                  "rounded-xl border-2 border-dashed p-6 text-center transition-colors",
+                  isDragOver
+                    ? "border-[#2563EB] bg-[#EFF6FF]"
+                    : "border-[#D1D5DB] bg-[#F9FAFB]"
+                )}
+              >
+                <div className="flex flex-col items-center gap-3">
+                  <Upload className={cn("h-8 w-8", isDragOver ? "text-[#2563EB]" : "text-[#9CA3AF]")} />
+                  <div>
+                    <p className="text-sm font-medium text-[#374151]">
+                      拖拽文件到此处，或点击下方按钮选择
+                    </p>
+                    <p className="mt-1 text-xs text-[#9CA3AF]">
+                      支持一次拖拽或选择多个文件
+                    </p>
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
@@ -504,11 +578,7 @@ export default function ProjectMaterialsPage() {
                     <Upload className="h-4 w-4" />
                     选择文件
                   </Button>
-                  <span className="text-sm text-[#6B7280]">{selectedCountText}</span>
                 </div>
-                <p className="mt-2 text-xs text-[#9CA3AF]">
-                  支持重复点击继续添加文件；文件加入后会在下方列表显示。
-                </p>
               </div>
             </div>
 
