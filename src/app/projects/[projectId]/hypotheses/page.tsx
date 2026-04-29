@@ -20,6 +20,10 @@ export default function HypothesesPage() {
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
 
+  const deleteMutation = api.hypothesis.delete.useMutation({
+    onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
+  })
+  
   const updateCommitteeMutation = api.hypothesis.updateCommitteeDecision.useMutation({
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
