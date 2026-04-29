@@ -136,6 +136,46 @@ export const hypothesisRouter = createTRPCRouter({
       }));
     }),
 
+  getByStrategy: protectedProcedure
+    .input(z.object({
+      strategyId: z.string(),
+    }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const data = await ctx.db.hypothesis.findMany({
+        where: { strategyId: input.strategyId },
+        orderBy: { createdAt: "asc" },
+      });
+
+      return data.map((h: any) => ({
+        id: h.id,
+        strategyId: h.strategyId,
+        title: h.title,
+        description: h.description || "",
+        direction: h.direction || "",
+        category: h.category || "",
+        owner: h.owner || "",
+        status: h.status || "pending",
+        committeeConclusion: h.committeeConclusion || "",
+        committeeContent: h.committeeContent || "",
+        committeeStatus: h.committeeStatus || "pending",
+        committeeCreatorName: h.committeeCreatorName || "",
+        committeeCreatorRole: h.committeeCreatorRole || "",
+        committeeCreatedAt: h.committeeCreatedAt
+          ? h.committeeCreatedAt.toISOString().split("T")[0]
+          : "",
+        verificationConclusion: h.verificationConclusion || "",
+        verificationContent: h.verificationContent || "",
+        verificationStatus: h.verificationStatus || "pending",
+        verificationCreatorName: h.verificationCreatorName || "",
+        verificationCreatorRole: h.verificationCreatorRole || "",
+        verificationCreatedAt: h.verificationCreatedAt
+          ? h.verificationCreatedAt.toISOString().split("T")[0]
+          : "",
+        createdAt: h.createdAt.toISOString().split("T")[0],
+        updatedAt: h.updatedAt.toISOString().split("T")[0],
+      }));
+    }),
+
   updateCommitteeDecision: protectedProcedure
     .input(
       z.object({

@@ -23,7 +23,7 @@ export default function HypothesesPage() {
   const deleteMutation = api.hypothesis.delete.useMutation({
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
-
+  
   const updateCommitteeMutation = api.hypothesis.updateCommitteeDecision.useMutation({
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
@@ -55,6 +55,7 @@ export default function HypothesesPage() {
     updatedAt: h.updatedAt,
     status: h.status as "verified" | "pending" | "risky",
   })) || []
+  const inheritedHypotheses = mappedHypotheses.length > 0 ? mappedHypotheses : undefined
 
   const extraDetails: Record<string, HypothesisDetail> = {}
   for (const h of projectHypotheses ?? []) {
@@ -135,7 +136,6 @@ export default function HypothesesPage() {
   const handleDelete = (id: string) => {
     deleteMutation.mutate({ id })
   }
-
   const handleCreateCommitteeDecision = (_hypothesisId: string, _hypothesisName: string, data: CommitteeDecisionFormData) => {
     const h = projectHypotheses?.find((h: any) => h.title === _hypothesisName)
     if (!h) return
@@ -164,7 +164,7 @@ export default function HypothesesPage() {
     <HypothesisChecklist
       project={project as any}
       isNewProject={isNewProject}
-      inheritedHypotheses={mappedHypotheses}
+      inheritedHypotheses={inheritedHypotheses}
       extraDetails={extraDetails}
       
       onDeleteHypothesis={handleDelete}
