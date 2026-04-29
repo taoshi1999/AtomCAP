@@ -123,6 +123,19 @@ export default function HypothesesPage() {
     }
   }
 
+  const handleCreate = (data: { title: string; direction: string; category: string; owner: string }) => {
+    createMutation.mutate({
+      projectId,
+      title: data.title,
+      direction: data.direction,
+      category: data.category,
+      owner: data.owner,
+    })
+  }
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate({ id })
+  }
   const handleCreateCommitteeDecision = (_hypothesisId: string, _hypothesisName: string, data: CommitteeDecisionFormData) => {
     const h = projectHypotheses?.find((h: any) => h.title === _hypothesisName)
     if (!h) return
