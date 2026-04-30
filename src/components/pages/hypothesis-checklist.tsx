@@ -1201,20 +1201,24 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   const utils = api.useUtils()
 
   const addCommentMutation = api.hypothesis.addComment.useMutation({
-    onSuccess: () => {
-      utils.hypothesis.getComments.invalidate()
+    onSuccess: async () => {
+      await utils.hypothesis.getComments.refetch()
     },
   })
 
   const { data: dbComments } = api.hypothesis.getComments.useQuery(
     selectedId && selectedDetail
       ? {
-          valuePointIds: selectedDetail.valuePoints.map((vp) => vp.id),
-          riskPointIds: selectedDetail.riskPoints.map((rp) => rp.id),
+          valuePointIds: selectedDetail.valuePoints?.map((vp) => vp.id) || [],
+          riskPointIds: selectedDetail.riskPoints?.map((rp) => rp.id) || [],
           hypothesisId: selectedId,
         }
       : { valuePointIds: undefined, riskPointIds: undefined, hypothesisId: undefined },
-    { enabled: !!selectedId && !!selectedDetail }
+    { 
+      enabled: !!selectedId && !!selectedDetail,
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+    }
   )
 
   // Group comments by point ID
@@ -1230,15 +1234,76 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     return grouped
   }, [dbComments])
 
+  // Get all comments for a point (database + extra)
+  function getAllCommentsForPoint(pointId: string) {
+    const dbCommentsForPoint = commentsByPointId[pointId] || []
+    const extraCommentsForPoint = extraComments[pointId] || []
+    
+    // Convert extra comments to the same format as db comments
+    const extraCommentsFormatted = extraCommentsForPoint.map((ec, idx) => ({
+      id: `extra-${pointId}-${idx}`,
+      content: ec.content,
+      author: ec.author,
+      createdAt: new Date(ec.time).toISOString(),
+      attachments: ec.attachments || [],
+      valuePointId: pointId.startsWith("vp") ? pointId : null,
+      riskPointId: pointId.startsWith("rp") ? pointId : null,
+      committeeDecisionId: null,
+      verificationId: null,
+    }))
+    
+    return [...dbCommentsForPoint, ...extraCommentsFormatted]
+  }
+
   // Get committee decision comments
   const committeeComments = useMemo(() => {
     return dbComments?.filter(c => c.committeeDecisionId === selectedId) || []
   }, [dbComments, selectedId])
 
+  // Get all committee comments (database + extra)
+  function getAllCommitteeComments() {
+    const dbCommentsForCommittee = committeeComments || []
+    const extraCommentsForCommittee = extraComments["committee"] || []
+    
+    const extraCommentsFormatted = extraCommentsForCommittee.map((ec, idx) => ({
+      id: `extra-committee-${idx}`,
+      content: ec.content,
+      author: ec.author,
+      createdAt: new Date(ec.time).toISOString(),
+      attachments: ec.attachments || [],
+      valuePointId: null,
+      riskPointId: null,
+      committeeDecisionId: selectedId,
+      verificationId: null,
+    }))
+    
+    return [...dbCommentsForCommittee, ...extraCommentsFormatted]
+  }
+
   // Get verification comments
   const verificationComments = useMemo(() => {
     return dbComments?.filter(c => c.verificationId === selectedId) || []
   }, [dbComments, selectedId])
+
+  // Get all verification comments (database + extra)
+  function getAllVerificationComments() {
+    const dbCommentsForVerification = verificationComments || []
+    const extraCommentsForVerification = extraComments["verification"] || []
+    
+    const extraCommentsFormatted = extraCommentsForVerification.map((ec, idx) => ({
+      id: `extra-verification-${idx}`,
+      content: ec.content,
+      author: ec.author,
+      createdAt: new Date(ec.time).toISOString(),
+      attachments: ec.attachments || [],
+      valuePointId: null,
+      riskPointId: null,
+      committeeDecisionId: null,
+      verificationId: selectedId,
+    }))
+    
+    return [...dbCommentsForVerification, ...extraCommentsFormatted]
+  }
 
   const createMutation = api.hypothesis.create.useMutation({
     onSuccess: () => {
@@ -1396,7 +1461,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
 
   // Comment helpers
   function getCommentKey(pointId: string) {
-    return `${selectedId}-${pointId}`
+    return pointId
   }
 
   function handleCommentInput(pointId: string, value: string) {
@@ -1408,6 +1473,18 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     const text = (commentInputs[key] || "").trim()
     const attachments = commentAttachments[key] || []
     if (!text && attachments.length === 0) return
+
+    const newComment = {
+      author: "张伟",
+      content: text,
+      time: new Date().toLocaleString(),
+      attachments: attachments.length > 0 ? attachments : undefined,
+    }
+
+    setExtraComments((prev) => ({
+      ...prev,
+      [key]: [...(prev[key] || []), newComment],
+    }))
 
     addCommentMutation.mutate({
       valuePointId: type === "valuePoint" ? pointId : undefined,
@@ -1667,7 +1744,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   {/* Comments */}
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                    {(commentsByPointId[vp.id] || []).map((c, idx) => (
+                    {getAllCommentsForPoint(vp.id).map((c, idx) => (
                       <div key={c.id || idx} className="flex items-start gap-2 mb-3">
                         <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                           <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -1721,7 +1798,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                           value={commentInputs[getCommentKey(vp.id)] || ""}
                           onChange={(e) => handleCommentInput(vp.id, e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") handleSendComment(vp.id, "valuePoint") }}
-                          className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                          className="flex-1 text-sm text-[#374151] border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                         />
                         <label className="p-2 text-[#6B7280] hover:bg-[#F3F4F6] rounded-lg transition-colors cursor-pointer">
                           <Paperclip className="h-4 w-4" />
@@ -1824,7 +1901,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   {/* Comments */}
                   <div>
                     <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                    {(commentsByPointId[rp.id] || []).map((c, idx) => (
+                    {getAllCommentsForPoint(rp.id).map((c, idx) => (
                       <div key={c.id || idx} className="flex items-start gap-2 mb-3">
                         <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                           <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -1878,7 +1955,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                           value={commentInputs[getCommentKey(rp.id)] || ""}
                           onChange={(e) => handleCommentInput(rp.id, e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") handleSendComment(rp.id, "riskPoint") }}
-                          className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                          className="flex-1 text-sm text-[#374151] border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                         />
                         <label className="p-2 text-[#6B7280] hover:bg-[#F3F4F6] rounded-lg transition-colors cursor-pointer">
                           <Paperclip className="h-4 w-4" />
@@ -1982,7 +2059,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 {/* Comments */}
                 <div>
                   <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                  {committeeComments.map((c, idx) => (
+                  {getAllCommitteeComments().map((c, idx) => (
                     <div key={c.id || idx} className="flex items-start gap-2 mb-3">
                       <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                         <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -2013,9 +2090,9 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                     </div>
                   ))}
                   <div className="mt-3">
-                    {commentAttachments["committee"] && commentAttachments["committee"].length > 0 && (
+                    {commentAttachments[getCommentKey("committee")] && commentAttachments[getCommentKey("committee")].length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-2">
-                        {commentAttachments["committee"].map((att, aIdx) => (
+                        {commentAttachments[getCommentKey("committee")].map((att, aIdx) => (
                           <div key={aIdx} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F3F4F6] rounded-lg text-xs">
                             <FileText className="h-3.5 w-3.5 text-[#6B7280]" />
                             <span className="max-w-[120px] truncate text-[#374151]">{att.name}</span>
@@ -2033,10 +2110,10 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                       <input
                         type="text"
                         placeholder="添加评论..."
-                        value={commentInputs["committee"] || ""}
+                        value={commentInputs[getCommentKey("committee")] || ""}
                         onChange={(e) => handleCommentInput("committee", e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") handleSendComment("committee", "committeeDecision") }}
-                        className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                        className="flex-1 text-sm text-[#374151] border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                       />
                       <label className="p-2 text-[#6B7280] hover:bg-[#F3F4F6] rounded-lg transition-colors cursor-pointer">
                         <Paperclip className="h-4 w-4" />
@@ -2044,7 +2121,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                           type="file"
                           className="hidden"
                           onChange={(e) => handleCommentUpload("committee", e)}
-                          disabled={uploadingComments["committee"]}
+                          disabled={uploadingComments[getCommentKey("committee")]}
                         />
                       </label>
                       <button
@@ -2139,7 +2216,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 {/* Comments */}
                 <div>
                   <p className="text-xs text-[#6B7280] mb-2">评论</p>
-                  {verificationComments.map((c, idx) => (
+                  {getAllVerificationComments().map((c, idx) => (
                     <div key={c.id || idx} className="flex items-start gap-2 mb-3">
                       <div className="h-6 w-6 rounded-full bg-[#E5E7EB] flex items-center justify-center shrink-0">
                         <span className="text-[10px] text-[#6B7280]">{c.author.slice(0, 1)}</span>
@@ -2170,9 +2247,9 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                     </div>
                   ))}
                   <div className="mt-3">
-                    {commentAttachments["verification"] && commentAttachments["verification"].length > 0 && (
+                    {commentAttachments[getCommentKey("verification")] && commentAttachments[getCommentKey("verification")].length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-2">
-                        {commentAttachments["verification"].map((att, aIdx) => (
+                        {commentAttachments[getCommentKey("verification")].map((att, aIdx) => (
                           <div key={aIdx} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F3F4F6] rounded-lg text-xs">
                             <FileText className="h-3.5 w-3.5 text-[#6B7280]" />
                             <span className="max-w-[120px] truncate text-[#374151]">{att.name}</span>
@@ -2190,10 +2267,10 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                       <input
                         type="text"
                         placeholder="添加评论..."
-                        value={commentInputs["verification"] || ""}
+                        value={commentInputs[getCommentKey("verification")] || ""}
                         onChange={(e) => handleCommentInput("verification", e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") handleSendComment("verification", "verification") }}
-                        className="flex-1 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6]"
+                        className="flex-1 text-sm text-[#374151] border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6]"
                       />
                       <label className="p-2 text-[#6B7280] hover:bg-[#F3F4F6] rounded-lg transition-colors cursor-pointer">
                         <Paperclip className="h-4 w-4" />
@@ -2201,7 +2278,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                           type="file"
                           className="hidden"
                           onChange={(e) => handleCommentUpload("verification", e)}
-                          disabled={uploadingComments["verification"]}
+                          disabled={uploadingComments[getCommentKey("verification")]}
                         />
                       </label>
                       <button
