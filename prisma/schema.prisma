@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==================== 用户与认证 ====================
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -16,8 +18,9 @@ model User {
   password      String?   @map("password_hash")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
-  projects      Project[] @relation("CreatedProjects")
-  sessions      Session[]
+
+  sessions Session[]
+  projects Project[]  @relation("CreatedProjects")
 
   @@map("users")
 }
@@ -27,35 +30,43 @@ model Session {
   userId    String   @map("user_id")
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
 
+// ==================== 项目管理 ====================
+
 model Project {
-  id              String       @id @default(cuid())
-  name            String
-  description     String?
-  status          String?      @default("设立期")
-  priority        String?      @default("中")
-  industry        String?
-  stage           String?
-  budget          Float?
-  logo            String?      @db.VarChar(20)
-  tags            String?      @db.VarChar(50)
-  round           String?      @db.VarChar(50)
-  valuation       String?      @db.VarChar(50)
-  managerId       String?      @db.VarChar(100)
-  managerName     String?      @db.VarChar(100)
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String?  @default("设立期")
+  priority    String?  @default("中")
+  industry    String?
+  stage       String?
+  budget      Float?
+  
+  //US002扩展的字段
+  logo            String?  @db.VarChar(20)
+  tags            String?  @db.VarChar(50)
+  round           String?  @db.VarChar(50)
+  valuation       String?  @db.VarChar(50)
+  managerId       String?  @db.VarChar(100)
+  managerName     String?  @db.VarChar(100)
   totalInvestment Float?
   irr             Float?
-  creatorId       String       @map("creator_id")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
-  documents       Document[]
-  hypotheses      Hypothesis[]
-  creator         User         @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
-  tasks           Task[]
+
+  creatorId   String   @map("creator_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator   User       @relation("CreatedProjects", fields: [creatorId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+  documents Document[]
+  hypotheses Hypothesis[]
+  terms     Term[]
 
   @@map("projects")
 }
@@ -71,7 +82,8 @@ model Task {
   dueDate     DateTime? @map("due_date")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("tasks")
 }
@@ -86,11 +98,12 @@ model Document {
   url       String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("documents")
 }
-
+//数据看板前四块
 model DashboardOverview {
   id                     String   @id @default(cuid())
   totalProjectCount      Int      @default(0)
@@ -109,7 +122,7 @@ model DashboardOverview {
   todayMeetingCount      Int      @default(0)
   updatedAt              DateTime @updatedAt
 }
-
+//数据看板中间四块
 model DashboardChart {
   id                     String  @id @default(cuid())
   trackName              String? @db.VarChar(50)
@@ -127,7 +140,7 @@ model DashboardChart {
   managerAvgCycle        Int?
   managerEfficiencyScore Int?
 }
-
+//数据看板待办
 model DashboardTodo {
   id          String    @id @default(cuid())
   type        String?   @db.VarChar(50)
@@ -140,108 +153,126 @@ model DashboardTodo {
   operation   String?   @db.VarChar(20)
   createdAt   DateTime  @default(now())
 }
-
+//策略中心
 model Strategy {
-  id              String       @id @default(cuid())
-  iconName        String?      @db.VarChar(50)
-  name            String       @db.VarChar(255)
-  frameworkName   String?      @db.VarChar(255)
+  id              String   @id @default(cuid())
+  iconName        String?  @db.VarChar(50)
+  name            String   @db.VarChar(255)
+  frameworkName   String?  @db.VarChar(255)
   description     String?
-  managerName     String?      @db.VarChar(100)
-  projectCount    Int          @default(0)
-  totalInvestment String?      @db.VarChar(50)
-  returnRate      String?      @db.VarChar(50)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  managerName     String?  @db.VarChar(100)
+  projectCount    Int      @default(0)
+  totalInvestment String?  @db.VarChar(50)
+  returnRate      String?  @db.VarChar(50)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
   hypotheses      Hypothesis[]
 }
 
 model Hypothesis {
-  id                      String       @id @default(cuid())
-  strategyId              String?      @map("strategy_id")
-  projectId               String?      @map("project_id")
-  title                   String
-  description             String?
-  direction               String?      @db.VarChar(100)
-  category                String?      @db.VarChar(100)
-  owner                   String?      @db.VarChar(100)
-  status                  String       @default("pending") @db.VarChar(20)
-  committeeConclusion     String?      @db.VarChar(20)
-  committeeContent        String?
-  committeeStatus         String?      @default("pending") @db.VarChar(20)
-  committeeCreatorName    String?      @db.VarChar(100)
-  committeeCreatorRole    String?      @db.VarChar(100)
-  committeeCreatedAt      DateTime?    @map("committee_created_at")
-  verificationConclusion  String?      @db.VarChar(20)
-  verificationContent     String?
-  verificationStatus      String?      @default("pending") @db.VarChar(20)
-  verificationCreatorName String?      @db.VarChar(100)
-  verificationCreatorRole String?      @db.VarChar(100)
-  verificationCreatedAt   DateTime?    @map("verification_created_at")
-  createdAt               DateTime     @default(now()) @map("created_at")
-  updatedAt               DateTime     @updatedAt @map("updated_at")
-  attachments             Attachment[]
-  project                 Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  strategy                Strategy?    @relation(fields: [strategyId], references: [id], onDelete: Cascade)
-  riskPoints              RiskPoint[]
-  valuePoints             ValuePoint[]
+  id                     String    @id @default(cuid())
+  strategyId             String?   @map("strategy_id")
+  projectId              String?   @map("project_id")
+  title                  String
+  description            String?
+  direction              String?   @db.VarChar(100)
+  category               String?   @db.VarChar(100)
+  owner                  String?   @db.VarChar(100)
+  status                 String    @default("pending") @db.VarChar(20)
+
+  committeeConclusion    String?   @db.VarChar(20)
+  committeeContent       String?   @db.Text
+  committeeStatus        String?   @default("pending") @db.VarChar(20)
+  committeeCreatorName   String?   @db.VarChar(100)
+  committeeCreatorRole   String?   @db.VarChar(100)
+  committeeCreatedAt     DateTime? @map("committee_created_at")
+
+  verificationConclusion String?   @db.VarChar(20)
+  verificationContent    String?   @db.Text
+  verificationStatus     String?   @default("pending") @db.VarChar(20)
+  verificationCreatorName  String?   @db.VarChar(100)
+  verificationCreatorRole  String?   @db.VarChar(100)
+  verificationCreatedAt  DateTime? @map("verification_created_at")
+
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  // US006新增价值点(ValuePoint)、风险点(RiskPoint)、附件(Attachment)表，用以支持US006中多价值点风险点、每个点包含附件的需求。
+  // 通过 onDelete: Cascade 实现假设本身被删除时，级联清理这些从属数据
+  strategy   Strategy? @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  valuePoints ValuePoint[]
+  riskPoints  RiskPoint[]
+  attachments Attachment[]
 
   @@map("hypotheses")
 }
-
+//US006 新增价值点、风险点、附件表
 model ValuePoint {
-  id           String       @id @default(cuid())
-  hypothesisId String       @map("hypothesis_id")
-  support      String?
-  analysis     String?
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  hypothesisId String    @map("hypothesis_id")
+  support      String?   @db.Text
+  analysis     String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  hypothesis   Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
   attachments  Attachment[]
-  hypothesis   Hypothesis   @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
 
   @@map("value_points")
 }
 
 model RiskPoint {
-  id           String       @id @default(cuid())
-  hypothesisId String       @map("hypothesis_id")
-  support      String?
-  analysis     String?
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  hypothesisId String    @map("hypothesis_id")
+  support      String?   @db.Text
+  analysis     String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  hypothesis   Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
   attachments  Attachment[]
-  hypothesis   Hypothesis   @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
 
   @@map("risk_points")
 }
 
-model Attachment {
-  id           String      @id @default(cuid())
-  name         String
-  url          String
-  createdAt    DateTime    @default(now()) @map("created_at")
-  hypothesisId String?     @map("hypothesis_id")
-  valuePointId String?     @map("value_point_id")
-  riskPointId  String?     @map("risk_point_id")
-  commentId    String?     @map("comment_id")
-  comment      Comment?    @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  hypothesis   Hypothesis? @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
-  riskPoint    RiskPoint?  @relation(fields: [riskPointId], references: [id], onDelete: Cascade)
-  valuePoint   ValuePoint? @relation(fields: [valuePointId], references: [id], onDelete: Cascade)
+model Term {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  title           String
+  ourRequest      String?  @db.Text
+  ourBasis        String?  @db.Text
+  conflict        String?  @db.Text
+  ourBottomLine   String?  @db.Text
+  compromiseSpace String?  @db.Text
+  negotiationResult String? @db.Text
+  implementation  String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  @@map("attachments")
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+
+  @@map("terms")
 }
 
-model Comment {
-  id                  String       @id @default(cuid())
-  content             String?
-  author              String       @db.VarChar(100)
-  createdAt           DateTime     @default(now()) @map("created_at")
-  valuePointId        String?      @map("value_point_id")
-  riskPointId         String?      @map("risk_point_id")
-  committeeDecisionId String?      @map("committee_decision_id")
-  verificationId      String?      @map("verification_id")
-  attachments         Attachment[]
+model Attachment {
+  id           String    @id @default(cuid())
+  name         String
+  url          String
+  createdAt    DateTime  @default(now()) @map("created_at")
+  section      String?   // Used to identify which section of the term this attachment belongs to
 
-  @@map("comments")
+  hypothesisId String?   @map("hypothesis_id")
+  valuePointId String?   @map("value_point_id")
+  riskPointId  String?   @map("risk_point_id")
+  termId       String?   @map("term_id")
+
+  hypothesis   Hypothesis? @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  valuePoint   ValuePoint? @relation(fields: [valuePointId], references: [id], onDelete: Cascade)
+  riskPoint    RiskPoint?  @relation(fields: [riskPointId], references: [id], onDelete: Cascade)
+  term         Term?       @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
 }
