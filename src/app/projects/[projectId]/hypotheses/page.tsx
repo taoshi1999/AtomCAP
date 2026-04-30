@@ -165,7 +165,7 @@ export default function HypothesesPage() {
     <HypothesisChecklist
       project={project as any}
       isNewProject={isNewProject}
-      inheritedHypotheses={mappedHypotheses}
+      inheritedHypotheses={mappedHypotheses.length > 0 ? mappedHypotheses : undefined}
       extraDetails={extraDetails}
       
       onDeleteHypothesis={handleDelete}

@@ -1,4 +1,4 @@
-﻿import { put } from '@vercel/blob';
+﻿﻿import { put } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -13,7 +13,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const fileBuffer = await request.arrayBuffer();
 
     const blob = await put(filename, fileBuffer, {
-      access: 'public',
+      access: 'private',
       allowOverwrite: true, // 允许覆盖同名文件
     });
 
