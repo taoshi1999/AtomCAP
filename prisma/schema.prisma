@@ -219,6 +219,7 @@ model ValuePoint {
 
   hypothesis   Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
   attachments  Attachment[]
+  comments     Comment[]
 
   @@map("value_points")
 }
@@ -233,6 +234,7 @@ model RiskPoint {
 
   hypothesis   Hypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
   attachments  Attachment[]
+  comments     Comment[]
 
   @@map("risk_points")
 }
@@ -275,4 +277,36 @@ model Attachment {
   term         Term?       @relation(fields: [termId], references: [id], onDelete: Cascade)
 
   @@map("attachments")
+}
+
+// US007 新增评论模型
+model Comment {
+  id                 String    @id @default(cuid())
+  content            String    @db.Text
+  author             String    @db.VarChar(100)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  valuePointId       String?   @map("value_point_id")
+  riskPointId        String?   @map("risk_point_id")
+  committeeDecisionId String?  @map("committee_decision_id")
+  verificationId     String?   @map("verification_id")
+
+  valuePoint         ValuePoint? @relation(fields: [valuePointId], references: [id], onDelete: Cascade)
+  riskPoint          RiskPoint?  @relation(fields: [riskPointId], references: [id], onDelete: Cascade)
+  attachments        CommentAttachment[]
+
+  @@map("comments")
+}
+
+model CommentAttachment {
+  id        String   @id @default(cuid())
+  commentId String   @map("comment_id")
+  name      String
+  url       String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@map("comment_attachments")
 }
