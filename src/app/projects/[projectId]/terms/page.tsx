@@ -1,3 +1,7 @@
+
+
+
+
 "use client"
 
 import { useParams } from "next/navigation"
@@ -8,8 +12,12 @@ export default function TermsPage() {
   const params = useParams()
   const projectId = params.projectId as string
 
-  // Fetch project data
-  const { data: project, isLoading: projectLoading } = api.project.getById.useQuery({ id: projectId })
+
+  const { data: project, isLoading: projectLoading } = api.project.getById.useQuery(
+    { id: projectId },
+    { enabled: !!projectId }
+  )
+
 
   if (projectLoading) {
     return (
@@ -19,17 +27,20 @@ export default function TermsPage() {
     )
   }
 
-  const isNewProject = projectId.startsWith("new-project-")
+  const isNewProject = projectId?.startsWith("new-project-") ?? false
+
 
   return (
-    <TermSheet 
-      project={project as any}
-      isNewProject={isNewProject}
-      isInDuration={false}
-      isExited={false}
-      termLockPeriod="存续期"
-      inheritedTerms={[]}
-      extraDetails={{}}
-    />
+    <div className="h-full p-6">
+      <TermSheet
+        project={project as any}
+        isNewProject={isNewProject}
+        isInDuration={false}
+        isExited={false}
+        termLockPeriod="存续期"
+        inheritedTerms={[]}
+        extraDetails={{}}
+      />
+    </div>
   )
 }

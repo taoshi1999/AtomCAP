@@ -248,4 +248,119 @@ export const hypothesisRouter = createTRPCRouter({
         verificationStatus: updated.verificationStatus,
       };
     }),
+
+  addComment: protectedProcedure
+    .input(
+      z.object({
+        valuePointId: z.string().optional(),
+        riskPointId: z.string().optional(),
+        hypothesisId: z.string().optional(),
+        commentType: z.enum(["valuePoint", "riskPoint", "committeeDecision", "verification"]).optional(),
+        content: z.string().optional(),
+        author: z.string(),
+        attachments: z
+          .array(
+            z.object({
+              name: z.string(),
+              url: z.string(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const { valuePointId, riskPointId, hypothesisId, commentType, content, author, attachments } = input;
+
+      let committeeDecisionId: string | undefined = undefined;
+      let verificationId: string | undefined = undefined;
+      let finalValuePointId: string | null = null;
+      let finalRiskPointId: string | null = null;
+
+      if (commentType === "committeeDecision" && hypothesisId) {
+        committeeDecisionId = hypothesisId;
+      } else if (commentType === "verification" && hypothesisId) {
+        verificationId = hypothesisId;
+      } else if (commentType === "valuePoint" && valuePointId) {
+        finalValuePointId = valuePointId;
+      } else if (commentType === "riskPoint" && riskPointId) {
+        finalRiskPointId = riskPointId;
+      }
+
+      const comment = await ctx.db.comment.create({
+        data: {
+          content: content || "",
+          author,
+          valuePointId: finalValuePointId,
+          riskPointId: finalRiskPointId,
+          committeeDecisionId,
+          verificationId,
+          attachments: {
+            create:
+              attachments?.map((att: any) => ({
+                name: att.name,
+                url: att.url,
+              })) || [],
+          },
+        },
+        include: {
+          attachments: true,
+        },
+      });
+
+      return comment;
+    }),
+
+  getComments: protectedProcedure
+    .input(
+      z.object({
+        valuePointIds: z.array(z.string()).optional(),
+        riskPointIds: z.array(z.string()).optional(),
+        hypothesisId: z.string().optional(),
+        commentType: z.enum(["valuePoint", "riskPoint", "committeeDecision", "verification"]).optional(),
+      })
+    )
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const { valuePointIds, riskPointIds, hypothesisId, commentType } = input;
+
+      const whereConditions: any[] = [];
+      if (valuePointIds && valuePointIds.length > 0) {
+        whereConditions.push({ valuePointId: { in: valuePointIds } });
+      }
+      if (riskPointIds && riskPointIds.length > 0) {
+        whereConditions.push({ riskPointId: { in: riskPointIds } });
+      }
+      if (hypothesisId) {
+        whereConditions.push({ committeeDecisionId: hypothesisId });
+        whereConditions.push({ verificationId: hypothesisId });
+      }
+
+      const comments = await ctx.db.comment.findMany({
+        where: whereConditions.length > 0 ? { OR: whereConditions } : {},
+        include: {
+          attachments: true,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+
+      return comments.map((c: any) => ({
+        id: c.id,
+        content: c.content,
+        author: c.author,
+        createdAt: c.createdAt.toISOString(),
+        attachments: c.attachments || [],
+        valuePointId: c.valuePointId,
+        riskPointId: c.riskPointId,
+        committeeDecisionId: c.committeeDecisionId,
+        verificationId: c.verificationId,
+      }));
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      await ctx.db.hypothesis.delete({
+        where: { id: input.id },
+      });
+      return { success: true };
+    }),
 });
