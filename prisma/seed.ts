@@ -349,6 +349,7 @@ async function seedHypotheses() {
         direction: '技术攻关',
         category: '算力与芯片',
         owner: '张伟',
+        creatorName: '张伟',
         status: 'verified',
         committeeConclusion: '成立',
         committeeContent: '经投委会审议，国产芯片替代路径正在加速验证，叠加国产化政策红利与供应链安全诉求，该假设成立。',
@@ -370,6 +371,7 @@ async function seedHypotheses() {
         direction: '技术攻关',
         category: '算力与芯片',
         owner: '李四',
+        creatorName: '李四',
         status: 'pending',
       },
       {
@@ -379,6 +381,7 @@ async function seedHypotheses() {
         direction: '技术攻关',
         category: '模型训练框架',
         owner: '王五',
+        creatorName: '王五',
         status: 'pending',
       },
       {
@@ -388,6 +391,7 @@ async function seedHypotheses() {
         direction: '技术攻关',
         category: '模型训练框架',
         owner: '张伟',
+        creatorName: '张伟',
         status: 'risky',
         committeeConclusion: '不成立',
         committeeContent: '经投委会审议，分布式训练效率虽重要，但并非唯一关键因素，数据质量和模型架构同样重要，该假设过于绝对。',
@@ -403,6 +407,7 @@ async function seedHypotheses() {
         direction: '技术攻关',
         category: '基础软件生态',
         owner: '李四',
+        creatorName: '李四',
         status: 'pending',
       },
       {
@@ -412,6 +417,7 @@ async function seedHypotheses() {
         direction: '技术攻关',
         category: '基础软件生态',
         owner: '王五',
+        creatorName: '王五',
         status: 'verified',
         committeeConclusion: '成立',
         committeeContent: '经投委会审议，MLOps需求增长趋势明确，多家头部企业已开始采购相关平台，该假设成立。',
@@ -433,10 +439,77 @@ async function seedHypotheses() {
         direction: '市场判断',
         category: '应用落地',
         owner: '李四',
+        creatorName: '李四',
         status: 'pending',
       }] : []),
     ],
   })
+}
+
+// 条款种子数据
+async function seedTerms() {
+  const seedUser = await prisma.user.upsert({
+    where: { email: 'seed@atomcap.local' },
+    update: {},
+    create: {
+      email: 'seed@atomcap.local',
+      name: 'Seed User',
+    },
+  })
+
+  // 获取现有的三个项目
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true },
+  })
+
+  if (projects.length === 0) {
+    console.log('  ⚠ 未找到项目，跳过条款种子数据')
+    return
+  }
+
+  // 先删除现有条款数据
+  await prisma.term.deleteMany({ where: { projectId: { in: projects.map(p => p.id) } } })
+
+  const now = Date.now()
+  const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000)
+  const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000)
+
+  // 为每个项目创建条款
+  const termsData = projects.flatMap((project, projectIndex) => {
+    const statuses = ['草拟', '谈判中', '通过', '否决', '已落实']
+    const directions = ['控制权条款', '经济条款', '退出条款', '投资保护条款', '治理条款']
+    const categories = ['董事会条款', '否决权条款', '清算优先权', '反稀释保护', '回购条款', '信息权', '竞业禁止', '股权激励']
+    const creators = ['张伟', '李四', '王五', '王总', '陈总']
+
+    return Array.from({ length: 6 }, (_, i) => ({
+      projectId: project.id,
+      title: [
+        '投资方有权委派一名董事进入公司董事会',
+        '对超过一定金额的关联交易享有否决权',
+        '采用加权平均反稀释公式保护投资方股权比例',
+        '若公司在约定期限内未实现IPO，投资方有权要求回购',
+        '投资方有权获取被投企业月度财务报告',
+        '创始人需签署竞业禁止协议，任职结束后12个月内不得从事同业竞争',
+      ][i % 6],
+      direction: directions[(projectIndex + i) % directions.length],
+      category: categories[(projectIndex + i) % categories.length],
+      status: statuses[(projectIndex + i) % statuses.length],
+      creatorId: seedUser.id,
+      creatorName: creators[(projectIndex + i) % creators.length],
+      ourRequest: `我方要求在投资协议中明确约定相关权利，以保障投资方利益。`,
+      ourBasis: `基于行业惯例和本轮投资规模，投资方有权享有相应权益保护。`,
+      conflict: `创始团队对此存在一定顾虑，担心影响公司决策效率。`,
+      ourBottomLine: `这是我方不可退让的底线条款。`,
+      compromiseSpace: `可以在执行细节上做一定调整，但核心条款必须保留。`,
+      negotiationResult: '',
+      implementation: '',
+      createdAt: daysAgo(30 - i * 5 - projectIndex * 3),
+      updatedAt: daysAgo(20 - i * 3 - projectIndex * 2),
+    }))
+  })
+
+  await prisma.term.createMany({ data: termsData })
 }
 
 async function main() {
@@ -459,6 +532,9 @@ async function main() {
 
   await seedHypotheses()
   console.log('  ✔ Hypothesis')
+
+  await seedTerms()
+  console.log('  ✔ Terms (×3 projects × 6 terms)')
 
   console.log('✅ Seed complete')
 }

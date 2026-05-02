@@ -4,6 +4,7 @@ import { useState } from "react"
 import { api } from "@/src/trpc/react";
 import FileUpload from "@/src/components/FileUpload";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/src/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/src/components/ui/select";
 
 import {
   Search,
@@ -26,6 +27,8 @@ import {
   Upload,
   Pencil,
   ArrowLeft,
+  Filter,
+  RotateCcw,
 } from "lucide-react"
 import { Badge } from "@/src/components/ui/badge"
 import { Button } from "@/src/components/ui/button"
@@ -642,6 +645,14 @@ export function TermSheet({ project, ...props }: any) {
   const projectId = project?.id || "1";
   const [searchQuery, setSearchQuery] = useState("")
 
+  // 筛选状态
+  const [filterDirection, setFilterDirection] = useState<string>("")
+  const [filterCategory, setFilterCategory] = useState<string>("")
+  const [filterStatus, setFilterStatus] = useState<string>("")
+  const [filterCreator, setFilterCreator] = useState<string>("")
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("")
+  const [filterDateTo, setFilterDateTo] = useState<string>("")
+
   const [isCreating, setIsCreating] = useState(false)
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null)
   
@@ -661,6 +672,12 @@ export function TermSheet({ project, ...props }: any) {
   const [pendingAttachments, setPendingAttachments] = useState<Record<string, {name: string, url: string}[]>>({})
 
   const utils = api.useUtils()
+
+  // 获取筛选选项
+  const { data: filterOptions } = api.term.getFilterOptions.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  )
 
   const { data: terms = [], isLoading } = api.term.getByProjectId.useQuery({ projectId })
   
@@ -759,7 +776,45 @@ export function TermSheet({ project, ...props }: any) {
     updateMutation.mutate({ id: termId, section: sectionKey as any, content: editContent })
   }
 
-  const filteredData = terms.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()))
+  const handleResetFilters = () => {
+    setFilterDirection("")
+    setFilterCategory("")
+    setFilterStatus("")
+    setFilterCreator("")
+    setFilterDateFrom("")
+    setFilterDateTo("")
+    setSearchQuery("")
+  }
+
+  const hasActiveFilters = filterDirection || filterCategory || filterStatus || filterCreator || filterDateFrom || filterDateTo || searchQuery
+
+  const filteredData = terms.filter(t => {
+    // 搜索匹配
+    const query = searchQuery.toLowerCase()
+    const matchesSearch = !query ||
+      (t.title?.toLowerCase().includes(query)) ||
+      (t.direction?.toLowerCase().includes(query)) ||
+      (t.category?.toLowerCase().includes(query)) ||
+      (t.creatorName?.toLowerCase().includes(query))
+
+    // 筛选匹配
+    const matchesDirection = !filterDirection || t.direction === filterDirection
+    const matchesCategory = !filterCategory || t.category === filterCategory
+    const matchesStatus = !filterStatus || t.status === filterStatus
+    const matchesCreator = !filterCreator || t.creatorName === filterCreator
+
+    // 日期筛选
+    let matchesDate = true
+    const termDate = new Date(t.createdAt)
+    if (filterDateFrom) {
+      matchesDate = matchesDate && termDate >= new Date(filterDateFrom)
+    }
+    if (filterDateTo) {
+      matchesDate = matchesDate && termDate <= new Date(filterDateTo)
+    }
+
+    return matchesSearch && matchesDirection && matchesCategory && matchesStatus && matchesCreator && matchesDate
+  })
 
   if (isLoading) return <div className="p-8">加载中...</div>
 
@@ -792,6 +847,101 @@ export function TermSheet({ project, ...props }: any) {
             </div>
           </div>
 
+          {/* 筛选器 */}
+          <div className="mb-4 p-4 bg-white rounded-xl border border-[#E5E7EB]">
+            <div className="flex items-center gap-2 mb-3">
+              <Filter className="h-4 w-4 text-[#6B7280]" />
+              <span className="text-sm font-medium text-[#374151]">筛选条件</span>
+              {hasActiveFilters && (
+                <button
+                  onClick={handleResetFilters}
+                  className="ml-2 inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8]"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  重置
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {/* 方向筛选 */}
+              <div className="w-40">
+                <Select value={filterDirection || "all"} onValueChange={(v) => setFilterDirection(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                    <SelectValue placeholder="条款方向" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部方向</SelectItem>
+                    {(filterOptions?.directions || []).map(dir => (
+                      <SelectItem key={dir} value={dir}>{dir}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* 类别筛选 */}
+              <div className="w-40">
+                <Select value={filterCategory || "all"} onValueChange={(v) => setFilterCategory(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                    <SelectValue placeholder="条款类别" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部类别</SelectItem>
+                    {(filterOptions?.categories || []).map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* 状态筛选 */}
+              <div className="w-36">
+                <Select value={filterStatus || "all"} onValueChange={(v) => setFilterStatus(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                    <SelectValue placeholder="状态" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部状态</SelectItem>
+                    <SelectItem value="草拟">草拟</SelectItem>
+                    <SelectItem value="谈判中">谈判中</SelectItem>
+                    <SelectItem value="通过">通过</SelectItem>
+                    <SelectItem value="否决">否决</SelectItem>
+                    <SelectItem value="已落实">已落实</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* 创建人筛选 */}
+              <div className="w-36">
+                <Select value={filterCreator || "all"} onValueChange={(v) => setFilterCreator(v === "all" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                    <SelectValue placeholder="创建人" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部创建人</SelectItem>
+                    {(filterOptions?.creators || []).map(creator => (
+                      <SelectItem key={creator} value={creator}>{creator}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* 创建时间范围 */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  className="h-8 px-3 text-xs border border-[#E5E7EB] rounded-md bg-[#F9FAFB]"
+                  placeholder="开始日期"
+                />
+                <span className="text-xs text-[#6B7280]">至</span>
+                <input
+                  type="date"
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  className="h-8 px-3 text-xs border border-[#E5E7EB] rounded-md bg-[#F9FAFB]"
+                  placeholder="结束日期"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Table View */}
           <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
             <table className="w-full">
@@ -808,11 +958,13 @@ export function TermSheet({ project, ...props }: any) {
               </thead>
               <tbody>
                 {filteredData.map((item, index) => {
-                  const status = (item as any).status || "approved";
-                  const statusInfo = 
-                    status === "approved" || status === "已批准" ? { label: "已批准", classes: "bg-[#DCFCE7] text-[#166534]" } :
-                    status === "pending" || status === "待审批" ? { label: "待审批", classes: "bg-[#FEF3C7] text-[#92400E]" } :
-                    { label: "已拒绝", classes: "bg-[#FEE2E2] text-[#991B1B]" };
+                  const status = (item as any).status || "草拟"
+                  const statusInfo =
+                    status === "通过" || status === "approved" ? { label: "通过", classes: "bg-[#DCFCE7] text-[#166534]" } :
+                    status === "否决" || status === "rejected" ? { label: "否决", classes: "bg-[#FEE2E2] text-[#991B1B]" } :
+                    status === "已落实" ? { label: "已落实", classes: "bg-[#DBEAFE] text-[#1E40AF]" } :
+                    status === "谈判中" ? { label: "谈判中", classes: "bg-[#FEF3C7] text-[#92400E]" } :
+                    { label: "草拟", classes: "bg-[#F3F4F6] text-[#6B7280]" };
 
                   return (
                     <tr

@@ -25,6 +25,8 @@ import {
   X,
   Upload,
   Paperclip,
+  Filter,
+  RotateCcw,
 } from "lucide-react"
 import { Badge } from "@/src/components/ui/badge"
 import { Button } from "@/src/components/ui/button"
@@ -42,6 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/src/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/src/components/ui/select"
 import { cn } from "@/src/lib/utils"
 import type { CommitteeDecisionFormData, VerificationFormData } from "./workflow"
 import type { StrategyMaterial } from "./strategies-grid"
@@ -1170,6 +1173,14 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   const [showDetail, setShowDetail] = useState(false)
   const [showTemplateBanner, setShowTemplateBanner] = useState(true)
 
+  // 筛选状态
+  const [filterDirection, setFilterDirection] = useState<string>("")
+  const [filterCategory, setFilterCategory] = useState<string>("")
+  const [filterStatus, setFilterStatus] = useState<string>("")
+  const [filterOwner, setFilterOwner] = useState<string>("")
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("")
+  const [filterDateTo, setFilterDateTo] = useState<string>("")
+
   // Comment input state: key = `{hypothesisId}-{pointId}`
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
   // Extra comments added by user: key = `{hypothesisId}-{pointId}`, value = array of comment objects
@@ -1199,6 +1210,12 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     : null
 
   const utils = api.useUtils()
+
+  // 获取筛选选项
+  const { data: filterOptions } = api.hypothesis.getFilterOptions.useQuery(
+    { projectId: project?.id },
+    { enabled: !!project?.id }
+  )
 
   const addCommentMutation = api.hypothesis.addComment.useMutation({
     onSuccess: async () => {
@@ -1426,15 +1443,44 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
       : hypothesisTableData
 
   // Filter data
+  const handleResetFilters = () => {
+    setFilterDirection("")
+    setFilterCategory("")
+    setFilterStatus("")
+    setFilterOwner("")
+    setFilterDateFrom("")
+    setFilterDateTo("")
+    setSearchQuery("")
+  }
+
+  const hasActiveFilters = filterDirection || filterCategory || filterStatus || filterOwner || filterDateFrom || filterDateTo || searchQuery
+
   const filteredData = sourceData
     .filter((item) => {
       const query = searchQuery.toLowerCase()
-      return (
-        item.direction.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
-        item.name.toLowerCase().includes(query) ||
-        item.owner.toLowerCase().includes(query)
-      )
+      const matchesSearch = !query ||
+        (item.direction?.toLowerCase().includes(query)) ||
+        (item.category?.toLowerCase().includes(query)) ||
+        (item.name?.toLowerCase().includes(query)) ||
+        (item.owner?.toLowerCase().includes(query))
+
+      // 筛选匹配
+      const matchesDirection = !filterDirection || item.direction === filterDirection
+      const matchesCategory = !filterCategory || item.category === filterCategory
+      const matchesStatus = !filterStatus || item.status === filterStatus
+      const matchesOwner = !filterOwner || item.owner === filterOwner
+
+      // 日期筛选
+      let matchesDate = true
+      const itemDate = new Date(item.createdAt)
+      if (filterDateFrom) {
+        matchesDate = matchesDate && itemDate >= new Date(filterDateFrom)
+      }
+      if (filterDateTo) {
+        matchesDate = matchesDate && itemDate <= new Date(filterDateTo)
+      }
+
+      return matchesSearch && matchesDirection && matchesCategory && matchesStatus && matchesOwner && matchesDate
     })
     .sort((a, b) => {
       const order: Record<string, number> = { verified: 0, risky: 1, pending: 2 }
@@ -2806,6 +2852,99 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 新建假设
               </Button>
             )}
+          </div>
+        </div>
+
+        {/* 筛选器 */}
+        <div className="mb-4 p-4 bg-white rounded-xl border border-[#E5E7EB]">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="h-4 w-4 text-[#6B7280]" />
+            <span className="text-sm font-medium text-[#374151]">筛选条件</span>
+            {hasActiveFilters && (
+              <button
+                onClick={handleResetFilters}
+                className="ml-2 inline-flex items-center gap-1 text-xs text-[#2563EB] hover:text-[#1D4ED8]"
+              >
+                <RotateCcw className="h-3 w-3" />
+                重置
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {/* 方向筛选 */}
+            <div className="w-40">
+              <Select value={filterDirection || "all"} onValueChange={(v) => setFilterDirection(v === "all" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                  <SelectValue placeholder="假设方向" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部方向</SelectItem>
+                  {(filterOptions?.directions || []).map(dir => (
+                    <SelectItem key={dir} value={dir}>{dir}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* 类别筛选 */}
+            <div className="w-40">
+              <Select value={filterCategory || "all"} onValueChange={(v) => setFilterCategory(v === "all" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                  <SelectValue placeholder="假设类别" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部类别</SelectItem>
+                  {(filterOptions?.categories || []).map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* 状态筛选 */}
+            <div className="w-36">
+              <Select value={filterStatus || "all"} onValueChange={(v) => setFilterStatus(v === "all" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                  <SelectValue placeholder="状态" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="verified">已验证</SelectItem>
+                  <SelectItem value="pending">待验证</SelectItem>
+                  <SelectItem value="risky">有风险</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {/* 负责人筛选 */}
+            <div className="w-36">
+              <Select value={filterOwner || "all"} onValueChange={(v) => setFilterOwner(v === "all" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs bg-[#F9FAFB]">
+                  <SelectValue placeholder="负责人" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部负责人</SelectItem>
+                  {(filterOptions?.owners || []).map(owner => (
+                    <SelectItem key={owner} value={owner}>{owner}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* 创建时间范围 */}
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="h-8 px-3 text-xs border border-[#E5E7EB] rounded-md bg-[#F9FAFB]"
+                placeholder="开始日期"
+              />
+              <span className="text-xs text-[#6B7280]">至</span>
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="h-8 px-3 text-xs border border-[#E5E7EB] rounded-md bg-[#F9FAFB]"
+                placeholder="结束日期"
+              />
+            </div>
           </div>
         </div>
 
