@@ -181,6 +181,8 @@ model Hypothesis {
   category               String?   @db.VarChar(100)
   owner                  String?   @db.VarChar(100)
   status                 String    @default("pending") @db.VarChar(20)
+  creatorId              String?   @map("creator_id")
+  creatorName            String?   @map("creator_name") @db.VarChar(100)
 
   committeeConclusion    String?   @db.VarChar(20)
   committeeContent       String?   @db.Text
@@ -244,6 +246,11 @@ model Term {
   id              String   @id @default(cuid())
   projectId       String   @map("project_id")
   title           String
+  direction       String?  @db.VarChar(100)  // 条款方向 (一级类目)
+  category        String?  @db.VarChar(100)  // 条款类别 (二级类目)
+  status          String   @default("草拟")   @map("status")  // 状态: 草拟/谈判中/通过/否决/已落实
+  creatorId       String?  @map("creator_id")  // 创建人ID
+  creatorName     String?  @map("creator_name") @db.VarChar(100)  // 创建人姓名
   ourRequest      String?  @db.Text
   ourBasis        String?  @db.Text
   conflict        String?  @db.Text

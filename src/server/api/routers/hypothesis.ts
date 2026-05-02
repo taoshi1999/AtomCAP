@@ -6,7 +6,12 @@ export const hypothesisRouter = createTRPCRouter({
     .input(
       z.object({
         projectId: z.string(),
+        strategyId: z.string().optional(),
         title: z.string(),
+        direction: z.string().optional(),
+        category: z.string().optional(),
+        owner: z.string().optional(),
+        creatorName: z.string().optional(),
         valuePoints: z
           .array(
             z.object({
@@ -42,14 +47,19 @@ export const hypothesisRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
-      const { projectId, title, valuePoints, riskPoints } = input;
+      const { projectId, strategyId, title, direction, category, owner, creatorName, valuePoints, riskPoints } = input;
 
       // 在同一事事务内利用 Prisma 的 nested writes (嵌套写入) 特性
       // 一次性创建假设及其从属的 valuePoints / riskPoints / attachments 子记录
       const newHypothesis = await ctx.db.hypothesis.create({
         data: {
           projectId,
+          strategyId,
           title,
+          direction,
+          category,
+          owner,
+          creatorName,
           status: "pending",
           valuePoints: {
             create:
@@ -353,6 +363,119 @@ export const hypothesisRouter = createTRPCRouter({
         committeeDecisionId: c.committeeDecisionId,
         verificationId: c.verificationId,
       }));
+    }),
+
+  // 获取所有假设列表（支持筛选）
+  getAll: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+      strategyId: z.string().optional(),
+      direction: z.string().optional(),
+      category: z.string().optional(),
+      status: z.string().optional(),
+      owner: z.string().optional(),
+      createdAfter: z.string().optional(),
+      createdBefore: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const where: any = {}
+
+      if (input?.projectId) {
+        where.projectId = input.projectId
+      }
+      if (input?.strategyId) {
+        where.strategyId = input.strategyId
+      }
+      if (input?.direction) {
+        where.direction = input.direction
+      }
+      if (input?.category) {
+        where.category = input.category
+      }
+      if (input?.status) {
+        where.status = input.status
+      }
+      if (input?.owner) {
+        where.owner = { contains: input.owner }
+      }
+      if (input?.createdAfter) {
+        where.createdAt = { ...where.createdAt, gte: new Date(input.createdAfter) }
+      }
+      if (input?.createdBefore) {
+        where.createdAt = { ...where.createdAt, lte: new Date(input.createdBefore) }
+      }
+
+      const data = await ctx.db.hypothesis.findMany({
+        where,
+        include: {
+          strategy: { select: { id: true, name: true } },
+          project: { select: { id: true, name: true } },
+          valuePoints: { include: { attachments: true } },
+          riskPoints: { include: { attachments: true } },
+        },
+        orderBy: { updatedAt: "desc" },
+      })
+
+      return data.map((h: any) => ({
+        id: h.id,
+        projectId: h.projectId,
+        strategyId: h.strategyId,
+        title: h.title,
+        description: h.description || "",
+        direction: h.direction || "",
+        category: h.category || "",
+        owner: h.owner || "",
+        status: h.status || "pending",
+        strategy: h.strategy,
+        project: h.project,
+        committeeConclusion: h.committeeConclusion || "",
+        committeeContent: h.committeeContent || "",
+        committeeStatus: h.committeeStatus || "pending",
+        committeeCreatorName: h.committeeCreatorName || "",
+        committeeCreatorRole: h.committeeCreatorRole || "",
+        committeeCreatedAt: h.committeeCreatedAt ? h.committeeCreatedAt.toISOString().split("T")[0] : "",
+        verificationConclusion: h.verificationConclusion || "",
+        verificationContent: h.verificationContent || "",
+        verificationStatus: h.verificationStatus || "pending",
+        verificationCreatorName: h.verificationCreatorName || "",
+        verificationCreatorRole: h.verificationCreatorRole || "",
+        verificationCreatedAt: h.verificationCreatedAt ? h.verificationCreatedAt.toISOString().split("T")[0] : "",
+        createdAt: h.createdAt.toISOString().split("T")[0],
+        updatedAt: h.updatedAt.toISOString().split("T")[0],
+        valuePoints: h.valuePoints || [],
+        riskPoints: h.riskPoints || [],
+      }))
+    }),
+
+  // 获取筛选选项（方向列表、类别列表、状态列表、创建人列表）
+  getFilterOptions: protectedProcedure
+    .input(z.object({ projectId: z.string().optional(), strategyId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const where: any = {}
+      if (input?.projectId) {
+        where.projectId = input.projectId
+      }
+      if (input?.strategyId) {
+        where.strategyId = input.strategyId
+      }
+
+      const hypotheses = await ctx.db.hypothesis.findMany({
+        where,
+        select: {
+          direction: true,
+          category: true,
+          status: true,
+          owner: true,
+        },
+        distinct: ['direction', 'category', 'status', 'owner'],
+      })
+
+      return {
+        directions: [...new Set(hypotheses.map(h => h.direction).filter(Boolean))] as string[],
+        categories: [...new Set(hypotheses.map(h => h.category).filter(Boolean))] as string[],
+        statuses: [...new Set(hypotheses.map(h => h.status).filter(Boolean))] as string[],
+        owners: [...new Set(hypotheses.map(h => h.owner).filter(Boolean))] as string[],
+      }
     }),
 
   delete: protectedProcedure
