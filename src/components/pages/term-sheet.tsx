@@ -717,6 +717,13 @@ export function TermSheet({ project, ...props }: any) {
     }
   })
 
+  const deleteMutation = api.term.delete.useMutation({
+    onSuccess: () => {
+      utils.term.getByProjectId.invalidate()
+      setSelectedTermId(null)
+    }
+  })
+
   const selectedTerm = terms.find((t) => t.id === selectedTermId)
 
   const handleStartCreate = () => {
@@ -774,6 +781,12 @@ export function TermSheet({ project, ...props }: any) {
 
   const handleSaveSection = (termId: string, sectionKey: string) => {
     updateMutation.mutate({ id: termId, section: sectionKey as any, content: editContent })
+  }
+
+  const handleDeleteTerm = (termId: string) => {
+    if (confirm('确定要删除这条条款吗？')) {
+      deleteMutation.mutate({ id: termId })
+    }
   }
 
   const handleResetFilters = () => {
@@ -1005,7 +1018,7 @@ export function TermSheet({ project, ...props }: any) {
                             详情
                           </button>
                           <button
-                            onClick={() => {}}
+                            onClick={() => handleDeleteTerm(item.id)}
                             className="inline-flex items-center gap-1 text-xs font-medium text-[#EF4444] hover:opacity-80 transition-colors"
                           >
                             <Trash2 className="h-3.5 w-3.5" />

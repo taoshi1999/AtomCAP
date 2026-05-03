@@ -334,116 +334,167 @@ async function seedStrategies() {
 async function seedHypotheses() {
   await prisma.hypothesis.deleteMany()
 
+  const seedUser = await prisma.user.upsert({
+    where: { email: 'seed@atomcap.local' },
+    update: {},
+    create: {
+      email: 'seed@atomcap.local',
+      name: 'Seed User',
+    },
+  })
+
+  // 获取策略
   const strategies = await prisma.strategy.findMany({ select: { id: true, name: true } })
   const aiStrategy = strategies.find((s) => s.name === 'AI 基础设施')
   const llmStrategy = strategies.find((s) => s.name === '大模型应用')
 
-  if (!aiStrategy) return
-
-  await prisma.hypothesis.createMany({
-    data: [
-      {
-        strategyId: aiStrategy.id,
-        title: '国产AI芯片在推理场景下可替代英伟达方案',
-        description: '随着国产AI芯片技术的持续进步，在特定推理场景下，国产芯片的性价比和能效比已接近或达到英伟达方案的水平。',
-        direction: '技术攻关',
-        category: '算力与芯片',
-        owner: '张伟',
-        creatorName: '张伟',
-        status: 'verified',
-        committeeConclusion: '成立',
-        committeeContent: '经投委会审议，国产芯片替代路径正在加速验证，叠加国产化政策红利与供应链安全诉求，该假设成立。',
-        committeeStatus: 'approved',
-        committeeCreatorName: '王总',
-        committeeCreatorRole: '投委会主席',
-        committeeCreatedAt: new Date('2026-02-10'),
-        verificationConclusion: '符合预期',
-        verificationContent: '投资后6个月跟踪显示，国产芯片在推理场景的性价比持续提升，与预期一致。',
-        verificationStatus: 'confirmed',
-        verificationCreatorName: '张伟',
-        verificationCreatorRole: '投资经理',
-        verificationCreatedAt: new Date('2026-03-15'),
-      },
-      {
-        strategyId: aiStrategy.id,
-        title: '云端AI芯片市场将在3年内达到500亿美元规模',
-        description: '基于大模型训练和推理需求的爆发式增长，预计全球云端AI芯片市场将在2027年达到500亿美元规模。',
-        direction: '技术攻关',
-        category: '算力与芯片',
-        owner: '李四',
-        creatorName: '李四',
-        status: 'pending',
-      },
-      {
-        strategyId: aiStrategy.id,
-        title: '开源大模型训练框架将成为主流技术路线',
-        description: '开源社区在大模型训练框架领域的贡献持续增长，预计将成为主流技术路线。',
-        direction: '技术攻关',
-        category: '模型训练框架',
-        owner: '王五',
-        creatorName: '王五',
-        status: 'pending',
-      },
-      {
-        strategyId: aiStrategy.id,
-        title: '分布式训练效率提升是大模型竞争关键',
-        description: '随着模型规模持续扩大，分布式训练效率将成为大模型竞争的关键因素。',
-        direction: '技术攻关',
-        category: '模型训练框架',
-        owner: '张伟',
-        creatorName: '张伟',
-        status: 'risky',
-        committeeConclusion: '不成立',
-        committeeContent: '经投委会审议，分布式训练效率虽重要，但并非唯一关键因素，数据质量和模型架构同样重要，该假设过于绝对。',
-        committeeStatus: 'rejected',
-        committeeCreatorName: '王总',
-        committeeCreatorRole: '投委会主席',
-        committeeCreatedAt: new Date('2026-02-20'),
-      },
-      {
-        strategyId: aiStrategy.id,
-        title: 'AI编译器将成为新的基础软件投资赛道',
-        description: 'AI编译器作为连接硬件和框架的桥梁，将成为新的基础软件投资赛道。',
-        direction: '技术攻关',
-        category: '基础软件生态',
-        owner: '李四',
-        creatorName: '李四',
-        status: 'pending',
-      },
-      {
-        strategyId: aiStrategy.id,
-        title: 'MLOps平台市场需求将快速增长',
-        description: '随着大模型在企业场景的落地，MLOps平台的市场需求将快速增长。',
-        direction: '技术攻关',
-        category: '基础软件生态',
-        owner: '王五',
-        creatorName: '王五',
-        status: 'verified',
-        committeeConclusion: '成立',
-        committeeContent: '经投委会审议，MLOps需求增长趋势明确，多家头部企业已开始采购相关平台，该假设成立。',
-        committeeStatus: 'approved',
-        committeeCreatorName: '王总',
-        committeeCreatorRole: '投委会主席',
-        committeeCreatedAt: new Date('2026-01-28'),
-        verificationConclusion: '符合预期',
-        verificationContent: '投后跟踪显示MLOps平台采购需求持续增长，与预期一致。',
-        verificationStatus: 'confirmed',
-        verificationCreatorName: '王五',
-        verificationCreatorRole: '分析师',
-        verificationCreatedAt: new Date('2026-03-20'),
-      },
-      ...(llmStrategy ? [{
-        strategyId: llmStrategy.id,
-        title: '大模型在企业客服场景的替代率将达到80%',
-        description: '随着大模型能力提升，预计在企业客服场景中，大模型的替代率将达到80%。',
-        direction: '市场判断',
-        category: '应用落地',
-        owner: '李四',
-        creatorName: '李四',
-        status: 'pending',
-      }] : []),
-    ],
+  // 获取项目
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true },
   })
+
+  const now = Date.now()
+  const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000)
+
+  // 1. 策略级别的假设
+  if (aiStrategy) {
+    await prisma.hypothesis.createMany({
+      data: [
+        {
+          strategyId: aiStrategy.id,
+          title: '国产AI芯片在推理场景下可替代英伟达方案',
+          description: '随着国产AI芯片技术的持续进步，在特定推理场景下，国产芯片的性价比和能效比已接近或达到英伟达方案的水平。',
+          direction: '技术攻关',
+          category: '算力与芯片',
+          owner: '张伟',
+          creatorName: '张伟',
+          status: 'verified',
+          committeeConclusion: '成立',
+          committeeContent: '经投委会审议，国产芯片替代路径正在加速验证，叠加国产化政策红利与供应链安全诉求，该假设成立。',
+          committeeStatus: 'approved',
+          committeeCreatorName: '王总',
+          committeeCreatorRole: '投委会主席',
+          committeeCreatedAt: new Date('2026-02-10'),
+          verificationConclusion: '符合预期',
+          verificationContent: '投资后6个月跟踪显示，国产芯片在推理场景的性价比持续提升，与预期一致。',
+          verificationStatus: 'confirmed',
+          verificationCreatorName: '张伟',
+          verificationCreatorRole: '投资经理',
+          verificationCreatedAt: new Date('2026-03-15'),
+        },
+        {
+          strategyId: aiStrategy.id,
+          title: '云端AI芯片市场将在3年内达到500亿美元规模',
+          description: '基于大模型训练和推理需求的爆发式增长，预计全球云端AI芯片市场将在2027年达到500亿美元规模。',
+          direction: '市场机会',
+          category: '市场规模',
+          owner: '李四',
+          creatorName: '李四',
+          status: 'pending',
+        },
+        {
+          strategyId: aiStrategy.id,
+          title: '开源大模型训练框架将成为主流技术路线',
+          description: '开源社区在大模型训练框架领域的贡献持续增长，预计将成为主流技术路线。',
+          direction: '技术攻关',
+          category: '基础软件',
+          owner: '王五',
+          creatorName: '王五',
+          status: 'pending',
+        },
+        {
+          strategyId: aiStrategy.id,
+          title: '分布式训练效率提升是大模型竞争关键',
+          description: '随着模型规模持续扩大，分布式训练效率将成为大模型竞争的关键因素。',
+          direction: '团队与组织',
+          category: '核心团队',
+          owner: '张伟',
+          creatorName: '张伟',
+          status: 'risky',
+          committeeConclusion: '不成立',
+          committeeContent: '经投委会审议，分布式训练效率虽重要，但并非唯一关键因素，数据质量和模型架构同样重要，该假设过于绝对。',
+          committeeStatus: 'rejected',
+          committeeCreatorName: '王总',
+          committeeCreatorRole: '投委会主席',
+          committeeCreatedAt: new Date('2026-02-20'),
+        },
+        {
+          strategyId: aiStrategy.id,
+          title: 'AI编译器将成为新的基础软件投资赛道',
+          description: 'AI编译器作为连接硬件和框架的桥梁，将成为新的基础软件投资赛道。',
+          direction: '市场机会',
+          category: '竞争格局',
+          owner: '李四',
+          creatorName: '李四',
+          status: 'pending',
+        },
+        {
+          strategyId: aiStrategy.id,
+          title: 'MLOps平台市场需求将快速增长',
+          description: '随着大模型在企业场景的落地，MLOps平台的市场需求将快速增长。',
+          direction: '技术攻关',
+          category: '产品与技术',
+          owner: '王五',
+          creatorName: '王五',
+          status: 'verified',
+          committeeConclusion: '成立',
+          committeeContent: '经投委会审议，MLOps需求增长趋势明确，多家头部企业已开始采购相关平台，该假设成立。',
+          committeeStatus: 'approved',
+          committeeCreatorName: '王总',
+          committeeCreatorRole: '投委会主席',
+          committeeCreatedAt: new Date('2026-01-28'),
+          verificationConclusion: '符合预期',
+          verificationContent: '投后跟踪显示MLOps平台采购需求持续增长，与预期一致。',
+          verificationStatus: 'confirmed',
+          verificationCreatorName: '王五',
+          verificationCreatorRole: '分析师',
+          verificationCreatedAt: new Date('2026-03-20'),
+        },
+        ...(llmStrategy ? [{
+          strategyId: llmStrategy.id,
+          title: '大模型在企业客服场景的替代率将达到80%',
+          description: '随着大模型能力提升，预计在企业客服场景中，大模型的替代率将达到80%。',
+          direction: '市场机会',
+          category: '市场规模',
+          owner: '李四',
+          creatorName: '李四',
+          status: 'pending',
+        }] : []),
+      ],
+    })
+  }
+
+  // 2. 项目级别的假设
+  if (projects.length > 0) {
+    const projectHypothesesData = projects.flatMap((project, projectIndex) => {
+      const directions = ['团队与组织', '市场机会', '技术攻关', '产品与技术', '竞争格局']
+      const categories = ['创始人背景', '核心团队', '市场规模', '产品优势', '技术壁垒', '商业模式']
+      const owners = ['张伟', '李四', '王五']
+      const statuses = ['verified', 'pending', 'pending', 'risky', 'pending', 'pending']
+
+      return Array.from({ length: 6 }, (_, i) => ({
+        projectId: project.id,
+        title: [
+          '创始人具有扎实的技术背景和丰富的行业经验',
+          '目标市场规模在2027年将达到500亿元',
+          '核心技术具有明确的竞争优势和技术壁垒',
+          '产品已完成初步验证并获得首批客户认可',
+          '商业模式已验证，能够实现规模化增长',
+          '团队执行力强，能够快速响应市场变化',
+        ][i % 6],
+        direction: directions[(projectIndex + i) % directions.length],
+        category: categories[(projectIndex + i) % categories.length],
+        owner: owners[(projectIndex + i) % owners.length],
+        creatorName: owners[(projectIndex + i) % owners.length],
+        status: statuses[i % statuses.length],
+        createdAt: daysAgo(25 - i * 4 - projectIndex * 2),
+        updatedAt: daysAgo(15 - i * 3 - projectIndex * 1),
+      }))
+    })
+
+    await prisma.hypothesis.createMany({ data: projectHypothesesData })
+  }
 }
 
 // 条款种子数据

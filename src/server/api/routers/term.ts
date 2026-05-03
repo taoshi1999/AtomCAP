@@ -200,4 +200,13 @@ export const termRouter = createTRPCRouter({
         data: { status: input.status },
       });
     }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.term.delete({
+        where: { id: input.id },
+      });
+      return { success: true };
+    }),
 });
