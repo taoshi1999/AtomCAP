@@ -5580,22 +5580,24 @@ ${logs}
                 }
 
                 const groupColorMap: Record<string, string> = {
-                  "投前期": "bg-blue-500",
-                  "投中期": "bg-amber-500",
-                  "投后期": "bg-teal-500",
-                  "设立期": "bg-violet-500",
-                  "存续期": "bg-teal-500",
-                  "退出": "bg-red-500",
+                  "投前期": "bg-green-500",
+                  "投中期": "bg-green-500",
+                  "投后期": "bg-green-500",
+                  "设立期": "bg-green-500",
+                  "存续期": "bg-green-500",
+                  "退出": "bg-green-500",
                 }
 
                 const statusBadgeMap: Record<string, { label: string; colorCls: string; borderCls: string; textCls: string; iconOnClick?: () => void; show?: boolean }> = {
                   "投前期": { label: "已立项", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
-                  "投中期": { label: "已投决", colorCls: "bg-amber-50", borderCls: "border-amber-200", textCls: "text-amber-700" },
-                  "投后期": { label: "已划款", colorCls: "bg-orange-50", borderCls: "border-orange-200", textCls: "text-orange-700" },
-                  "退出": { label: "已退出", colorCls: "bg-red-50", borderCls: "border-red-200", textCls: "text-red-700" },
+                  "投中期": { label: "已投决", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "投后期": { label: "已划款", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "退出": { label: "已退出", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
                   "设立期": { label: "已立项", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
-                  "存续期": { label: "已投决", colorCls: "bg-amber-50", borderCls: "border-amber-200", textCls: "text-amber-700" },
+                  "存续期": { label: "已投决", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
                 }
+
+                const isLastGroup = (gIdx: number) => gIdx === groups.length - 1
 
                 return groups.map((group, gIdx) => {
                   const badge = statusBadgeMap[group.label]
@@ -5621,7 +5623,7 @@ ${logs}
                       <div className="flex-1 min-w-0">
                         {/* Group header */}
                         <div className="mb-3 flex items-center gap-2">
-                          <span className={cn("h-2.5 w-2.5 rounded-full", groupColorMap[group.label] || "bg-gray-500")} />
+                          <span className={cn("h-2.5 w-2.5 rounded-full", isLastGroup(gIdx) ? "bg-blue-500" : "bg-green-500")} />
                           <span className="text-sm font-semibold text-[#374151]">{group.label}</span>
                         </div>
 
