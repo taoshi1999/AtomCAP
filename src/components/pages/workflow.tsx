@@ -1023,6 +1023,12 @@ export function Workflow({
   function handleStartNextSetupPhase() {
     const nextPhaseNum = currentSetupPhase + 1
     const newPhase = createNewPhase(nextPhaseNum, true)
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     const pendingPhase: PendingPhase = {
       id: `pending-phase-${Date.now()}`,
       projectId,
@@ -1044,6 +1050,12 @@ export function Workflow({
   // Handle entering duration period - creates pending request
   function handleEnterDuration() {
     const newPhase = createNewPhase(1, false)
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     const pendingPhase: PendingPhase = {
       id: `pending-phase-${Date.now()}`,
       projectId,
@@ -1066,6 +1078,12 @@ export function Workflow({
   function handleStartNextDurationPhase() {
     const nextPhaseNum = currentDurationPhase + 1
     const newPhase = createNewPhase(nextPhaseNum, false)
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     const pendingPhase: PendingPhase = {
       id: `pending-phase-${Date.now()}`,
       projectId,
@@ -1096,6 +1114,9 @@ export function Workflow({
   function handleSubmitLiXiang() {
     const newPhase = createPhase(1, "投前期")
     const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => liXiangSelectedOwners.has(o.id))
+    const updated = [...projectPhases, { ...newPhase, status: "active" as const }]
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1117,6 +1138,12 @@ export function Workflow({
 
   function handleStartNextPreInvestmentPhase() {
     const newPhase = createPhase(currentPreInvestmentPhase + 1, "投前期")
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1143,6 +1170,12 @@ export function Workflow({
   function handleSubmitTouJue() {
     const newPhase = createPhase(1, "投中期")
     const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => touJueSelectedOwners.has(o.id))
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1164,6 +1197,12 @@ export function Workflow({
 
   function handleStartNextMidInvestmentPhase() {
     const newPhase = createPhase(currentMidInvestmentPhase + 1, "投中期")
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1182,6 +1221,12 @@ export function Workflow({
 
   function handleStartNextPostInvestmentPhase() {
     const newPhase = createPhase(currentPostInvestmentPhase + 1, "投后期")
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1210,6 +1255,12 @@ export function Workflow({
   function handleSubmitHuaKuan() {
     const newPhase = createPhase(1, "投后期")
     const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => huaKuanSelectedOwners.has(o.id))
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1241,6 +1292,12 @@ export function Workflow({
   function handleSubmitTuiChu() {
     const newPhase = createPhase(1, "退出")
     const selectedOwnerObjects = LIXIANG_OWNERS.filter((o) => tuiChuSelectedOwners.has(o.id))
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,
       projectId, projectName,
@@ -1320,10 +1377,20 @@ export function Workflow({
     } else if (isInDuration) {
       newPhase = createNewPhase(currentDurationPhase + 1, false)
       changeType = "next-duration"
-    } else {
+    } else if (currentSetupPhase > 0) {
       newPhase = createNewPhase(currentSetupPhase + 1, true)
       changeType = "next-setup"
+    } else {
+      newPhase = createPhase(1, "投前期")
+      changeType = "first-setup"
     }
+
+    const updated = projectPhases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" })
+    onPhasesChange?.(updated)
+    setSelectedPhase(newPhase.id)
 
     onCreatePendingPhase?.({
       id: `pending-phase-${Date.now()}`,

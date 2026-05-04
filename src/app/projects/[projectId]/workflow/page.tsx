@@ -1,15 +1,29 @@
 "use client"
 
+import { useState } from "react"
 import { useParams } from "next/navigation"
 import { api } from "@/src/trpc/react"
-import { Workflow } from "@/src/components/pages/workflow"
+import { Workflow, type Phase, type PendingPhase } from "@/src/components/pages/workflow"
 
 export default function WorkflowPage() {
   const params = useParams()
   const projectId = params.projectId as string
+  const [phases, setPhases] = useState<Phase[]>([])
 
-  // Fetch project data
   const { data: project, isLoading: projectLoading } = api.project.getById.useQuery({ id: projectId })
+
+  function handlePhasesChange(newPhases: Phase[]) {
+    setPhases(newPhases)
+  }
+
+  function handleCreatePendingPhase(pending: PendingPhase) {
+    const newPhase = pending.phase
+    const updated = phases.map(p =>
+      p.status === "active" ? { ...p, status: "completed" as const, endDate: new Date().toISOString().split("T")[0] } : p
+    )
+    updated.push({ ...newPhase, status: "active" } as Phase)
+    setPhases(updated)
+  }
 
   if (projectLoading) {
     return (
@@ -23,8 +37,10 @@ export default function WorkflowPage() {
     <Workflow 
       projectId={projectId}
       projectName={project?.name || ""}
-      isNewProject={projectId.startsWith("new-project-")}
-      phases={[]} // In a real app, you'd fetch these
+      isNewProject={true}
+      phases={phases}
+      onPhasesChange={handlePhasesChange}
+      onCreatePendingPhase={handleCreatePendingPhase}
       isExited={false}
     />
   )
