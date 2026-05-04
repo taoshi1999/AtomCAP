@@ -103,6 +103,9 @@ export default function Page() {
       setView({ type: "strategy-detail", strategyId })
     } else if (nav === "change-requests") {
       setView({ type: "change-requests" })
+    } else if (status === "authenticated") {
+      // 已登录且无深链参数时跳转至数据看板
+      router.replace("/dashboard")
     }
     // 仅首次挂载处理一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
