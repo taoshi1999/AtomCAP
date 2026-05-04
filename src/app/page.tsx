@@ -108,6 +108,17 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 已登录且无深链参数时跳转至数据看板
+  useEffect(() => {
+    if (status === "authenticated" && typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      const hasDeepLink = params.get("projectId") || params.get("strategyId") || params.get("nav")
+      if (!hasDeepLink) {
+        router.replace("/dashboard")
+      }
+    }
+  }, [status, router])
+
   const activeNav: TopNavKey | null =
     view.type === "project-detail"
       ? "projects"

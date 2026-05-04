@@ -486,4 +486,64 @@ export const hypothesisRouter = createTRPCRouter({
       });
       return { success: true };
     }),
+
+  getLinkedTermsByProject: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const hypotheses = await ctx.db.hypothesis.findMany({
+        where: { projectId: input.projectId },
+        select: { id: true },
+      });
+      const hypothesisIds = hypotheses.map((h: any) => h.id);
+      if (hypothesisIds.length === 0) return {};
+      const links = await ctx.db.termHypothesis.findMany({
+        where: { hypothesisId: { in: hypothesisIds } },
+        include: { term: { select: { id: true, title: true, status: true } } },
+      });
+      const map: Record<string, { id: string; termId: string; title: string; status: string }[]> = {};
+      for (const l of links) {
+        if (!map[l.hypothesisId]) map[l.hypothesisId] = [];
+        map[l.hypothesisId].push({
+          id: l.id,
+          termId: l.term.id,
+          title: l.term.title,
+          status: l.term.status || "pending",
+        });
+      }
+      return map;
+    }),
+
+  getLinkedHypothesesByProject: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const links = await ctx.db.termHypothesis.findMany({
+        where: { term: { projectId: input.projectId } },
+        include: { hypothesis: { select: { id: true, title: true, status: true } } },
+      });
+      const map: Record<string, { id: string; hypothesisId: string; title: string; status: string }[]> = {};
+      for (const l of links) {
+        if (!map[l.termId]) map[l.termId] = [];
+        map[l.termId].push({
+          id: l.id,
+          hypothesisId: l.hypothesis.id,
+          title: l.hypothesis.title,
+          status: l.hypothesis.status || "pending",
+        });
+      }
+      return map;
+    }),
+
+  addTermHypothesisLink: protectedProcedure
+    .input(z.object({ termId: z.string(), hypothesisId: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      return ctx.db.termHypothesis.create({
+        data: { termId: input.termId, hypothesisId: input.hypothesisId },
+      });
+    }),
+
+  removeTermHypothesisLink: protectedProcedure
+    .input(z.object({ linkId: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      return ctx.db.termHypothesis.delete({ where: { id: input.linkId } });
+    }),
 });
