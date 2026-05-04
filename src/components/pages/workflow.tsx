@@ -5442,10 +5442,10 @@ ${logs}
               {isNewProject && currentPreInvestmentPhase > 0 && !isInMidInvestment && !isInPostInvestment && (
                 <>
                   <button
-                    onClick={handleStartNextPreInvestmentPhase}
+                    onClick={handleTouJue}
                     className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
                   >
-                    <Plus className="h-4 w-4" />
+                    <ArrowRight className="h-4 w-4" />
                     启动下一阶段
                   </button>
                   <button
@@ -5454,23 +5454,16 @@ ${logs}
                   >
                     <Plus className="h-4 w-4" />
                     新建
-                  </button>
-                  <button
-                    onClick={handleTouJue}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                    投决
                   </button>
                 </>
               )}
               {isNewProject && isInMidInvestment && !isInPostInvestment && (
                 <>
                   <button
-                    onClick={handleStartNextMidInvestmentPhase}
+                    onClick={handleDiKuan}
                     className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
                   >
-                    <Plus className="h-4 w-4" />
+                    <ArrowRight className="h-4 w-4" />
                     启动下一阶段
                   </button>
                   <button
@@ -5479,23 +5472,16 @@ ${logs}
                   >
                     <Plus className="h-4 w-4" />
                     新建
-                  </button>
-                  <button
-                    onClick={handleDiKuan}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#F59E0B] bg-white px-4 py-2.5 text-sm font-medium text-[#D97706] transition-colors hover:bg-[#FFFBEB]"
-                  >
-                    <CreditCard className="h-4 w-4" />
-                    划款
                   </button>
                 </>
               )}
               {isNewProject && isInPostInvestment && !isExited && (
                 <>
                   <button
-                    onClick={handleStartNextPostInvestmentPhase}
+                    onClick={handleTuiChu}
                     className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
                   >
-                    <Plus className="h-4 w-4" />
+                    <ArrowRight className="h-4 w-4" />
                     启动下一阶段
                   </button>
                   <button
@@ -5504,13 +5490,6 @@ ${logs}
                   >
                     <Plus className="h-4 w-4" />
                     新建
-                  </button>
-                  <button
-                    onClick={handleTuiChu}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#EF4444] bg-white px-4 py-2.5 text-sm font-medium text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    退出
                   </button>
                 </>
               )}
