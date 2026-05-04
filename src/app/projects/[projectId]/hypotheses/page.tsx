@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { api } from "@/src/trpc/react"
 import { HypothesisChecklist } from "@/src/components/pages/hypothesis-checklist"
 import { HypothesisComments } from "@/src/components/pages/hypothesis-comments"
@@ -9,6 +9,7 @@ import type { CommitteeDecisionFormData, VerificationFormData } from "@/src/comp
 
 export default function HypothesesPage() {
   const params = useParams()
+  const router = useRouter()
   const projectId = params.projectId as string
 
   const utils = api.useUtils()
@@ -33,6 +34,10 @@ export default function HypothesesPage() {
     onSuccess: () => utils.hypothesis.getByProject.invalidate({ projectId }),
   })
 
+  const isNewProject = projectId.startsWith("new-project-")
+
+  const { data: linkedTermsMap } = api.hypothesis.getLinkedTermsByProject.useQuery({ projectId }, { enabled: !isNewProject })
+
   if (projectLoading || hyposLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -43,8 +48,6 @@ export default function HypothesesPage() {
       </div>
     )
   }
-
-  const isNewProject = projectId.startsWith("new-project-")
 
   const mappedHypotheses = projectHypotheses?.map((h: any) => ({
     id: h.id,
@@ -172,6 +175,8 @@ export default function HypothesesPage() {
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
       isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
+      linkedTermsMap={linkedTermsMap as any}
+      onNavigateToTerm={(termId) => router.push(`/projects/${projectId}/terms`)}
       renderHypothesisComments={(hypothesisId) => (
         <HypothesisComments hypothesisId={hypothesisId} />
       )}

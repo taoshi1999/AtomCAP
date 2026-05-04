@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { api } from "@/src/trpc/react";
 import FileUpload from "@/src/components/FileUpload";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/src/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/src/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/src/components/ui/select";
 
 import {
@@ -724,6 +724,26 @@ export function TermSheet({ project, ...props }: any) {
     }
   })
 
+  const { data: linkedHypothesesMap } = api.hypothesis.getLinkedHypothesesByProject.useQuery({ projectId }, { enabled: !!projectId })
+  const { data: projectHypotheses } = api.hypothesis.getByProject.useQuery({ projectId }, { enabled: !!projectId })
+
+  const addLinkMutation = api.hypothesis.addTermHypothesisLink.useMutation({
+    onSuccess: () => {
+      utils.hypothesis.getLinkedHypothesesByProject.invalidate({ projectId })
+      utils.hypothesis.getLinkedTermsByProject.invalidate({ projectId })
+    },
+  })
+
+  const removeLinkMutation = api.hypothesis.removeTermHypothesisLink.useMutation({
+    onSuccess: () => {
+      utils.hypothesis.getLinkedHypothesesByProject.invalidate({ projectId })
+      utils.hypothesis.getLinkedTermsByProject.invalidate({ projectId })
+    },
+  })
+
+  const [showHypoSelector, setShowHypoSelector] = useState(false)
+  const [hypoSearch, setHypoSearch] = useState("")
+
   const selectedTerm = terms.find((t) => t.id === selectedTermId)
 
   const handleStartCreate = () => {
@@ -1116,14 +1136,131 @@ export function TermSheet({ project, ...props }: any) {
               )
             })}
           </div>
+
+          {/* 关联假设 */}
+          <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden shadow-sm mt-6">
+            <div className="border-l-4 border-[#8B5CF6] p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold flex items-center gap-2 text-[#8B5CF6]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                  支持该条款的假设
+                </h3>
+                <button
+                  onClick={() => { setHypoSearch(""); setShowHypoSelector(true); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#8B5CF6] border border-[#8B5CF6] rounded-lg hover:bg-[#F5F3FF] transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  选择假设
+                </button>
+              </div>
+              {(() => {
+                const linked = linkedHypothesesMap?.[selectedTermId ?? ""] || []
+                return linked.length === 0 ? (
+                  <p className="text-sm text-[#9CA3AF]">暂无关联假设</p>
+                ) : (
+                  <div className="space-y-3">
+                    {linked.map((h: any) => (
+                      <div key={h.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <Link2 className="h-4 w-4 text-[#8B5CF6]" />
+                          <span className="text-sm text-[#111827]">{h.title}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge className={cn(
+                            "text-xs",
+                            h.status === "verified"
+                              ? "bg-[#DCFCE7] text-[#166534]"
+                              : h.status === "risky"
+                                ? "bg-[#FEE2E2] text-[#991B1B]"
+                                : "bg-[#FEF3C7] text-[#92400E]"
+                          )}>
+                            {h.status === "verified" ? "已验证" : h.status === "risky" ? "有风险" : "待验证"}
+                          </Badge>
+                          <button
+                            onClick={() => removeLinkMutation.mutate({ linkId: h.id })}
+                            className="p-1 rounded text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#FEE2E2] transition-colors"
+                            title="取消关联"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
         </div>
       ) : null}
+
+      {/* Hypothesis Selector Dialog */}
+      <Dialog open={showHypoSelector} onOpenChange={setShowHypoSelector}>
+        <DialogContent className="max-w-md max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>选择假设</DialogTitle>
+            <DialogDescription className="sr-only">选择一个假设与当前条款关联</DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+              <input
+                type="text"
+                placeholder="搜索假设..."
+                value={hypoSearch}
+                onChange={(e) => setHypoSearch(e.target.value)}
+                className="w-full pl-9 text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/20 focus:border-[#8B5CF6]"
+              />
+            </div>
+            {(() => {
+              const linked = linkedHypothesesMap?.[selectedTermId ?? ""] || []
+              const linkedHypoIds = new Set(linked.map((l: any) => l.hypothesisId))
+              const filtered = (projectHypotheses || []).filter((h: any) =>
+                !linkedHypoIds.has(h.id) &&
+                (hypoSearch === "" || h.title.toLowerCase().includes(hypoSearch.toLowerCase()))
+              )
+              return filtered.length === 0 ? (
+                <p className="text-sm text-[#9CA3AF] text-center py-6">没有可关联的假设</p>
+              ) : (
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                  {filtered.map((h: any) => (
+                    <button
+                      key={h.id}
+                      onClick={() => {
+                        if (selectedTermId) addLinkMutation.mutate({ termId: selectedTermId, hypothesisId: h.id })
+                        setShowHypoSelector(false)
+                      }}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg border border-[#E5E7EB] hover:bg-[#F5F3FF] hover:border-[#8B5CF6] transition-colors text-left"
+                    >
+                      <Link2 className="h-4 w-4 text-[#8B5CF6] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-[#111827] truncate">{h.title}</p>
+                      </div>
+                      <Badge className={cn(
+                        "text-xs shrink-0",
+                        h.status === "verified"
+                          ? "bg-[#DCFCE7] text-[#166534]"
+                          : h.status === "risky"
+                            ? "bg-[#FEE2E2] text-[#991B1B]"
+                            : "bg-[#FEF3C7] text-[#92400E]"
+                      )}>
+                        {h.status === "verified" ? "已验证" : h.status === "risky" ? "有风险" : "待验证"}
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              )
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Creation Modal (Dialog) */}
       <Dialog open={isCreating} onOpenChange={setIsCreating}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>新建项目条款</DialogTitle>
+            <DialogDescription className="sr-only">创建新的项目条款</DialogDescription>
           </DialogHeader>
           
           <div className="mt-4 space-y-6">
