@@ -1217,6 +1217,12 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     { enabled: !!project?.id }
   )
 
+  // 从数据库获取假设数据
+  const { data: dbHypotheses = [], refetch: refetchHypotheses } = api.hypothesis.getByProject.useQuery(
+    { projectId: project?.id || "" },
+    { enabled: !!project?.id }
+  )
+
   const addCommentMutation = api.hypothesis.addComment.useMutation({
     onSuccess: async () => {
       await utils.hypothesis.getComments.refetch()
@@ -1336,6 +1342,15 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     }
   })
 
+  const deleteMutation = api.hypothesis.delete.useMutation({
+    onSuccess: () => {
+      utils.hypothesis.getByProject.invalidate({ projectId: project?.id || "" })
+      utils.hypothesis.getFilterOptions.invalidate({ projectId: project?.id })
+      setShowDetail(false)
+      setSelectedId(null)
+    },
+  })
+
   // 上传功能
   const handleUploadSuccess = (pointId: string, url: string, name: string) => {
     const newAttachment = { name, url }
@@ -1435,12 +1450,24 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   const [vfResponsibles, setVfResponsibles] = useState<string[]>([])
   const [vfSearch, setVfSearch] = useState("")
 
-  // Priority: inherited (from approved project) > template > existing mock data
-  const sourceData = inheritedHypotheses
-    ? inheritedHypotheses
-    : isNewProject && project?.strategyId === "1"
-      ? aiInfrastructureHypotheses
-      : hypothesisTableData
+  // Priority: 优先使用数据库数据 > inherited (从父项目继承) > template > existing mock data
+  // 数据库数据来自 dbHypotheses
+  const sourceData: HypothesisTableItem[] = dbHypotheses.length > 0
+    ? dbHypotheses.map((h: any) => ({
+        id: h.id,
+        direction: h.direction || "",
+        category: h.category || "",
+        name: h.title,
+        owner: h.owner || h.creatorName || "",
+        createdAt: h.createdAt,
+        updatedAt: h.updatedAt,
+        status: h.status as "verified" | "pending" | "risky",
+      }))
+    : inheritedHypotheses
+      ? inheritedHypotheses
+      : isNewProject && project?.strategyId === "1"
+        ? aiInfrastructureHypotheses
+        : hypothesisTableData
 
   // Filter data
   const handleResetFilters = () => {
@@ -1501,8 +1528,9 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
 
   // Handle delete
   function handleDelete(id: string) {
-    // In real app, this would call an API
-    console.log("[v0] Delete hypothesis:", id)
+    if (confirm('确定要删除这条假设吗？')) {
+      deleteMutation.mutate({ id })
+    }
   }
 
   // Comment helpers
