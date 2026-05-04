@@ -1304,6 +1304,43 @@ export function Workflow({
     }
   }
 
+  function handleCreateNewPhase() {
+    let newPhase: Phase
+    let changeType: PendingPhase["changeType"]
+    
+    if (isInPostInvestment) {
+      newPhase = createPhase(currentPostInvestmentPhase + 1, "投后期")
+      changeType = "next-post-investment"
+    } else if (isInMidInvestment) {
+      newPhase = createPhase(currentMidInvestmentPhase + 1, "投中期")
+      changeType = "next-mid-investment"
+    } else if (currentPreInvestmentPhase > 0) {
+      newPhase = createPhase(currentPreInvestmentPhase + 1, "投前期")
+      changeType = "next-pre-investment"
+    } else if (isInDuration) {
+      newPhase = createNewPhase(currentDurationPhase + 1, false)
+      changeType = "next-duration"
+    } else {
+      newPhase = createNewPhase(currentSetupPhase + 1, true)
+      changeType = "next-setup"
+    }
+
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `新建${newPhase.fullLabel}`,
+      changeType,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
   function handleOpenSidebar(type: SidebarType) {
     // For hypothesis-suggestions, open full page view instead of sidebar
     if (type === "hypothesis-suggestions") {
@@ -5345,6 +5382,13 @@ ${logs}
                     启动下一阶段
                   </button>
                   <button
+                    onClick={handleCreateNewPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#2563EB] bg-white px-4 py-2.5 text-sm font-medium text-[#2563EB] transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
+                  </button>
+                  <button
                     onClick={handleTouJue}
                     className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
                   >
@@ -5363,6 +5407,13 @@ ${logs}
                     启动下一阶段
                   </button>
                   <button
+                    onClick={handleCreateNewPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#2563EB] bg-white px-4 py-2.5 text-sm font-medium text-[#2563EB] transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
+                  </button>
+                  <button
                     onClick={handleDiKuan}
                     className="inline-flex items-center gap-2 rounded-lg border-2 border-[#F59E0B] bg-white px-4 py-2.5 text-sm font-medium text-[#D97706] transition-colors hover:bg-[#FFFBEB]"
                   >
@@ -5379,6 +5430,13 @@ ${logs}
                   >
                     <Plus className="h-4 w-4" />
                     启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleCreateNewPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#2563EB] bg-white px-4 py-2.5 text-sm font-medium text-[#2563EB] transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
                   </button>
                   <button
                     onClick={handleTuiChu}
@@ -5400,6 +5458,13 @@ ${logs}
                     启动下一阶段
                   </button>
                   <button
+                    onClick={handleCreateNewPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#2563EB] bg-white px-4 py-2.5 text-sm font-medium text-[#2563EB] transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
+                  </button>
+                  <button
                     onClick={handleEnterDuration}
                     className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
                   >
@@ -5409,22 +5474,40 @@ ${logs}
                 </>
               )}
               {isNewProject && isInDuration && (
-                <button
-                  onClick={handleStartNextDurationPhase}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                >
-                  <Plus className="h-4 w-4" />
-                  启动下一阶段
-                </button>
+                <>
+                  <button
+                    onClick={handleStartNextDurationPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleCreateNewPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#2563EB] bg-white px-4 py-2.5 text-sm font-medium text-[#2563EB] transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
+                  </button>
+                </>
               )}
               {!isNewProject && (
-                <button
-                  onClick={handleStartNextPhase}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                >
-                  <Plus className="h-4 w-4" />
-                  启动下一阶段
-                </button>
+                <>
+                  <button
+                    onClick={handleStartNextPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    启动下一阶段
+                  </button>
+                  <button
+                    onClick={handleCreateNewPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#2563EB] bg-white px-4 py-2.5 text-sm font-medium text-[#2563EB] transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
+                  </button>
+                </>
               )}
             </div>
           </div>
