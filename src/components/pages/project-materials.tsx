@@ -308,6 +308,8 @@ interface ProjectMaterialsProps {
   projectTerms?: TermTableItem[]
   onCreatePendingProjectMaterial?: (pending: PendingProjectMaterial) => void
   isExited?: boolean
+  isMidInvestment?: boolean
+  isPostInvestment?: boolean
 }
 
 export function ProjectMaterials({
@@ -325,6 +327,8 @@ export function ProjectMaterials({
   projectTerms,
   onCreatePendingProjectMaterial,
   isExited = false,
+  isMidInvestment = false,
+  isPostInvestment = false,
 }: ProjectMaterialsProps) {
   const isTrackStrategy = strategyType === "赛道策略"
   const inheritedFromParent = isTrackStrategy && isNewProject && parentStrategyName
@@ -618,7 +622,7 @@ export function ProjectMaterials({
             <p className="text-sm text-[#6B7280] mb-6 leading-relaxed">
               {project?.name ? `「${project.name}」` : "该策略"}还没有上传任何材料。点击下方按钮开始上传或生成您的第一份材料。
             </p>
-            {!isExited && (
+            {!isExited && !isPostInvestment && (
               <div className="flex items-center justify-center gap-3">
                 <button
                   onClick={openEmptyDialog}
@@ -637,6 +641,9 @@ export function ProjectMaterials({
                   </button>
                 )}
               </div>
+            )}
+            {(isPostInvestment && !isExited) && (
+              <p className="text-sm text-[#D97706]">本项目处于投后期，材料仅可查看</p>
             )}
           </div>
         </div>
@@ -689,8 +696,19 @@ export function ProjectMaterials({
 
             {/* Header */}
             <div className="flex items-center justify-between mb-1">
-              <h1 className="text-2xl font-bold text-[#111827]">通用材料</h1>
-              {!isExited && (
+              <div>
+                <h1 className="text-2xl font-bold text-[#111827]">通用材料</h1>
+                {isExited ? (
+                  <p className="mt-1 text-sm text-[#EF4444] font-medium">项目已退出，所有信息不可更改。</p>
+                ) : isPostInvestment ? (
+                  <p className="mt-1 text-sm text-[#D97706] font-medium">本项目处于投后期，材料仅可查看，不可新增或删除。</p>
+                ) : isMidInvestment ? (
+                  <p className="mt-1 text-sm text-[#6B7280]">本项目处于投中期，材料可自由增删改。</p>
+                ) : (
+                  <p className="mt-1 text-sm text-[#6B7280]">{project?.name ? `${project.name} - ` : ""}行业通用材料与文件管理</p>
+                )}
+              </div>
+              {!isExited && !isPostInvestment && (
                 <div className="flex items-center gap-2">
                   {onCreatePendingProjectMaterial && (
                     <button
@@ -711,13 +729,6 @@ export function ProjectMaterials({
                 </div>
               )}
             </div>
-            {isExited ? (
-              <p className="mt-1 text-sm text-[#EF4444] font-medium mb-6">项目已退出，所有信息不可更改。</p>
-            ) : (
-              <p className="mt-1 text-sm text-[#6B7280] mb-6">
-                {project?.name ? `${project.name} - ` : ""}行业通用材料与文件管理
-              </p>
-            )}
 
             {/* Table */}
             <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">

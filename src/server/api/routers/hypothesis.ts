@@ -546,4 +546,85 @@ export const hypothesisRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
       return ctx.db.termHypothesis.delete({ where: { id: input.linkId } });
     }),
+
+  // 更新价值点
+  updateValuePoint: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      support: z.string().optional(),
+      analysis: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      // 先检查记录是否存在
+      const existing = await ctx.db.valuePoint.findUnique({
+        where: { id: input.id },
+      });
+      if (!existing) {
+        throw new Error("价值点记录不存在");
+      }
+      const result = await ctx.db.valuePoint.update({
+        where: { id: input.id },
+        data: {
+          support: input.support,
+          analysis: input.analysis,
+        },
+      });
+      return result;
+    }),
+
+  // 删除价值点
+  deleteValuePoint: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const existing = await ctx.db.valuePoint.findUnique({
+        where: { id: input.id },
+      });
+      if (!existing) {
+        throw new Error("价值点记录不存在");
+      }
+      await ctx.db.valuePoint.delete({
+        where: { id: input.id },
+      });
+      return { success: true };
+    }),
+
+  // 更新风险点
+  updateRiskPoint: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      support: z.string().optional(),
+      analysis: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const existing = await ctx.db.riskPoint.findUnique({
+        where: { id: input.id },
+      });
+      if (!existing) {
+        throw new Error("风险点记录不存在");
+      }
+      const result = await ctx.db.riskPoint.update({
+        where: { id: input.id },
+        data: {
+          support: input.support,
+          analysis: input.analysis,
+        },
+      });
+      return result;
+    }),
+
+  // 删除风险点
+  deleteRiskPoint: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }: { ctx: any; input: any }) => {
+      const existing = await ctx.db.riskPoint.findUnique({
+        where: { id: input.id },
+      });
+      if (!existing) {
+        throw new Error("风险点记录不存在");
+      }
+      await ctx.db.riskPoint.delete({
+        where: { id: input.id },
+      });
+      return { success: true };
+    }),
 });

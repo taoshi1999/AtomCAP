@@ -170,11 +170,14 @@ export default function HypothesesPage() {
       isNewProject={isNewProject}
       inheritedHypotheses={inheritedHypotheses}
       extraDetails={extraDetails}
-      
+
       onDeleteHypothesis={handleDelete}
       onCreateCommitteeDecision={handleCreateCommitteeDecision}
       onCreateVerification={handleCreateVerification}
-      isInDuration={project?.stage === "投后期" || project?.status === "投后期"}
+      isMidInvestment={project?.status === "投中期"}
+      isPostInvestment={project?.status === "投后期"}
+      isInDuration={project?.status === "投后期" || project?.status === "投中期"}
+      isExited={project?.status === "已退出"}
       linkedTermsMap={linkedTermsMap as any}
       onNavigateToTerm={(termId) => router.push(`/projects/${projectId}/terms`)}
       renderHypothesisComments={(hypothesisId) => (

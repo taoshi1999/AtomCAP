@@ -1231,6 +1231,80 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     },
   })
 
+  const updateVpMutation = api.hypothesis.updateValuePoint.useMutation({
+    onSuccess: () => {
+      utils.hypothesis.getByProject.invalidate()
+      // 手动刷新数据
+      utils.hypothesis.getByProject.refetch()
+    },
+    onError: (error) => {
+      console.error("更新价值点失败:", error)
+      alert("更新失败: " + error.message)
+    },
+  })
+
+  const deleteVpMutation = api.hypothesis.deleteValuePoint.useMutation({
+    onSuccess: (_, variables) => {
+      // 立即从UI移除
+      setDeletedVpIds(prev => new Set([...prev, variables.id]))
+      utils.hypothesis.getByProject.invalidate()
+      utils.hypothesis.getByProject.refetch()
+    },
+    onError: (error) => {
+      console.error("删除价值点失败:", error)
+      alert("删除失败: " + error.message)
+    },
+  })
+
+  const updateRpMutation = api.hypothesis.updateRiskPoint.useMutation({
+    onSuccess: () => {
+      utils.hypothesis.getByProject.invalidate()
+      utils.hypothesis.getByProject.refetch()
+    },
+    onError: (error) => {
+      console.error("更新风险点失败:", error)
+      alert("更新失败: " + error.message)
+    },
+  })
+
+  const deleteRpMutation = api.hypothesis.deleteRiskPoint.useMutation({
+    onSuccess: (_, variables) => {
+      setDeletedRpIds(prev => new Set([...prev, variables.id]))
+      utils.hypothesis.getByProject.invalidate()
+      utils.hypothesis.getByProject.refetch()
+    },
+    onError: (error) => {
+      console.error("删除风险点失败:", error)
+      alert("删除失败: " + error.message)
+    },
+  })
+
+  // 检查是否是真实的数据库ID（Prisma cuid格式：25个字符，以字母开头）
+  function isDatabaseId(id: string): boolean {
+    return /^[a-z][a-z0-9]{24}$/i.test(id)
+  }
+
+  // 编辑价值点的状态
+  const [editingVp, setEditingVp] = useState<{ id: string; support: string; analysis: string } | null>(null)
+  const [vpEditSupport, setVpEditSupport] = useState("")
+  const [vpEditAnalysis, setVpEditAnalysis] = useState("")
+
+  // 本地价值点状态（用于更新本地新建的价值点）
+  const [localVpEdits, setLocalVpEdits] = useState<Record<string, { support: string; analysis: string }>>({})
+
+  // 编辑风险点的状态
+  const [editingRp, setEditingRp] = useState<{ id: string; support: string; analysis: string } | null>(null)
+  const [rpEditSupport, setRpEditSupport] = useState("")
+  const [rpEditAnalysis, setRpEditAnalysis] = useState("")
+
+  // 本地风险点状态
+  const [localRpEdits, setLocalRpEdits] = useState<Record<string, { support: string; analysis: string }>>({})
+
+  // 本地已删除的价值点ID（用于立即从UI移除）
+  const [deletedVpIds, setDeletedVpIds] = useState<Set<string>>(new Set())
+  // 本地已删除的风险点ID
+  const [deletedRpIds, setDeletedRpIds] = useState<Set<string>>(new Set())
+
   const { data: dbComments } = api.hypothesis.getComments.useQuery(
     selectedId && selectedDetail
       ? {
@@ -1749,7 +1823,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 <div className="h-1 w-1 rounded-full bg-[#22C55E]" />
                 <h2 className="text-base font-semibold text-[#22C55E]">价值点</h2>
               </div>
-              {isNewProject && (
+              {!isExited && !isPostInvestment && (
                 <button
                   onClick={() => setShowAddVP(true)}
                   className="flex items-center gap-1 rounded-lg bg-[#F0FDF4] px-3 py-1.5 text-xs font-medium text-[#16A34A] hover:bg-[#DCFCE7] transition-colors"
@@ -1759,17 +1833,40 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 </button>
               )}
             </div>
-            {[...selectedDetail.valuePoints, ...(localValuePoints[selectedId ?? ""] || [])].map((vp) => (
+            {[...selectedDetail.valuePoints, ...(localValuePoints[selectedId ?? ""] || [])]
+              .filter(vp => !deletedVpIds.has(vp.id))
+              .map((vp) => (
               <div key={vp.id} className="bg-white rounded-xl border border-[#E5E7EB] mb-4 overflow-hidden">
                 <div className="border-l-4 border-[#22C55E] p-5">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-[#22C55E]">{vp.title}</h3>
-                    {isNewProject && (
+                    {!isExited && !isPostInvestment && (
                       <div className="flex items-center gap-1">
-                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                        <button
+                          onClick={() => {
+                            setEditingVp({ id: vp.id, support: vp.evidence.description, analysis: vp.analysis.content })
+                            setVpEditSupport(vp.evidence.description)
+                            setVpEditAnalysis(vp.analysis.content)
+                          }}
+                          className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors"
+                          title="编辑"
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
-                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                        <button
+                          onClick={() => {
+                            if (confirm('确定要删除这个价值点吗？')) {
+                              // 立即从UI移除
+                              setDeletedVpIds(prev => new Set([...prev, vp.id]))
+                              // 只删除数据库中的记录，不处理本地记录
+                              if (isDatabaseId(vp.id)) {
+                                deleteVpMutation.mutate({ id: vp.id })
+                              }
+                            }
+                          }}
+                          className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors"
+                          title="删除"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -1779,23 +1876,79 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   {/* Evidence */}
                   <div className="mb-4">
                     <p className="text-xs text-[#6B7280] mb-1">论据支持</p>
-                    <p className="text-sm text-[#111827] mb-3">{vp.evidence.description}</p>
-                    {vp.evidence.files.map((file, idx) => (
-                      <div key={idx} className="flex items-center gap-2 mb-2 p-2 bg-[#F9FAFB] rounded-lg">
-                        <FileText className="h-4 w-4 text-[#2563EB]" />
-                        <span className="text-sm text-[#2563EB]">{file.name}</span>
-                        <span className="text-xs text-[#9CA3AF]">{file.size} · {file.date}</span>
-                      </div>
-                    ))}
+                    {editingVp?.id === vp.id ? (
+                      <textarea
+                        value={vpEditSupport}
+                        onChange={(e) => setVpEditSupport(e.target.value)}
+                        className="w-full text-sm text-[#111827] border border-[#E5E7EB] rounded-lg p-3 mb-2 outline-none focus:border-[#22C55E]"
+                        rows={2}
+                      />
+                    ) : (
+                      <p className="text-sm text-[#111827] mb-3">
+                        {localVpEdits[vp.id]?.support ?? vp.evidence.description}
+                      </p>
+                    )}
+                    {editingVp?.id === vp.id ? null : (
+                      <>
+                        {vp.evidence.files.map((file, idx) => (
+                          <div key={idx} className="flex items-center gap-2 mb-2 p-2 bg-[#F9FAFB] rounded-lg">
+                            <FileText className="h-4 w-4 text-[#2563EB]" />
+                            <span className="text-sm text-[#2563EB]">{file.name}</span>
+                            <span className="text-xs text-[#9CA3AF]">{file.size} · {file.date}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
 
                   {/* Analysis */}
                   <div className="mb-4">
                     <p className="text-xs text-[#6B7280] mb-1">论证分析</p>
-                    <div className="p-3 bg-[#F9FAFB] rounded-lg">
-                      <p className="text-sm text-[#374151] leading-relaxed">{vp.analysis.content}</p>
-                    </div>
+                    {editingVp?.id === vp.id ? (
+                      <textarea
+                        value={vpEditAnalysis}
+                        onChange={(e) => setVpEditAnalysis(e.target.value)}
+                        className="w-full text-sm text-[#374151] border border-[#E5E7EB] rounded-lg p-3 outline-none focus:border-[#22C55E]"
+                        rows={3}
+                      />
+                    ) : (
+                      <div className="p-3 bg-[#F9FAFB] rounded-lg">
+                        <p className="text-sm text-[#374151] leading-relaxed">
+                          {localVpEdits[vp.id]?.analysis ?? vp.analysis.content}
+                        </p>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Edit action buttons */}
+                  {editingVp?.id === vp.id && (
+                    <div className="flex justify-end gap-2 mb-4">
+                      <button
+                        onClick={() => setEditingVp(null)}
+                        className="px-3 py-1.5 text-xs font-medium text-[#6B7280] hover:text-[#374151] border border-[#E5E7EB] rounded-lg hover:bg-[#E5E7EB] transition-colors"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => {
+                          // 如果是数据库ID，调用API更新
+                          if (isDatabaseId(vp.id)) {
+                            updateVpMutation.mutate({ id: vp.id, support: vpEditSupport, analysis: vpEditAnalysis })
+                          } else {
+                            // 否则只更新本地状态
+                            setLocalVpEdits(prev => ({
+                              ...prev,
+                              [vp.id]: { support: vpEditSupport, analysis: vpEditAnalysis }
+                            }))
+                          }
+                          setEditingVp(null)
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-[#22C55E] hover:bg-[#16A34A] rounded-lg transition-colors"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  )}
 
                   {/* Creator & Reviewers */}
                   <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
@@ -1906,7 +2059,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 <div className="h-1 w-1 rounded-full bg-[#EF4444]" />
                 <h2 className="text-base font-semibold text-[#EF4444]">风险点</h2>
               </div>
-              {isNewProject && (
+              {!isExited && !isPostInvestment && (
                 <button
                   onClick={() => setShowAddRP(true)}
                   className="flex items-center gap-1 rounded-lg bg-[#FEF2F2] px-3 py-1.5 text-xs font-medium text-[#DC2626] hover:bg-[#FEE2E2] transition-colors"
@@ -1916,17 +2069,39 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 </button>
               )}
             </div>
-            {[...selectedDetail.riskPoints, ...(localRiskPoints[selectedId ?? ""] || [])].map((rp) => (
+            {[...selectedDetail.riskPoints, ...(localRiskPoints[selectedId ?? ""] || [])]
+              .filter(rp => !deletedRpIds.has(rp.id))
+              .map((rp) => (
               <div key={rp.id} className="bg-white rounded-xl border border-[#E5E7EB] mb-4 overflow-hidden">
                 <div className="border-l-4 border-[#EF4444] p-5">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-[#EF4444]">{rp.title}</h3>
-                    {isNewProject && (
+                    {!isExited && !isPostInvestment && (
                       <div className="flex items-center gap-1">
-                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors" title="编辑">
+                        <button
+                          onClick={() => {
+                            setEditingRp({ id: rp.id, support: rp.evidence.description, analysis: rp.analysis.content })
+                            setRpEditSupport(rp.evidence.description)
+                            setRpEditAnalysis(rp.analysis.content)
+                          }}
+                          className="p-1 rounded text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#374151] transition-colors"
+                          title="编辑"
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
-                        <button className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors" title="删除">
+                        <button
+                          onClick={() => {
+                            if (confirm('确定要删除这个风险点吗？')) {
+                              // 立即从UI移除
+                              setDeletedRpIds(prev => new Set([...prev, rp.id]))
+                              if (isDatabaseId(rp.id)) {
+                                deleteRpMutation.mutate({ id: rp.id })
+                              }
+                            }
+                          }}
+                          className="p-1 rounded text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#DC2626] transition-colors"
+                          title="删除"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -1936,23 +2111,77 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                   {/* Evidence */}
                   <div className="mb-4">
                     <p className="text-xs text-[#6B7280] mb-1">论据支持</p>
-                    <p className="text-sm text-[#111827] mb-3">{rp.evidence.description}</p>
-                    {rp.evidence.files.map((file, idx) => (
-                      <div key={idx} className="flex items-center gap-2 mb-2 p-2 bg-[#F9FAFB] rounded-lg">
-                        <FileText className="h-4 w-4 text-[#2563EB]" />
-                        <span className="text-sm text-[#2563EB]">{file.name}</span>
-                        <span className="text-xs text-[#9CA3AF]">{file.size} · {file.date}</span>
-                      </div>
-                    ))}
+                    {editingRp?.id === rp.id ? (
+                      <textarea
+                        value={rpEditSupport}
+                        onChange={(e) => setRpEditSupport(e.target.value)}
+                        className="w-full text-sm text-[#111827] border border-[#E5E7EB] rounded-lg p-3 mb-2 outline-none focus:border-[#EF4444]"
+                        rows={2}
+                      />
+                    ) : (
+                      <p className="text-sm text-[#111827] mb-3">
+                        {localRpEdits[rp.id]?.support ?? rp.evidence.description}
+                      </p>
+                    )}
+                    {editingRp?.id === rp.id ? null : (
+                      <>
+                        {rp.evidence.files.map((file, idx) => (
+                          <div key={idx} className="flex items-center gap-2 mb-2 p-2 bg-[#F9FAFB] rounded-lg">
+                            <FileText className="h-4 w-4 text-[#2563EB]" />
+                            <span className="text-sm text-[#2563EB]">{file.name}</span>
+                            <span className="text-xs text-[#9CA3AF]">{file.size} · {file.date}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
 
                   {/* Analysis */}
                   <div className="mb-4">
                     <p className="text-xs text-[#6B7280] mb-1">论证分析</p>
-                    <div className="p-3 bg-[#F9FAFB] rounded-lg">
-                      <p className="text-sm text-[#374151] leading-relaxed">{rp.analysis.content}</p>
-                    </div>
+                    {editingRp?.id === rp.id ? (
+                      <textarea
+                        value={rpEditAnalysis}
+                        onChange={(e) => setRpEditAnalysis(e.target.value)}
+                        className="w-full text-sm text-[#374151] border border-[#E5E7EB] rounded-lg p-3 outline-none focus:border-[#EF4444]"
+                        rows={3}
+                      />
+                    ) : (
+                      <div className="p-3 bg-[#F9FAFB] rounded-lg">
+                        <p className="text-sm text-[#374151] leading-relaxed">
+                          {localRpEdits[rp.id]?.analysis ?? rp.analysis.content}
+                        </p>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Edit action buttons */}
+                  {editingRp?.id === rp.id && (
+                    <div className="flex justify-end gap-2 mb-4">
+                      <button
+                        onClick={() => setEditingRp(null)}
+                        className="px-3 py-1.5 text-xs font-medium text-[#6B7280] hover:text-[#374151] border border-[#E5E7EB] rounded-lg hover:bg-[#E5E7EB] transition-colors"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (isDatabaseId(rp.id)) {
+                            updateRpMutation.mutate({ id: rp.id, support: rpEditSupport, analysis: rpEditAnalysis })
+                          } else {
+                            setLocalRpEdits(prev => ({
+                              ...prev,
+                              [rp.id]: { support: rpEditSupport, analysis: rpEditAnalysis }
+                            }))
+                          }
+                          setEditingRp(null)
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-[#EF4444] hover:bg-[#DC2626] rounded-lg transition-colors"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  )}
 
                   {/* Creator & Reviewers */}
                   <div className="flex items-center gap-4 text-xs text-[#6B7280] mb-4">
