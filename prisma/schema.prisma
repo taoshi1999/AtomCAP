@@ -216,6 +216,7 @@ model Hypothesis {
 model ValuePoint {
   id           String    @id @default(cuid())
   hypothesisId String    @map("hypothesis_id")
+  name         String?   @db.VarChar(255)
   support      String?   @db.Text
   analysis     String?   @db.Text
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -231,6 +232,7 @@ model ValuePoint {
 model RiskPoint {
   id           String    @id @default(cuid())
   hypothesisId String    @map("hypothesis_id")
+  name         String?   @db.VarChar(255)
   support      String?   @db.Text
   analysis     String?   @db.Text
   createdAt    DateTime  @default(now()) @map("created_at")

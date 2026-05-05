@@ -15,7 +15,8 @@ export const hypothesisRouter = createTRPCRouter({
         valuePoints: z
           .array(
             z.object({
-              support: z.string(),
+              name: z.string().optional(),
+              support: z.string().optional(),
               analysis: z.string(),
               attachments: z
                 .array(
@@ -31,7 +32,8 @@ export const hypothesisRouter = createTRPCRouter({
         riskPoints: z
           .array(
             z.object({
-              support: z.string(),
+              name: z.string().optional(),
+              support: z.string().optional(),
               analysis: z.string(),
               attachments: z
                 .array(
@@ -64,7 +66,8 @@ export const hypothesisRouter = createTRPCRouter({
           valuePoints: {
             create:
               valuePoints?.map((vp: any) => ({
-                support: vp.support,
+                name: vp.name || null,
+                support: vp.support || "",
                 analysis: vp.analysis,
                 attachments: {
                   create:
@@ -78,7 +81,8 @@ export const hypothesisRouter = createTRPCRouter({
           riskPoints: {
             create:
               riskPoints?.map((rp: any) => ({
-                support: rp.support,
+                name: rp.name || null,
+                support: rp.support || "",
                 analysis: rp.analysis,
                 attachments: {
                   create:
@@ -141,8 +145,14 @@ export const hypothesisRouter = createTRPCRouter({
         createdAt: h.createdAt.toISOString().split("T")[0],
         updatedAt: h.updatedAt.toISOString().split("T")[0],
         // GPT-FIX: 将查询出的价值点、风险点直接返回前端
-        valuePoints: h.valuePoints || [],
-        riskPoints: h.riskPoints || [],
+        valuePoints: (h.valuePoints || []).map((vp: any) => ({
+          ...vp,
+          name: vp.name || "",
+        })),
+        riskPoints: (h.riskPoints || []).map((rp: any) => ({
+          ...rp,
+          name: rp.name || "",
+        })),
       }));
     }),
 
@@ -442,10 +452,17 @@ export const hypothesisRouter = createTRPCRouter({
         verificationCreatedAt: h.verificationCreatedAt ? h.verificationCreatedAt.toISOString().split("T")[0] : "",
         createdAt: h.createdAt.toISOString().split("T")[0],
         updatedAt: h.updatedAt.toISOString().split("T")[0],
-        valuePoints: h.valuePoints || [],
-        riskPoints: h.riskPoints || [],
+        valuePoints: (h.valuePoints || []).map((vp: any) => ({
+          ...vp,
+          name: vp.name || "",
+        })),
+        riskPoints: (h.riskPoints || []).map((rp: any) => ({
+          ...rp,
+          name: rp.name || "",
+        })),
       }))
     }),
+
 
   // 获取筛选选项（方向列表、类别列表、状态列表、创建人列表）
   getFilterOptions: protectedProcedure

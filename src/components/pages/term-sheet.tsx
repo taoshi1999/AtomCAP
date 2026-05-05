@@ -29,6 +29,7 @@ import {
   ArrowLeft,
   Filter,
   RotateCcw,
+  FolderOpen,
 } from "lucide-react"
 import { Badge } from "@/src/components/ui/badge"
 import { Button } from "@/src/components/ui/button"
@@ -671,6 +672,19 @@ export function TermSheet({ project, ...props }: any) {
   // Keep track of unsaved attachments in state map
   const [pendingAttachments, setPendingAttachments] = useState<Record<string, {name: string, url: string}[]>>({})
 
+  // Material selection state for supporting materials
+  const [showMaterialSelector, setShowMaterialSelector] = useState(false)
+  const [currentSelectingSection, setCurrentSelectingSection] = useState("")
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(new Set())
+
+  const createMaterialsMutation = api.project.createMaterials.useMutation()
+
+  // Fetch project materials from DB for the material selector
+  const { data: dbProjectMaterials } = api.project.getMaterials.useQuery(
+    { projectId: project?.id || projectId },
+    { enabled: !!(project?.id || projectId) }
+  )
+
   const utils = api.useUtils()
 
   // 获取筛选选项
@@ -792,11 +806,37 @@ export function TermSheet({ project, ...props }: any) {
     })
   }
 
-  const handlePendingUpload = (sectionKey: string, url: string, name: string) => {
+  const handlePendingUpload = (sectionKey: string, url: string, name: string, size: string) => {
     setPendingAttachments(prev => {
       const existing = prev[sectionKey] || []
       return { ...prev, [sectionKey]: [...existing, { name, url }] }
     })
+    // 同步上传的材料到项目材料模块
+    if (project?.id) {
+      const ext = name.split(".").pop()?.toLowerCase() || "unknown"
+      createMaterialsMutation.mutate({
+        projectId: project.id,
+        materials: [{ name, format: ext, size: size, description: `从条款清单支撑材料上传`, url }],
+      })
+    }
+  }
+
+  // 从项目材料中选择材料添加为支撑材料
+  const handleSelectMaterialsForSection = () => {
+    const sectionKey = currentSelectingSection
+    if (!sectionKey) return
+    const materials = (dbProjectMaterials || []).filter((m: any) => selectedMaterialIds.has(m.id))
+    const newAttachments = materials.map((m: StrategyMaterial) => ({
+      name: m.name,
+      url: (m as any).url || "",
+    }))
+    setPendingAttachments(prev => {
+      const existing = prev[sectionKey] || []
+      return { ...prev, [sectionKey]: [...existing, ...newAttachments] }
+    })
+    setShowMaterialSelector(false)
+    setSelectedMaterialIds(new Set())
+    setCurrentSelectingSection("")
   }
 
   const handleSaveSection = (termId: string, sectionKey: string) => {
@@ -1118,7 +1158,7 @@ export function TermSheet({ project, ...props }: any) {
 
                     {sectionAttachments.length > 0 ? (
                       <div className="border-t border-[#E5E7EB] pt-4 mt-4">
-                        <p className="text-xs font-medium text-[#6B7280] mb-3">附件列表</p>
+                        <p className="text-xs font-medium text-[#6B7280] mb-3">支撑材料</p>
                         <div className="space-y-2 mb-3">
                           {sectionAttachments.map((att: any) => (
                             <div key={att.id} className="flex items-center gap-2 p-3 bg-[#F3F4F6] rounded-lg w-max pr-8">
@@ -1290,8 +1330,8 @@ export function TermSheet({ project, ...props }: any) {
                     />
                     
                     <div className="mt-4 border-t border-[#E5E7EB] pt-3">
-                      <p className="text-xs font-medium text-[#6B7280] mb-2">附件</p>
-                      
+                      <p className="text-xs font-medium text-[#6B7280] mb-2">支撑材料</p>
+
                       {currentPendingFiles.length > 0 && (
                         <div className="space-y-2 mb-3">
                           {currentPendingFiles.map((file, idx) => (
@@ -1304,11 +1344,22 @@ export function TermSheet({ project, ...props }: any) {
                         </div>
                       )}
 
-                      <FileUpload
-                        onUploadSuccess={(url: string, name: string) => {
-                          handlePendingUpload(sec.key, url, name)
-                        }}
-                      />
+                      <div className="flex items-center gap-2">
+                        <FileUpload
+                          buttonLabel="上传材料"
+                          onUploadSuccess={(url: string, name: string, size: string) => {
+                            handlePendingUpload(sec.key, url, name, size)
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setCurrentSelectingSection(sec.key); setSelectedMaterialIds(new Set()); setShowMaterialSelector(true) }}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-[#2563EB] border border-[#2563EB] rounded-lg hover:bg-[#EFF6FF] transition-colors"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          选择材料
+                        </button>
+                      </div>
                     </div>
                  </div>
                </div>
@@ -1321,6 +1372,79 @@ export function TermSheet({ project, ...props }: any) {
                  {createMutation.isPending ? "保存中..." : "确认保存"}
                </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Material Selector Dialog for term section supporting materials */}
+      <Dialog open={showMaterialSelector} onOpenChange={setShowMaterialSelector}>
+        <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-[#111827]">选择项目材料</DialogTitle>
+            <DialogDescription className="sr-only">从项目材料中选择作为支撑材料</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {(dbProjectMaterials && dbProjectMaterials.length > 0) ? (
+              <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                <div className="divide-y divide-[#F3F4F6] max-h-[300px] overflow-y-auto">
+                  {dbProjectMaterials.map((material: any) => (
+                    <button
+                      key={material.id}
+                      onClick={() => {
+                        setSelectedMaterialIds(prev => {
+                          const next = new Set(prev)
+                          if (next.has(String(material.id))) next.delete(String(material.id))
+                          else next.add(String(material.id))
+                          return next
+                        })
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                        selectedMaterialIds.has(String(material.id)) ? "bg-[#EFF6FF]" : "hover:bg-[#F9FAFB]"
+                      )}
+                    >
+                      <div className={cn(
+                        "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                        selectedMaterialIds.has(String(material.id))
+                          ? "border-[#2563EB] bg-[#2563EB]"
+                          : "border-[#D1D5DB] bg-white"
+                      )}>
+                        {selectedMaterialIds.has(String(material.id)) && (
+                          <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      <FileText className="h-4 w-4 text-[#2563EB] shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[#111827] truncate">{material.name}</p>
+                        <p className="text-xs text-[#9CA3AF]">{material.format} · {material.size}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="px-3 py-8 text-center text-sm text-[#9CA3AF]">暂无项目材料</div>
+            )}
+            {selectedMaterialIds.size > 0 && (
+              <p className="text-xs text-[#6B7280]">已选择 {selectedMaterialIds.size} 份材料</p>
+            )}
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => { setShowMaterialSelector(false); setSelectedMaterialIds(new Set()); setCurrentSelectingSection("") }}
+              className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSelectMaterialsForSection}
+              disabled={selectedMaterialIds.size === 0}
+              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              确认选择
+            </button>
           </div>
         </DialogContent>
       </Dialog>

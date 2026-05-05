@@ -27,6 +27,7 @@ import {
   Paperclip,
   Filter,
   RotateCcw,
+  FolderOpen,
 } from "lucide-react"
 import { Badge } from "@/src/components/ui/badge"
 import { Button } from "@/src/components/ui/button"
@@ -1200,11 +1201,11 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
   const [formTitle, setFormTitle] = useState("")
   // 新增的数据结构用于保存多个价值点和风险点
   const [valuePoints, setValuePoints] = useState<
-    Array<{ id: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
-  >([{ id: "vp1", support: "", analysis: "", attachments: [] }])
+    Array<{ id: string; name: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
+  >([{ id: "vp1", name: "", support: "", analysis: "", attachments: [] }])
   const [riskPoints, setRiskPoints] = useState<
-    Array<{ id: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
-  >([{ id: "rp1", support: "", analysis: "", attachments: [] }])
+    Array<{ id: string; name: string; support: string; analysis: string; attachments: Array<{ name: string; url: string }> }>
+  >([{ id: "rp1", name: "", support: "", analysis: "", attachments: [] }])
 
   // Get detail for selected item - check extraDetails first (for newly created hypotheses), then static mock data
   const selectedDetail = selectedId
@@ -1330,12 +1331,25 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     return [...dbCommentsForVerification, ...extraCommentsFormatted]
   }
 
+  // Material selection state for value/risk points in create dialog
+  const [showMaterialSelector, setShowMaterialSelector] = useState(false)
+  const [currentSelectingPointId, setCurrentSelectingPointId] = useState("")
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(new Set())
+
+  const createMaterialsMutation = api.project.createMaterials.useMutation()
+
+  // Fetch project materials from DB for the material selector
+  const { data: dbProjectMaterials } = api.project.getMaterials.useQuery(
+    { projectId: project?.id || "" },
+    { enabled: !!project?.id }
+  )
+
   const createMutation = api.hypothesis.create.useMutation({
     onSuccess: () => {
       setShowCreateDialog(false)
       setFormTitle("")
-      setValuePoints([{ id: "vp1", support: "", analysis: "", attachments: [] }])
-      setRiskPoints([{ id: "rp1", support: "", analysis: "", attachments: [] }])
+      setValuePoints([{ id: "vp1", name: "", support: "", analysis: "", attachments: [] }])
+      setRiskPoints([{ id: "rp1", name: "", support: "", analysis: "", attachments: [] }])
       utils.hypothesis.getByProject.invalidate({ projectId: project?.id || "" })
     },
     onError: (error) => {
@@ -1353,18 +1367,49 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     },
   })
 
-  // 上传功能
-  const handleUploadSuccess = (pointId: string, url: string, name: string) => {
+  // 上传功能 - 上传材料并同步到项目材料模块
+  const handleUploadSuccess = (pointId: string, url: string, name: string, size: string) => {
     const newAttachment = { name, url }
     if (pointId.startsWith("vp")) {
-      setValuePoints(prev => prev.map(vp => 
+      setValuePoints(prev => prev.map(vp =>
         vp.id === pointId ? { ...vp, attachments: [...vp.attachments, newAttachment] } : vp
       ))
     } else {
-      setRiskPoints(prev => prev.map(rp => 
+      setRiskPoints(prev => prev.map(rp =>
         rp.id === pointId ? { ...rp, attachments: [...rp.attachments, newAttachment] } : rp
       ))
     }
+    // 同步上传的材料到项目材料模块
+    if (project?.id) {
+      const ext = name.split(".").pop()?.toLowerCase() || "unknown"
+      createMaterialsMutation.mutate({
+        projectId: project.id,
+        materials: [{ name, format: ext, size: size, description: "从假设清单论据支持上传", url }],
+      })
+    }
+  }
+
+  // 从项目材料中选择材料添加为论据支持的附件
+  const handleSelectMaterialsForPoint = () => {
+    const pointId = currentSelectingPointId
+    if (!pointId) return
+    const materials = (dbProjectMaterials || []).filter(m => selectedMaterialIds.has(m.id))
+    const newAttachments = materials.map(m => ({
+      name: m.name,
+      url: (m as any).url || "",
+    }))
+    if (pointId.startsWith("vp")) {
+      setValuePoints(prev => prev.map(vp =>
+        vp.id === pointId ? { ...vp, attachments: [...vp.attachments, ...newAttachments] } : vp
+      ))
+    } else {
+      setRiskPoints(prev => prev.map(rp =>
+        rp.id === pointId ? { ...rp, attachments: [...rp.attachments, ...newAttachments] } : rp
+      ))
+    }
+    setShowMaterialSelector(false)
+    setSelectedMaterialIds(new Set())
+    setCurrentSelectingPointId("")
   }
 
   const removeAttachment = (pointId: string, urlToRemove: string) => {
@@ -1424,8 +1469,8 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
     createMutation.mutate({
       projectId: project?.id || "dummy-project-id",
       title: formTitle,
-      valuePoints: valuePoints.map(vp => ({ support: vp.support, analysis: vp.analysis, attachments: vp.attachments })),
-      riskPoints: riskPoints.map(rp => ({ support: rp.support, analysis: rp.analysis, attachments: rp.attachments })),
+      valuePoints: valuePoints.map(vp => ({ name: vp.name, support: vp.support, analysis: vp.analysis, attachments: vp.attachments })),
+      riskPoints: riskPoints.map(rp => ({ name: rp.name, support: rp.support, analysis: rp.analysis, attachments: rp.attachments })),
     })
   }
 
@@ -3071,7 +3116,7 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
       </div>
         {/* Create Hypothesis Dialog */}
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-xl font-semibold text-gray-900 border-b pb-3">新建项目假设</DialogTitle>
             </DialogHeader>
@@ -3091,9 +3136,9 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg text-gray-900">价值点</h3>
                 {valuePoints.map((vp) => (
-                  <div key={vp.id} className="p-4 border rounded-lg space-y-4 relative">
+                  <div key={vp.id} className="p-4 border border-green-200 bg-green-50/20 rounded-lg space-y-4 relative">
                     {valuePoints.length > 1 && (
-                      <button 
+                      <button
                         onClick={() => setValuePoints(prev => prev.filter(p => p.id !== vp.id))}
                         className="absolute top-2 right-2 text-gray-400 hover:text-red-500"
                       >
@@ -3101,33 +3146,39 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                       </button>
                     )}
                     <div>
+                      <label className="text-sm font-medium mb-1 block">价值点名称 <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600"
+                        placeholder="请输入价值点名称..."
+                        value={vp.name}
+                        onChange={(e) => setValuePoints(prev => prev.map(p => p.id === vp.id ? { ...p, name: e.target.value } : p))}
+                      />
+                    </div>
+                    <div>
                       <label className="text-sm font-medium mb-1 block">论据支持</label>
                       <textarea
-                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600"
-                        placeholder="请输入论据支持内容..."
+                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border outline-none focus:ring-1 focus:ring-green-600 focus:border-green-600 mb-2"
+                        placeholder="请输入论据支持文本..."
                         value={vp.support}
                         onChange={(e) => setValuePoints(prev => prev.map(p => p.id === vp.id ? { ...p, support: e.target.value } : p))}
                       />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1 block">论证分析</label>
-                      <textarea
-                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600"
-                        placeholder="请输入论证分析内容..."
-                        value={vp.analysis}
-                        onChange={(e) => setValuePoints(prev => prev.map(p => p.id === vp.id ? { ...p, analysis: e.target.value } : p))}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium">附件</label>
-                        <FileUpload onUploadSuccess={(url, name) => handleUploadSuccess(vp.id, url, name)} />
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileUpload buttonLabel="上传材料" onUploadSuccess={(url, name, size) => handleUploadSuccess(vp.id, url, name, size)} />
+                        <button
+                          type="button"
+                          onClick={() => { setCurrentSelectingPointId(vp.id); setSelectedMaterialIds(new Set()); setShowMaterialSelector(true) }}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-green-700 border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          选择材料
+                        </button>
                       </div>
                       {vp.attachments.length > 0 && (
                         <div className="space-y-2">
                           {vp.attachments.map((att, i) => (
-                            <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
-                              <a href={att.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate max-w-[200px]">
+                            <div key={i} className="flex items-center justify-between bg-white p-2 rounded border border-green-100 text-sm">
+                              <a href={att.url} target="_blank" rel="noreferrer" className="text-green-600 hover:underline truncate max-w-[200px]">
                                 {att.name}
                               </a>
                               <button onClick={() => removeAttachment(vp.id, att.url)} className="text-gray-400 hover:text-red-500">
@@ -3138,11 +3189,20 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                         </div>
                       )}
                     </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">论证分析</label>
+                      <textarea
+                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border outline-none focus:ring-1 focus:ring-green-600 focus:border-green-600"
+                        placeholder="请输入论证分析内容..."
+                        value={vp.analysis}
+                        onChange={(e) => setValuePoints(prev => prev.map(p => p.id === vp.id ? { ...p, analysis: e.target.value } : p))}
+                      />
+                    </div>
                   </div>
                 ))}
-                <button 
-                  onClick={() => setValuePoints(prev => [...prev, { id: `vp${Date.now()}`, support: "", analysis: "", attachments: [] }])}
-                  className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700 flex items-center justify-center gap-2"
+                <button
+                  onClick={() => setValuePoints(prev => [...prev, { id: `vp${Date.now()}`, name: "", support: "", analysis: "", attachments: [] }])}
+                  className="w-full py-2 border-2 border-dashed border-green-300 rounded-lg text-sm text-green-600 hover:border-green-400 hover:text-green-700 flex items-center justify-center gap-2"
                 >
                   <Plus className="h-4 w-4" /> 添加价值点
                 </button>
@@ -3151,9 +3211,9 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg text-gray-900">风险点</h3>
                 {riskPoints.map((rp) => (
-                  <div key={rp.id} className="p-4 border border-red-100 bg-red-50/30 rounded-lg space-y-4 relative">
+                  <div key={rp.id} className="p-4 border border-red-200 bg-red-50/20 rounded-lg space-y-4 relative">
                     {riskPoints.length > 1 && (
-                      <button 
+                      <button
                         onClick={() => setRiskPoints(prev => prev.filter(p => p.id !== rp.id))}
                         className="absolute top-2 right-2 text-gray-400 hover:text-red-500"
                       >
@@ -3161,27 +3221,33 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                       </button>
                     )}
                     <div>
+                      <label className="text-sm font-medium mb-1 block">风险点名称 <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        className="w-full text-sm border border-[#E5E7EB] rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-red-600/20 focus:border-red-600"
+                        placeholder="请输入风险点名称..."
+                        value={rp.name}
+                        onChange={(e) => setRiskPoints(prev => prev.map(p => p.id === rp.id ? { ...p, name: e.target.value } : p))}
+                      />
+                    </div>
+                    <div>
                       <label className="text-sm font-medium mb-1 block text-red-900">论据支持</label>
                       <textarea
-                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border-red-200 outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                        placeholder="请输入风险论据支持..."
+                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500 mb-2"
+                        placeholder="请输入论据支持文本..."
                         value={rp.support}
                         onChange={(e) => setRiskPoints(prev => prev.map(p => p.id === rp.id ? { ...p, support: e.target.value } : p))}
                       />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1 block text-red-900">论证分析</label>
-                      <textarea
-                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border-red-200 outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                        placeholder="请输入风险论证分析..."
-                        value={rp.analysis}
-                        onChange={(e) => setRiskPoints(prev => prev.map(p => p.id === rp.id ? { ...p, analysis: e.target.value } : p))}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-red-900">附件</label>
-                        <FileUpload onUploadSuccess={(url, name) => handleUploadSuccess(rp.id, url, name)} />
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileUpload buttonLabel="上传材料" onUploadSuccess={(url, name, size) => handleUploadSuccess(rp.id, url, name, size)} />
+                        <button
+                          type="button"
+                          onClick={() => { setCurrentSelectingPointId(rp.id); setSelectedMaterialIds(new Set()); setShowMaterialSelector(true) }}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          选择材料
+                        </button>
                       </div>
                       {rp.attachments.length > 0 && (
                         <div className="space-y-2">
@@ -3198,10 +3264,19 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                         </div>
                       )}
                     </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block text-red-900">论证分析</label>
+                      <textarea
+                        className="w-full min-h-[80px] p-3 text-sm rounded-lg border-red-200 outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                        placeholder="请输入风险论证分析..."
+                        value={rp.analysis}
+                        onChange={(e) => setRiskPoints(prev => prev.map(p => p.id === rp.id ? { ...p, analysis: e.target.value } : p))}
+                      />
+                    </div>
                   </div>
                 ))}
-                <button 
-                  onClick={() => setRiskPoints(prev => [...prev, { id: `rp${Date.now()}`, support: "", analysis: "", attachments: [] }])}
+                <button
+                  onClick={() => setRiskPoints(prev => [...prev, { id: `rp${Date.now()}`, name: "", support: "", analysis: "", attachments: [] }])}
                   className="w-full py-2 border-2 border-dashed border-red-200 rounded-lg text-sm text-red-400 hover:border-red-300 hover:text-red-500 flex items-center justify-center gap-2"
                 >
                   <Plus className="h-4 w-4" /> 添加风险点
@@ -3222,6 +3297,78 @@ export function HypothesisChecklist({ isNewProject = false, isInDuration = false
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {createMutation.isPending ? "提交中..." : "确认提交"}
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Material Selector Dialog for hypothesis value/risk point evidence support */}
+        <Dialog open={showMaterialSelector} onOpenChange={setShowMaterialSelector}>
+          <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold text-[#111827]">选择项目材料</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {(dbProjectMaterials && dbProjectMaterials.length > 0) ? (
+                <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                  <div className="divide-y divide-[#F3F4F6] max-h-[300px] overflow-y-auto">
+                    {dbProjectMaterials.map((material) => (
+                      <button
+                        key={material.id}
+                        onClick={() => {
+                          setSelectedMaterialIds(prev => {
+                            const next = new Set(prev)
+                            if (next.has(material.id)) next.delete(material.id)
+                            else next.add(material.id)
+                            return next
+                          })
+                        }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                          selectedMaterialIds.has(material.id) ? "bg-[#EFF6FF]" : "hover:bg-[#F9FAFB]"
+                        )}
+                      >
+                        <div className={cn(
+                          "h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                          selectedMaterialIds.has(material.id)
+                            ? "border-[#2563EB] bg-[#2563EB]"
+                            : "border-[#D1D5DB] bg-white"
+                        )}>
+                          {selectedMaterialIds.has(material.id) && (
+                            <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                              <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                        <FileText className="h-4 w-4 text-[#2563EB] shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[#111827] truncate">{material.name}</p>
+                          <p className="text-xs text-[#9CA3AF]">{material.format} · {material.size}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="px-3 py-8 text-center text-sm text-[#9CA3AF]">暂无项目材料</div>
+              )}
+              {selectedMaterialIds.size > 0 && (
+                <p className="text-xs text-[#6B7280]">已选择 {selectedMaterialIds.size} 份材料</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => { setShowMaterialSelector(false); setSelectedMaterialIds(new Set()); setCurrentSelectingPointId("") }}
+                className="rounded-lg border border-[#E5E7EB] px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSelectMaterialsForPoint}
+                disabled={selectedMaterialIds.size === 0}
+                className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认选择
               </button>
             </div>
           </DialogContent>
