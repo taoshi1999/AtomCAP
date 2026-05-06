@@ -9,6 +9,15 @@ const handler = (req: NextRequest) =>
     req,
     router: appRouter,
     createContext: () => createContext(req),
+    onError({ error, path }) {
+      console.error(`[tRPC] ${path} failed:`, error);
+    },
   });
 
-export { handler as GET, handler as POST };
+export async function GET(req: NextRequest) {
+  return handler(req);
+}
+
+export async function POST(req: NextRequest) {
+  return handler(req);
+}
