@@ -47,7 +47,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const fileBuffer = await request.arrayBuffer();
 
     const blob = await put(filename, fileBuffer, {
-      access: 'private',
+      access: 'public',
       allowOverwrite: true, // 允许覆盖同名文件
     });
 

@@ -73,10 +73,10 @@ export default function HypothesesPage() {
       creator: { name: h.owner || "未分配", role: "投资经理" },
       valuePoints: (h.valuePoints || []).map((vp: any, idx: number) => ({
         id: vp.id,
-        title: `价值点 ${idx + 1}`,
+        title: vp.name || `价值点 ${idx + 1}`,
         evidence: {
           description: vp.support || "",
-          files: (vp.attachments || []).map((a: any) => ({ name: a.name, url: a.url, size: "-", date: (a.createdAt || "").toString().split("T")[0] }))
+          files: (vp.attachments || []).map((a: any) => ({ name: a.name, url: a.url, size: a.size || "-", date: (a.createdAt || "").toString().split("T")[0] }))
         },
         analysis: {
           content: vp.analysis || "",
@@ -88,10 +88,10 @@ export default function HypothesesPage() {
       })),
       riskPoints: (h.riskPoints || []).map((rp: any, idx: number) => ({
         id: rp.id,
-        title: `风险点 ${idx + 1}`,
+        title: rp.name || `风险点 ${idx + 1}`,
         evidence: {
           description: rp.support || "",
-          files: (rp.attachments || []).map((a: any) => ({ name: a.name, url: a.url, size: "-", date: (a.createdAt || "").toString().split("T")[0] }))
+          files: (rp.attachments || []).map((a: any) => ({ name: a.name, url: a.url, size: a.size || "-", date: (a.createdAt || "").toString().split("T")[0] }))
         },
         analysis: {
           content: rp.analysis || "",

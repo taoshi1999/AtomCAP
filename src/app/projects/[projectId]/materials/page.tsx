@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
   Download,
+  Eye,
   File,
   FileImage,
   FileSpreadsheet,
@@ -129,6 +130,36 @@ export default function ProjectMaterialsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const dropZoneRef = useRef<HTMLDivElement | null>(null)
+
+  // Detail dialog state
+  const [detailItem, setDetailItem] = useState<MaterialItem | null>(null)
+
+  // Fetch linked terms and hypotheses for the detail view
+  const { data: linkedTermsData } = api.term.getByProjectId.useQuery(
+    { projectId },
+    { enabled: !!detailItem }
+  )
+  const { data: linkedHypothesesData } = api.hypothesis.getByProject.useQuery(
+    { projectId },
+    { enabled: !!detailItem }
+  )
+
+  // Find terms and hypotheses that have attachments matching the detail material's name
+  const associatedTerms = detailItem && linkedTermsData
+    ? linkedTermsData.filter((t: any) =>
+        t.attachments?.some((a: any) => a.name === detailItem.name)
+      )
+    : []
+  const associatedHypotheses = detailItem && linkedHypothesesData
+    ? linkedHypothesesData.filter((h: any) =>
+        h.valuePoints?.some((vp: any) =>
+          vp.attachments?.some((a: any) => a.name === detailItem.name)
+        ) ||
+        h.riskPoints?.some((rp: any) =>
+          rp.attachments?.some((a: any) => a.name === detailItem.name)
+        )
+      )
+    : []
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -413,7 +444,126 @@ export default function ProjectMaterialsPage() {
 
   return (
     <div className="h-full overflow-auto bg-[#F3F4F6]">
-      <div className="mx-auto max-w-6xl space-y-6 px-8 py-6">
+      {detailItem ? (
+        /* ─── Full Page Material Detail ─── */
+        <div className="mx-auto max-w-6xl space-y-6 px-8 py-6">
+          <button
+            onClick={() => setDetailItem(null)}
+            className="inline-flex items-center gap-1.5 text-sm text-[#6B7280] hover:text-[#111827] transition-colors"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            返回材料列表
+          </button>
+
+          {/* 文件头部概览 */}
+          <div className="flex items-start gap-6 bg-gradient-to-r from-[#F8FAFC] to-[#F1F5F9] rounded-2xl p-8 border border-[#E5E7EB]">
+            <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-white border border-[#E5E7EB] shadow-sm">
+              {(() => { const Icon = getFormatIcon(detailItem.format); return <Icon className="h-12 w-12 text-[#6B7280]" /> })()}
+            </div>
+            <div className="flex-1 min-w-0 space-y-3">
+              <div>
+                <span className="text-xs text-[#9CA3AF]">文件名称</span>
+                <h1 className="text-xl font-bold text-[#111827]">{detailItem.name}</h1>
+              </div>
+              <div className="flex items-center gap-6">
+                <div>
+                  <span className="text-xs text-[#9CA3AF]">格式</span>
+                  <div className="mt-0.5">
+                    <Badge variant="outline" className={getFormatBadgeClass(detailItem.format)}>{detailItem.format}</Badge>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-[#9CA3AF]">大小</span>
+                  <p className="text-sm text-[#111827] font-medium">{detailItem.size}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-[#9CA3AF]">分类</span>
+                  <p className="text-sm text-[#111827]">{detailItem.category || "未分类"}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-[#9CA3AF]">上传日期</span>
+                  <p className="text-sm text-[#111827]">{new Date(detailItem.createdAt).toLocaleDateString("zh-CN")}</p>
+                </div>
+              </div>
+              <div>
+                <span className="text-xs text-[#9CA3AF]">简介</span>
+                <p className="text-sm text-[#374151] leading-relaxed">{detailItem.description || "暂无简介"}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 关联的条款和假设 - 双栏布局 */}
+          <div className="grid grid-cols-2 gap-6">
+            {/* 关联的条款 */}
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-6">
+              <h3 className="text-base font-semibold text-[#111827] mb-4 flex items-center gap-2">
+                <FileText className="h-5 w-5 text-[#2563EB]" />
+                关联的条款
+                {associatedTerms.length > 0 && (
+                  <Badge className="bg-[#DBEAFE] text-[#1E40AF] hover:bg-[#DBEAFE] border-none text-[10px]">{associatedTerms.length}</Badge>
+                )}
+              </h3>
+              {associatedTerms.length > 0 ? (
+                <div className="space-y-3">
+                  {associatedTerms.map((term: any) => (
+                    <div key={term.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-lg border border-[#F3F4F6]">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="h-4 w-4 text-[#6B7280] shrink-0" />
+                        <span className="text-sm font-medium text-[#111827] truncate">{term.title}</span>
+                      </div>
+                      <Badge className={cn(
+                        "text-[10px] shrink-0 ml-2",
+                        term.status === "approved" ? "bg-[#DCFCE7] text-[#166534]" :
+                        term.status === "rejected" ? "bg-[#FEE2E2] text-[#991B1B]" :
+                        "bg-[#FEF3C7] text-[#92400E]"
+                      )}>
+                        {term.status === "approved" ? "已批准" : term.status === "rejected" ? "已否决" : "草拟"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[#9CA3AF] py-8 text-center">暂无关联条款</p>
+              )}
+            </div>
+
+            {/* 关联的假设 */}
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-6">
+              <h3 className="text-base font-semibold text-[#111827] mb-4 flex items-center gap-2">
+                <FileText className="h-5 w-5 text-[#22C55E]" />
+                关联的假设
+                {associatedHypotheses.length > 0 && (
+                  <Badge className="bg-[#DCFCE7] text-[#166534] hover:bg-[#DCFCE7] border-none text-[10px]">{associatedHypotheses.length}</Badge>
+                )}
+              </h3>
+              {associatedHypotheses.length > 0 ? (
+                <div className="space-y-3">
+                  {associatedHypotheses.map((hypo: any) => (
+                    <div key={hypo.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-lg border border-[#F3F4F6]">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="h-4 w-4 text-[#6B7280] shrink-0" />
+                        <span className="text-sm font-medium text-[#111827] truncate">{hypo.title}</span>
+                      </div>
+                      <Badge className={cn(
+                        "text-[10px] shrink-0 ml-2",
+                        hypo.status === "verified" ? "bg-[#DCFCE7] text-[#166534]" :
+                        hypo.status === "risky" ? "bg-[#FEE2E2] text-[#991B1B]" :
+                        "bg-[#FEF3C7] text-[#92400E]"
+                      )}>
+                        {hypo.status === "verified" ? "已验证" : hypo.status === "risky" ? "有风险" : "待验证"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[#9CA3AF] py-8 text-center">暂无关联假设</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="mx-auto max-w-6xl space-y-6 px-8 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#111827]">项目材料</h1>
@@ -495,7 +645,7 @@ export default function ProjectMaterialsPage() {
                     <p className="text-sm leading-6 text-[#6B7280]">
                       {material.description}
                     </p>
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
                       {material.url ? (
                         <Button asChild variant="outline" size="sm" className="gap-1.5">
                           <a
@@ -512,6 +662,15 @@ export default function ProjectMaterialsPage() {
                           下载
                         </Button>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => setDetailItem(material)}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        详情
+                      </Button>
                     </div>
                   </div>
                 )
@@ -679,6 +838,8 @@ export default function ProjectMaterialsPage() {
           </div>
         </DialogContent>
       </Dialog>
+        </>
+      )}
     </div>
   )
 }
