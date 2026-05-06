@@ -16,7 +16,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const result = await get(blobUrl, { access: 'public' });
+    const result = await get(blobUrl, { access: 'private' });
 
     if (!result || result.statusCode !== 200) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
@@ -47,7 +47,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const fileBuffer = await request.arrayBuffer();
 
     const blob = await put(filename, fileBuffer, {
-      access: 'public',
+      access: 'private',
       allowOverwrite: true, // 允许覆盖同名文件
     });
 
