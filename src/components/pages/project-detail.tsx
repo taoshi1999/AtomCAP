@@ -87,9 +87,13 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
   const [activeSubPage, setActiveSubPage] = useState<SubPageKey>("overview")
   const [collapsed, setCollapsed] = useState(false)
   const isNewProject = projectId.startsWith("new-project-")
-  const isMidInvestment  = isNewProject && (phases ?? []).some(p => p.groupLabel === "投中期")
-  const isPostInvestment = isNewProject && (phases ?? []).some(p => p.groupLabel === "投后期")
-  const isInDuration = (phases ?? []).some(p => p.groupLabel === "存续期") || isPostInvestment
+
+  // 根据 project.status 判断阶段，优先使用 project.status，如果没有则用 phases 判断
+  const projectStage = project?.status || ""
+  const isPreInvestment = projectStage === "投前期" || projectStage === "未立项"
+  const isMidInvestment = projectStage === "投中期" || (!projectStage && isNewProject && (phases ?? []).some(p => p.groupLabel === "投中期"))
+  const isPostInvestment = projectStage === "投后期" || (!projectStage && isNewProject && (phases ?? []).some(p => p.groupLabel === "投后期"))
+  const isInDuration = projectStage === "存续期" || (phases ?? []).some(p => p.groupLabel === "存续期") || isPostInvestment
   const isHypothesisLocked = isInDuration || isMidInvestment
   const termLockPeriod = isPostInvestment ? "投后期" : "存续期"
   const [currentPhase, setCurrentPhase] = useState<string>(isNewProject ? "无" : "")
@@ -218,6 +222,8 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
             isNewProject={isNewProject}
             isInDuration={isInDuration || !!isExited}
             isExited={isExited}
+            isMidInvestment={isMidInvestment}
+            isPostInvestment={isPostInvestment}
             termLockPeriod={termLockPeriod}
             project={project}
             projectMaterials={projectMaterials}
@@ -232,6 +238,8 @@ export function ProjectDetail({ projectId, project, phases, onPhasesChange, onCr
           <ProjectMaterials
             isNewProject={isNewProject}
             isExited={isExited}
+            isMidInvestment={isMidInvestment}
+            isPostInvestment={isPostInvestment}
             project={project}
             strategyMaterials={projectMaterials}
             projectId={projectId}

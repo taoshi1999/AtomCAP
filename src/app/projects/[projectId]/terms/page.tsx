@@ -35,8 +35,10 @@ export default function TermsPage() {
       <TermSheet
         project={project as any}
         isNewProject={isNewProject}
-        isInDuration={false}
-        isExited={false}
+        isMidInvestment={project?.status === "投中期"}
+        isPostInvestment={project?.status === "投后期"}
+        isInDuration={project?.status === "投后期"}
+        isExited={project?.status === "已退出"}
         termLockPeriod="存续期"
         inheritedTerms={[]}
         extraDetails={{}}

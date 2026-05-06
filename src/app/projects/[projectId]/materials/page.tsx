@@ -408,23 +408,34 @@ export default function ProjectMaterialsPage() {
     )
   }
 
+  const isPostInvestment = project?.status === "投后期"
+  const isExited = project?.status === "已退出"
+
   return (
     <div className="h-full overflow-auto bg-[#F3F4F6]">
       <div className="mx-auto max-w-6xl space-y-6 px-8 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#111827]">项目材料</h1>
-            <p className="mt-1 text-sm text-[#6B7280]">
-              {project.name} 的项目材料清单，支持多文件上传、逐文件简介填写和下载查看。
-            </p>
+            {isExited ? (
+              <p className="mt-1 text-sm text-[#EF4444] font-medium">项目已退出，所有信息不可更改。</p>
+            ) : isPostInvestment ? (
+              <p className="mt-1 text-sm text-[#D97706] font-medium">本项目处于投后期，材料仅可查看，不可新增或删除。</p>
+            ) : (
+              <p className="mt-1 text-sm text-[#6B7280]">
+                {project.name} 的项目材料清单，支持多文件上传、逐文件简介填写和下载查看。
+              </p>
+            )}
           </div>
-          <Button
-            className="gap-2 bg-[#2563EB] hover:bg-[#1D4ED8]"
-            onClick={() => handleDialogOpenChange(true)}
-          >
-            <Upload className="h-4 w-4" />
-            上传材料
-          </Button>
+          {!isExited && !isPostInvestment && (
+            <Button
+              className="gap-2 bg-[#2563EB] hover:bg-[#1D4ED8]"
+              onClick={() => handleDialogOpenChange(true)}
+            >
+              <Upload className="h-4 w-4" />
+              上传材料
+            </Button>
+          )}
         </div>
 
         <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">

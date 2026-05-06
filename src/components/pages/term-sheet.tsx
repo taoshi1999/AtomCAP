@@ -621,6 +621,8 @@ interface TermSheetProps {
   isNewProject?: boolean
   isInDuration?: boolean
   isExited?: boolean
+  isMidInvestment?: boolean
+  isPostInvestment?: boolean
   termLockPeriod?: string
   project?: { strategyId?: string; strategyName?: string }
   projectMaterials?: StrategyMaterial[]
@@ -641,7 +643,7 @@ const SECTIONS = [
   { key: "implementation", label: "落实情况", color: "text-[#06B6D4]", border: "border-[#06B6D4]" },
 ]
 
-export function TermSheet({ project, ...props }: any) {
+export function TermSheet({ project, isExited, isMidInvestment, isPostInvestment, ...props }: any) {
   const projectId = project?.id || "1";
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -860,7 +862,15 @@ export function TermSheet({ project, ...props }: any) {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-2xl font-bold text-[#111827]">条款清单</h1>
-              <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
+              {isExited ? (
+                <p className="mt-1 text-sm text-[#EF4444] font-medium">项目已退出，所有信息不可更改。</p>
+              ) : isPostInvestment ? (
+                <p className="mt-1 text-sm text-[#D97706] font-medium">本项目处于投后期，条款仅可追踪落实，不可修改条款内容。</p>
+              ) : isMidInvestment ? (
+                <p className="mt-1 text-sm text-[#D97706] font-medium">本项目处于投中期，条款可新增、修改和删除。</p>
+              ) : (
+                <p className="mt-1 text-sm text-[#6B7280]">管理和跟踪项目投资条款</p>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -873,7 +883,7 @@ export function TermSheet({ project, ...props }: any) {
                   className="w-64 pl-9 bg-white border-[#E5E7EB]"
                 />
               </div>
-              <Button onClick={handleStartCreate} className="bg-[#2563EB] hover:bg-[#1D4ED8]">
+              <Button onClick={handleStartCreate} className="bg-[#2563EB] hover:bg-[#1D4ED8]" disabled={isPostInvestment || isExited}>
                 <Plus className="h-4 w-4 mr-2" />
                 新建条款
               </Button>
@@ -1040,6 +1050,7 @@ export function TermSheet({ project, ...props }: any) {
                           <button
                             onClick={() => handleDeleteTerm(item.id)}
                             className="inline-flex items-center gap-1 text-xs font-medium text-[#EF4444] hover:opacity-80 transition-colors"
+                            style={{ display: (isPostInvestment || isExited) ? 'none' : 'inline-flex' }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             删除
@@ -1110,10 +1121,46 @@ export function TermSheet({ project, ...props }: any) {
                         <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
                         {sec.label}
                       </h3>
+                      {!(isPostInvestment || isExited) && (
+                        <button
+                          onClick={() => {
+                            setEditSectionKey(sec.key)
+                            setEditContent(content)
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-[#6B7280] hover:text-[#374151] transition-colors"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          编辑
+                        </button>
+                      )}
                     </div>
                     
                     <div className="bg-[#F9FAFB] rounded-lg p-5 text-sm text-[#374151] whitespace-pre-wrap min-h-[40px] mb-4">
-                        {content || "暂无内容"}
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <textarea
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              className="w-full rounded-lg border border-[#E5E7EB] p-3 text-sm min-h-[80px] outline-none focus:border-[#2563EB]"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => { setEditSectionKey(null); setEditContent(""); }}
+                                className="px-3 py-1.5 text-xs font-medium text-[#6B7280] hover:text-[#374151] border border-[#E5E7EB] rounded-lg hover:bg-[#E5E7EB]"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={() => handleSaveSection(selectedTerm.id, sec.key)}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg"
+                              >
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span>{content || "暂无内容"}</span>
+                        )}
                     </div>
 
                     {sectionAttachments.length > 0 ? (
