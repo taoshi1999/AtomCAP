@@ -15,7 +15,7 @@ import {
 import { api } from "@/src/trpc/react"
 import { AppTopbar, type TopNavKey } from "@/src/components/app-topbar"
 import { StrategyCenter } from "@/src/components/pages/strategy-center"
-import type { Strategy } from "@/src/components/pages/strategies-grid"
+import type { Strategy, CreateStrategyResult } from "@/src/components/pages/strategies-grid"
 
 /* --------------------------------------------------------------------------
  * API → UI adapter
@@ -41,6 +41,7 @@ interface ApiStrategyRow {
   name: string
   frameworkName: string
   description: string
+  tags: string
   owner: { id: string; name: string; initials: string }
   projectCount: number
   totalInvest: string
@@ -56,6 +57,7 @@ function adaptStrategy(row: ApiStrategyRow): Strategy {
     icon: cfg.icon,
     iconBg: cfg.iconBg,
     description: row.description,
+    tags: row.tags,
     projectCount: row.projectCount,
     totalInvest: row.totalInvest,
     returnRate: row.returnRate,
@@ -93,12 +95,47 @@ export default function StrategiesPage() {
   )
 
   // StrategyCenter 要求传入可变的 strategies 数组。
-  // 由于目前 strategy router 尚无 mutation，编辑操作只在本地副本生效，不持久化。
-  // 后续在 strategy.ts 里加 create / update / delete mutation 后再替换成真调。
   const [localStrategies, setLocalStrategies] = useState<Strategy[]>([])
   useEffect(() => {
     setLocalStrategies(strategies)
   }, [strategies])
+
+  const utils = api.useUtils()
+  const createMutation = api.strategy.create.useMutation({
+    onSuccess: () => {
+      utils.strategy.getAll.invalidate()
+    },
+  })
+
+  async function handleCreateStrategy(result: CreateStrategyResult): Promise<Strategy | null> {
+    try {
+      const created = await createMutation.mutateAsync({
+        name: result.strategy.name,
+        description: result.strategy.description,
+        tags: (result.strategy as any).tags || "",
+        frameworkName: result.strategy.frameworkName,
+        iconName: (result.strategy as any).iconName || "Target",
+      })
+      const cfg = ICON_MAP[created.iconName] ?? ICON_MAP.Target!
+      return {
+        id: created.id,
+        name: created.name,
+        icon: cfg.icon,
+        iconBg: cfg.iconBg,
+        description: created.description,
+        tags: created.tags,
+        projectCount: created.projectCount,
+        totalInvest: created.totalInvest,
+        returnRate: created.returnRate,
+        owner: created.owner,
+        createdAt: created.createdAt,
+        frameworkName: created.frameworkName || undefined,
+      }
+    } catch (error) {
+      console.error("创建策略失败:", error)
+      return null
+    }
+  }
 
   function handleTopNav(nav: TopNavKey) {
     if (nav === "strategies") return
@@ -142,12 +179,7 @@ export default function StrategiesPage() {
             strategies={localStrategies}
             onStrategiesChange={setLocalStrategies}
             onSelectStrategy={handleSelectStrategy}
-            // 变更请求审批流仍是纯前端状态，这里留空；后续加 mutation 后再接
-            onCreatePending={() => {
-              console.warn(
-                "[strategies] onCreatePending is a no-op until strategy router gains a create mutation",
-              )
-            }}
+            onCreateStrategy={handleCreateStrategy}
           />
         )}
       </main>

@@ -161,6 +161,7 @@ model Strategy {
   name            String   @db.VarChar(255)
   frameworkName   String?  @db.VarChar(255)
   description     String?
+  tags            String?  @db.VarChar(500)
   managerName     String?  @db.VarChar(100)
   projectCount    Int      @default(0)
   totalInvestment String?  @db.VarChar(50)

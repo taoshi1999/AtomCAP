@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Briefcase, Search, Plus, Target, TrendingUp, Building2, Cpu, Zap, Leaf, X, Check, MoreHorizontal, ChevronRight, ArrowLeft, Upload, Folder, Eye, Pencil, Trash2, Sparkles, Lightbulb, FolderOpen, FileText, Sheet, File } from "lucide-react"
 import { Input } from "@/src/components/ui/input"
 import { Avatar, AvatarFallback } from "@/src/components/ui/avatar"
@@ -32,6 +32,7 @@ export interface Strategy {
   icon: typeof Cpu
   iconBg: string
   description: string
+  tags?: string
   projectCount: number
   totalInvest: string
   returnRate: string
@@ -264,6 +265,7 @@ interface StrategiesGridProps {
   onStrategiesChange: (strategies: Strategy[]) => void
   onSelectStrategy?: (strategyId: string) => void
   onCreatePending?: (pending: PendingStrategy) => void
+  onCreateStrategy?: (result: CreateStrategyResult) => Promise<Strategy | null>
 }
 
 /* ------------------------------------------------------------------ */
@@ -526,7 +528,7 @@ export interface CreateStrategyResult {
   uploadedMaterials: { name: string; size: string; type: string; description: string }[]
 }
 
-function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void; onSave: (result: CreateStrategyResult) => void; strategies: Strategy[] }) {
+function CreateStrategy({ onCancel, onSave, strategies, isSaving }: { onCancel: () => void; onSave: (result: CreateStrategyResult) => void; strategies: Strategy[]; isSaving?: boolean }) {
   const [step, setStep] = useState(1)
 
   // Step 1 state
@@ -543,6 +545,46 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
   const [isUploading, setIsUploading] = useState(false)
   const [aiAutoResearch, setAiAutoResearch] = useState(true)
   const [selectedBrowserFiles, setSelectedBrowserFiles] = useState<string[]>([])
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isRealUploading, setIsRealUploading] = useState(false)
+
+  async function handleRealFileUpload(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setIsRealUploading(true)
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        if (!file) continue
+        const ext = file.name.split(".").pop()?.toUpperCase() || "FILE"
+        const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+          method: "POST",
+          body: file,
+        })
+        const result = await response.json()
+        if (!response.ok) {
+          console.error("上传失败:", result.error)
+          continue
+        }
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+        setUploadedFiles((prev) => [
+          ...prev,
+          {
+            name: file.name,
+            size: `${sizeMB} MB`,
+            type: ext,
+            description: `${file.name}：用户上传的赛道材料。`,
+            url: result.url as string,
+          } as any,
+        ])
+      }
+    } catch (error) {
+      console.error("文件上传出错:", error)
+    } finally {
+      setIsRealUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
 
   // Mock directory files - matches AI基础设施 strategy's 通用材料 (10 files)
   const MOCK_DIRECTORY_FILES = [
@@ -600,24 +642,32 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
   const [viewingTermDetail, setViewingTermDetail] = useState<string | null>(null)
 
   // Generated hypotheses and terms (mirrors AI基础设施 preset)
-  const [generatedHypotheses] = useState([
-    { id: "gen-h1", direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h2", direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市场将在3年内达到500亿美元规模", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h3", direction: "技术攻关", category: "模型训练框架", name: "开源大模型训练框架将成为主流技术路线", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h4", direction: "技术攻关", category: "模型训练框架", name: "分布式训练效率提升是大模型竞争关键", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h5", direction: "技术攻关", category: "基础软件生态", name: "AI编译器将成为新的基础软件投资赛道", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h6", direction: "技术攻关", category: "基础软件生态", name: "MLOps平台市场需求将快速增长", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-h7", direction: "团队能力", category: "创始人", name: "创始人具备丰富的AI产品商业化经验", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+  const [generatedHypotheses, setGeneratedHypotheses] = useState([
+    { id: "gen-h1", direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "随着国产AI芯片技术的持续进步，在特定推理场景下，国产芯片的性价比和能效比已接近或达到英伟达方案的水平。目前国产芯片在INT8推理性能上已达到A100的80%，能效比在特定场景下甚至优于英伟达方案，价格约为进口方案的60%，成本优势显著。", recommendation: "国产芯片替代路径正在加速验证，叠加国产化政策红利与供应链安全诉求，下游采购意愿持续提升。当前市场窗口期是布局核心标的的关键时机。", materials: [{ name: "GPU_AI芯片行业全景报告_2024", format: "PDF" }, { name: "云服务商GPU算力价格对比表", format: "XLSX" }] },
+    { id: "gen-h2", direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市场将在3年内达到500亿美元规模", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "基于大模型训练和推理需求的爆发式增长，预计全球云端AI芯片市场将在2027年达到500亿美元规模。ChatGPT的成功带动大模型需求全面爆发，各大云厂商持续加大AI算力资本开支。", recommendation: "云端AI算力的结构性增长已获头部科技公司资本开支数据的明确印证，市场规模上限清晰。该假设已验证，可作为策略整体投资逻辑的宏观需求锚点。", materials: [{ name: "全球算力基础设施市场规模分析", format: "PDF" }, { name: "大模型训练成本结构分析", format: "XLSX" }] },
+    { id: "gen-h3", direction: "技术攻关", category: "模型训练框架", name: "开源大模型训练框架将成为主流技术路线", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "开源大模型训练框架如PyTorch、JAX等正在快速迭代，生态成熟度持续提升，越来越多的企业和研究机构选择开源框架作为技术底座。", recommendation: "开源框架的生态优势正在转化为商业价值，建议关注基于开源框架构建商业产品的初创企业。", materials: [{ name: "主流AI训练框架技术对比", format: "DOCX" }] },
+    { id: "gen-h4", direction: "技术攻关", category: "模型训练框架", name: "分布式训练效率提升是大模型竞争关键", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "随着模型参数规模持续增长，分布式训练效率成为决定大模型竞争力的核心因素，训练效率每提升10%可节省数百万美元成本。", recommendation: "分布式训练优化技术是当前AI基础设施投资的重要方向，建议关注在该领域有技术积累的团队。", materials: [{ name: "大模型训练成本结构分析", format: "XLSX" }] },
+    { id: "gen-h5", direction: "技术攻关", category: "基础软件生态", name: "AI编译器将成为新的基础软件投资赛道", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "AI编译器作为连接算法和硬件的关键中间层，其性能直接影响模型训练和推理效率，正在成为AI基础设施的核心组件。", recommendation: "AI编译器赛道技术壁垒高、市场空间大，建议重点关注在该领域有原创技术的创业团队。", materials: [{ name: "AI芯片技术路线图_GPU_TPU_NPU", format: "PPTX" }] },
+    { id: "gen-h6", direction: "技术攻关", category: "基础软件生态", name: "MLOps平台市场需求将快速增长", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "随着企业AI应用从实验阶段走向规模化部署，MLOps平台作为模型生命周期管理的核心工具，市场需求正在快速增长。", recommendation: "MLOps是AI基础设施的重要组成，建议关注具备端到端能力的平台型产品。", materials: [{ name: "AI基础设施投融资趋势报告_2023-2024", format: "PDF" }] },
+    { id: "gen-h7", direction: "团队能力", category: "创始人", name: "创始人具备丰富的AI产品商业化经验", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "创始团队在AI产品商业化方面具有丰富经验，曾成功将多个AI产品从0到1推向市场，具备完整的产品-市场匹配能力。", recommendation: "创始人的商业化经验是项目成功的关键保障，建议在尽调中重点验证其过往业绩和行业资源。", materials: [] },
   ])
 
-  const [generatedTerms] = useState([
-    { id: "gen-t1", direction: "控制权条款", category: "董事会席位", name: "投资方有权委派一名董事进入公司董事会", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t2", direction: "投资保护条款", category: "信息权", name: "投资方有权获取被投企业月度财务报告", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t3", direction: "投资保护条款", category: "信息权", name: "投资方有权对重大技术决策进行知情和建议", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t4", direction: "投资保护条款", category: "反稀释条款", name: "采用完全棘轮反稀释条款保护投资方权益", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t5", direction: "控制权条款", category: "重大事项否决权", name: "对核心技术IP转让和授权享有一票否决权", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
-    { id: "gen-t6", direction: "退出条款", category: "回购条款", name: "若公司未能在5年内实现IPO，投资方有权要求回购", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending" },
+  const [generatedTerms, setGeneratedTerms] = useState([
+    { id: "gen-t1", direction: "控制权条款", category: "董事会席位", name: "投资方有权委派一名董事进入公司董事会", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "该条款规定投资方有权向公司董事会委派一名董事代表，参与公司重大决策，保护投资方的权益。核心要点包括：确保投资方在重大决策中的话语权，有助于监督公司运营和财务状况。", recommendation: "AI芯片赛道的技术路线迭代迅速，董事席位条款可确保投资方第一时间掌握被投企业的技术进展与战略调整，有效降低信息不对称风险。", materials: [{ name: "GPU_AI芯片行业全景报告_2024", format: "PDF" }, { name: "AI基础设施投融资趋势报告_2023-2024", format: "PDF" }], relatedHypotheses: [{ direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案" }] },
+    { id: "gen-t2", direction: "投资保护条款", category: "信息权", name: "投资方有权获取被投企业月度财务报告", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "该条款赋予投资方获取被投企业月度财务报告的权利，确保投资方能够及时了解企业的经营状况和财务健康度，是投资保护条款体系的基础。", recommendation: "信息权条款是投资保护的基础保障，建议在协议中明确报告的内容范围和提交时限，确保信息的及时性和完整性。", materials: [{ name: "投资条款标准模板", format: "PDF" }], relatedHypotheses: [] },
+    { id: "gen-t3", direction: "投资保护条款", category: "信息权", name: "投资方有权对重大技术决策进行知情和建议", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "该条款确保投资方对公司的重大技术决策享有知情权和建议权，特别是在AI芯片等高科技领域，技术路线选择直接影响企业价值。", recommendation: "技术决策知情权对于AI芯片赛道尤为重要，建议明确重大技术决策的定义范围和通知时限。", materials: [{ name: "AI芯片技术路线图_GPU_TPU_NPU", format: "PPTX" }], relatedHypotheses: [{ direction: "技术攻关", category: "算力与芯片", name: "云端AI芯片市场将在3年内达到500亿美元规模" }] },
+    { id: "gen-t4", direction: "投资保护条款", category: "反稀释条款", name: "采用完全棘轮反稀释条款保护投资方权益", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "完全棘轮反稀释条款确保在后续融资估值低于本轮时，投资方的持股比例不受稀释影响，是最严格的投资者保护机制之一。", recommendation: "完全棘轮条款对创始团队激励有较大影响，建议结合项目阶段和估值预期审慎使用，可考虑加权平均作为替代方案。", materials: [{ name: "投资条款标准模板", format: "PDF" }], relatedHypotheses: [] },
+    { id: "gen-t5", direction: "控制权条款", category: "重大事项否决权", name: "对核心技术IP转让和授权享有一票否决权", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "该条款赋予投资方对核心技术IP的转让和授权事项享有一票否决权，保护投资方在关键技术资产处置中的利益。", recommendation: "核心技术IP是AI芯片企业的核心资产，一票否决权可有效防止创始团队在压力下做出损害公司长期价值的决策。", materials: [{ name: "AI监管合规政策汇编", format: "PDF" }], relatedHypotheses: [{ direction: "技术攻关", category: "基础软件生态", name: "AI编译器将成为新的基础软件投资赛道" }] },
+    { id: "gen-t6", direction: "退出条款", category: "回购条款", name: "若公司未能在5年内实现IPO，投资方有权要求回购", owner: "张伟", createdAt: new Date().toISOString().split("T")[0], status: "pending", description: "该条款规定若公司在约定期限内未能实现IPO或其他约定的退出方式，投资方有权要求公司或创始团队按约定价格回购其持有的股份。", recommendation: "回购条款是投资退出的重要保障，建议明确回购价格的计算方式和支付安排，确保条款的可执行性。", materials: [{ name: "投资条款标准模板", format: "PDF" }], relatedHypotheses: [] },
   ])
+
+  const [showHypothesisModal, setShowHypothesisModal] = useState(false)
+  const [editingHypothesisId, setEditingHypothesisId] = useState<string | null>(null)
+  const [hypothesisForm, setHypothesisForm] = useState({ direction: "", category: "", name: "", description: "", recommendation: "", materialsStr: "" })
+
+  const [showTermModal, setShowTermModal] = useState(false)
+  const [editingTermId, setEditingTermId] = useState<string | null>(null)
+  const [termForm, setTermForm] = useState({ direction: "", category: "", name: "", description: "", recommendation: "", materialsStr: "", relatedHypothesesStr: "" })
 
   const ANALYSIS_STEPS = [
     { label: "分析已有策略", icon: "strategy" },
@@ -655,6 +705,140 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
     startAnalysis()
   }
 
+  function openAddHypothesis() {
+    setEditingHypothesisId(null)
+    setHypothesisForm({ direction: "", category: "", name: "", description: "", recommendation: "", materialsStr: "" })
+    setShowHypothesisModal(true)
+  }
+
+  function openEditHypothesis(id: string) {
+    const h = generatedHypotheses.find((item) => item.id === id)
+    if (h) {
+      setEditingHypothesisId(id)
+      setHypothesisForm({
+        direction: h.direction,
+        category: h.category,
+        name: h.name,
+        description: (h as any).description || "",
+        recommendation: (h as any).recommendation || "",
+        materialsStr: ((h as any).materials || []).map((m: any) => `${m.name} (${m.format})`).join("\n"),
+      })
+      setShowHypothesisModal(true)
+    }
+  }
+
+  function saveHypothesis() {
+    if (!hypothesisForm.name.trim()) return
+    const materialsList = hypothesisForm.materialsStr
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^(.+?)\s*\((\w+)\)$/)
+        if (match) return { name: match[1]!.trim(), format: match[2]!.trim() }
+        return { name: line.trim(), format: "PDF" }
+      })
+    if (editingHypothesisId) {
+      setGeneratedHypotheses((prev) =>
+        prev.map((h) =>
+          h.id === editingHypothesisId
+            ? { ...h, direction: hypothesisForm.direction, category: hypothesisForm.category, name: hypothesisForm.name.trim(), description: hypothesisForm.description, recommendation: hypothesisForm.recommendation, materials: materialsList }
+            : h
+        )
+      )
+    } else {
+      const newHypothesis = {
+        id: `gen-h${Date.now()}`,
+        direction: hypothesisForm.direction || "未分类",
+        category: hypothesisForm.category || "未分类",
+        name: hypothesisForm.name.trim(),
+        description: hypothesisForm.description,
+        recommendation: hypothesisForm.recommendation,
+        materials: materialsList,
+        owner: "张伟",
+        createdAt: new Date().toISOString().split("T")[0],
+        status: "pending",
+      }
+      setGeneratedHypotheses((prev) => [...prev, newHypothesis])
+    }
+    setShowHypothesisModal(false)
+  }
+
+  function deleteHypothesis(id: string) {
+    setGeneratedHypotheses((prev) => prev.filter((h) => h.id !== id))
+  }
+
+  function openAddTerm() {
+    setEditingTermId(null)
+    setTermForm({ direction: "", category: "", name: "", description: "", recommendation: "", materialsStr: "", relatedHypothesesStr: "" })
+    setShowTermModal(true)
+  }
+
+  function openEditTerm(id: string) {
+    const t = generatedTerms.find((item) => item.id === id)
+    if (t) {
+      setEditingTermId(id)
+      setTermForm({
+        direction: t.direction,
+        category: t.category,
+        name: t.name,
+        description: (t as any).description || "",
+        recommendation: (t as any).recommendation || "",
+        materialsStr: ((t as any).materials || []).map((m: any) => `${m.name} (${m.format})`).join("\n"),
+        relatedHypothesesStr: ((t as any).relatedHypotheses || []).map((h: any) => `${h.name} (${h.direction}/${h.category})`).join("\n"),
+      })
+      setShowTermModal(true)
+    }
+  }
+
+  function saveTerm() {
+    if (!termForm.name.trim()) return
+    const materialsList = termForm.materialsStr
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^(.+?)\s*\((\w+)\)$/)
+        if (match) return { name: match[1]!.trim(), format: match[2]!.trim() }
+        return { name: line.trim(), format: "PDF" }
+      })
+    const relatedHypothesesList = termForm.relatedHypothesesStr
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^(.+?)\s*\((.+?)\/(.+?)\)$/)
+        if (match) return { name: match[1]!.trim(), direction: match[2]!.trim(), category: match[3]!.trim() }
+        return { name: line.trim(), direction: "未分类", category: "未分类" }
+      })
+    if (editingTermId) {
+      setGeneratedTerms((prev) =>
+        prev.map((t) =>
+          t.id === editingTermId
+            ? { ...t, direction: termForm.direction, category: termForm.category, name: termForm.name.trim(), description: termForm.description, recommendation: termForm.recommendation, materials: materialsList, relatedHypotheses: relatedHypothesesList }
+            : t
+        )
+      )
+    } else {
+      const newTerm = {
+        id: `gen-t${Date.now()}`,
+        direction: termForm.direction || "未分类",
+        category: termForm.category || "未分类",
+        name: termForm.name.trim(),
+        description: termForm.description,
+        recommendation: termForm.recommendation,
+        materials: materialsList,
+        relatedHypotheses: relatedHypothesesList,
+        owner: "张伟",
+        createdAt: new Date().toISOString().split("T")[0],
+        status: "pending",
+      }
+      setGeneratedTerms((prev) => [...prev, newTerm])
+    }
+    setShowTermModal(false)
+  }
+
+  function deleteTerm(id: string) {
+    setGeneratedTerms((prev) => prev.filter((t) => t.id !== id))
+  }
+
   function handleSave() {
     onSave({
       strategy: {
@@ -668,7 +852,9 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
         owner: { id: "zhangwei", name: "张伟", initials: "张伟" },
         createdAt: new Date().toISOString().split("T")[0],
         frameworkName: selectedFramework,
-      },
+        tags: tags.join(","),
+        iconName: "CPU",
+      } as any,
       generatedHypotheses: generatedHypotheses.map((h) => ({
         direction: h.direction,
         category: h.category,
@@ -718,6 +904,16 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
         </div>
       </div>
 
+      {/* Hidden file input - always rendered so Step 2 and Step 3 can both trigger it */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.csv"
+        onChange={(e) => handleRealFileUpload(e.target.files)}
+        className="hidden"
+      />
+
       {/* Main content */}
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="mx-auto max-w-3xl">
@@ -742,8 +938,9 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
 
               {/* Upload Zone */}
               <button
-                onClick={() => setShowFileBrowser(true)}
-                className="w-full rounded-2xl border-2 border-dashed border-[#D1D5DB] bg-white p-10 text-center transition-all hover:border-[#2563EB] hover:bg-blue-50/30 group mb-6"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isRealUploading}
+                className="w-full rounded-2xl border-2 border-dashed border-[#D1D5DB] bg-white p-10 text-center transition-all hover:border-[#2563EB] hover:bg-blue-50/30 group mb-6 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F3F4F6] group-hover:bg-blue-100 transition-colors">
@@ -751,10 +948,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                   </div>
                   <div>
                     <p className="text-sm font-medium text-[#374151] group-hover:text-[#2563EB] transition-colors">
-                      拖拽文件到此处或点击上传
+                      {isRealUploading ? "正在上传..." : "点击从本地上传文件"}
                     </p>
                     <p className="mt-1 text-xs text-[#9CA3AF]">
-                      支持 PDF、Word、PPT 格式，如内部投资手册、IC 流程文档等
+                      支持 PDF、Word、PPT、Excel 格式，如内部投资手册、IC 流程文档等
                     </p>
                   </div>
                 </div>
@@ -1123,7 +1320,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                         <span className="text-sm text-[#6B7280]">
                           共 {generatedHypotheses.filter((h) => h.name.toLowerCase().includes(reviewSearchQuery.toLowerCase()) || h.direction.includes(reviewSearchQuery) || h.category.includes(reviewSearchQuery)).length} 个假设
                         </span>
-                        <button className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
+                        <button onClick={openAddHypothesis} className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
                           <Plus className="h-4 w-4" />
                           新增假设
                         </button>
@@ -1147,10 +1344,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
-                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
+                              <button onClick={() => openEditHypothesis(h.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
                                 <Pencil className="h-4 w-4" />
                               </button>
-                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
+                              <button onClick={() => deleteHypothesis(h.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
@@ -1166,7 +1363,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                         <span className="text-sm text-[#6B7280]">
                           共 {generatedTerms.filter((t) => t.name.toLowerCase().includes(reviewSearchQuery.toLowerCase()) || t.direction.includes(reviewSearchQuery) || t.category.includes(reviewSearchQuery)).length} 个条款
                         </span>
-                        <button className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
+                        <button onClick={openAddTerm} className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]">
                           <Plus className="h-4 w-4" />
                           新增条款
                         </button>
@@ -1190,10 +1387,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
-                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
+                              <button onClick={() => openEditTerm(t.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#F59E0B] transition-colors" title="编辑">
                                 <Pencil className="h-4 w-4" />
                               </button>
-                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
+                              <button onClick={() => deleteTerm(t.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#FEE2E2] hover:text-[#EF4444] transition-colors" title="删除">
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
@@ -1210,11 +1407,12 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                           共 {uploadedFiles.length} 个材料
                         </span>
                         <button
-                          onClick={() => setShowFileBrowser(true)}
-                          className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isRealUploading}
+                          className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-50"
                         >
                           <Plus className="h-4 w-4" />
-                          添加材料
+                          {isRealUploading ? "上传中..." : "添加材料"}
                         </button>
                       </div>
                       {uploadedFiles.length === 0 ? (
@@ -1270,10 +1468,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                     </button>
                     <button
                       onClick={handleSave}
-                      disabled={!name.trim()}
+                      disabled={!name.trim() || isSaving}
                       className="rounded-lg bg-[#1F2937] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#111827] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      确认创建策略
+                      {isSaving ? "正在保存..." : "确认创建策略"}
                     </button>
                   </div>
                 </div>
@@ -1319,31 +1517,9 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                 const h = generatedHypotheses.find(h => h.id === viewingHypothesisDetail)
                 if (!h) return null
 
-                const HYPOTHESIS_DETAILS: Record<string, { description: string; recommendation: string; materials: { name: string; format: string }[] }> = {
-                  "国产AI芯片在推理场景下可替代英伟达方案": {
-                    description: "随着国产AI芯片技术的持续进步，在特定推理场景下，国产芯片的性价比和能效比已接近或达到英伟达方案的水平。目前国产芯片在INT8推理性能上已达到A100的80%，能效比在特定场景下甚至优于英伟达方案，价格约为进口方案的60%，成本优势显著。主要短板在于软件生态尚不完善，但随着国产化生态建设提速，整体替代可行性正在持续提升。",
-                    recommendation: "国产芯片替代路径正在加速验证，叠加国产化政策红利与供应链安全诉求，下游采购意愿持续提升。当前市场窗口期是布局核心标的的关键时机，该假设若得到验证，将为策略在算力芯片赛道的选标逻辑提供重要支撑，建议重点关注推理芯片性价比领先的国内厂商。",
-                    materials: [
-                      { name: "GPU_AI芯片行业全景报告_2024", format: "PDF" },
-                      { name: "云服务商GPU算力价格对比表", format: "XLSX" },
-                      { name: "AI基础设施投融资趋势报告_2023-2024", format: "PDF" },
-                    ],
-                  },
-                  "云端AI芯片市场将在3年内达到500亿美元规模": {
-                    description: "基于大模型训练和推理需求的爆发式增长，预计全球云端AI芯片市场将在2027年达到500亿美元规模。ChatGPT的成功带动大模型需求全面爆发，各大云厂商持续加大AI算力资本开支，训练芯片需求年增长率已超过50%，推理芯片市场增速更为显著，整体市场规模扩张路径清晰可见。",
-                    recommendation: "云端AI算力的结构性增长已获头部科技公司资本开支数据的明确印证，市场规模上限清晰。该假设已验证，可作为策略整体投资逻辑的宏观需求锚点，为算力赛道的标的估值提供市场容量背书，增强投资决策的确定性。",
-                    materials: [
-                      { name: "全球算力基础设施市场规模分析", format: "PDF" },
-                      { name: "AI基础设施投融资趋势报告_2023-2024", format: "PDF" },
-                      { name: "大模型训练成本结构分析", format: "XLSX" },
-                    ],
-                  },
-                }
-
-                const detail = HYPOTHESIS_DETAILS[h.name]
-                const description = detail?.description || "该假设描述了在当前技术和市场环境下的核心判断，需要通过多维度数据和调研来验证其有效性，为投资决策提供关键依据。"
-                const recommendation = detail?.recommendation || "基于当前市场环境和技术发展趋势，该假设具有较高的验证价值，建议重点关注相关赛道的核心标的和技术突破进展。"
-                const materials = detail?.materials || [{ name: "行业分析报告", format: "PDF" }]
+                const description = (h as any).description || "该假设描述了在当前技术和市场环境下的核心判断，需要通过多维度数据和调研来验证其有效性，为投资决策提供关键依据。"
+                const recommendation = (h as any).recommendation || "基于当前市场环境和技术发展趋势，该假设具有较高的验证价值，建议重点关注相关赛道的核心标的和技术突破进展。"
+                const materials = (h as any).materials && (h as any).materials.length > 0 ? (h as any).materials : [{ name: "行业分析报告", format: "PDF" }]
 
                 const formatIcon = (fmt: string) => {
                   if (fmt === "XLSX") return <Sheet className="h-4 w-4 text-emerald-600" />
@@ -1390,7 +1566,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                         <span className="ml-auto text-xs text-[#9CA3AF]">{materials.length} 个关联材料</span>
                       </div>
                       <div className="space-y-2">
-                        {materials.map((material, idx) => (
+                        {materials.map((material: { name: string; format: string }, idx: number) => (
                           <div key={idx} className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 transition-colors hover:bg-[#F3F4F6]">
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white border border-[#E5E7EB]">
                               {formatIcon(material.format)}
@@ -1450,26 +1626,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                 const t = generatedTerms.find(t => t.id === viewingTermDetail)
                 if (!t) return null
 
-                const TERM_DETAILS: Record<string, { description: string; recommendation: string; materials: { name: string; format: string }[]; relatedHypotheses: { direction: string; category: string; name: string }[] }> = {
-                  "投资方有权委派一名董事进入公司董事会": {
-                    description: "该条款规定投资方有权向公司董事会委派一名董事代表，参与公司重大决策，保护投资方的权益。核心要点包括：确保投资方在重大决策中的话语权，有助于监督公司运营和财务状况，是投资方保护性条款的核心之一，同时需明确董事的任职资格和更换流程，以保障条款的有效执行。",
-                    recommendation: "AI芯片赛道的技术路线迭代迅速，董事席位条款可确保投资方第一时间掌握被投企业的技术进展与战略调整，有效降低信息不对称风险。结合该赛道国产替代政策敏感性，建议明确董事对重大政策合规事项的知情权，增强条款的实际保护效力。",
-                    materials: [
-                      { name: "GPU_AI芯片行业全景报告_2024", format: "PDF" },
-                      { name: "AI基础设施投融资趋势报告_2023-2024", format: "PDF" },
-                    ],
-                    relatedHypotheses: [
-                      { direction: "技术攻关", category: "算力与芯片", name: "国产AI芯片在推理场景下可替代英伟达方案" },
-                      { direction: "技术攻关", category: "模型训练框架", name: "开源大模型训练框架将成为主流技术路线" },
-                    ],
-                  },
-                }
-
-                const detail = TERM_DETAILS[t.name]
-                const description = detail?.description || "该条款旨在保护投资方的核心权益，确保在重大决策中拥有适当的话语权和知情权，是投资保护条款体系的重要组成部分。"
-                const recommendation = detail?.recommendation || "基于当前投资赛道的特点和市场环境，该条款的设置有助于降低投资风险，建议在具体执行层面进一步细化相关流程和标准。"
-                const materials = detail?.materials || [{ name: "投资条款标准模板", format: "PDF" }]
-                const relatedHypotheses = detail?.relatedHypotheses || []
+                const description = (t as any).description || "该条款旨在保护投资方的核心权益，确保在重大决策中拥有适当的话语权和知情权，是投资保护条款体系的重要组成部分。"
+                const recommendation = (t as any).recommendation || "基于当前投资赛道的特点和市场环境，该条款的设置有助于降低投资风险，建议在具体执行层面进一步细化相关流程和标准。"
+                const materials = (t as any).materials && (t as any).materials.length > 0 ? (t as any).materials : [{ name: "投资条款标准模板", format: "PDF" }]
+                const relatedHypotheses = (t as any).relatedHypotheses || []
 
                 const formatIcon = (fmt: string) => {
                   if (fmt === "XLSX") return <Sheet className="h-4 w-4 text-emerald-600" />
@@ -1516,7 +1676,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                         <span className="ml-auto text-xs text-[#9CA3AF]">{materials.length} 个关联材料</span>
                       </div>
                       <div className="space-y-2">
-                        {materials.map((material, idx) => (
+                        {materials.map((material: { name: string; format: string }, idx: number) => (
                           <div key={idx} className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 transition-colors hover:bg-[#F3F4F6]">
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white border border-[#E5E7EB]">
                               {formatIcon(material.format)}
@@ -1541,7 +1701,7 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
                           <span className="ml-auto text-xs text-[#9CA3AF]">{relatedHypotheses.length} 个关联假设</span>
                         </div>
                         <div className="space-y-2">
-                          {relatedHypotheses.map((hyp, idx) => (
+                          {relatedHypotheses.map((hyp: { direction: string; category: string; name: string }, idx: number) => (
                             <div key={idx} className="flex items-center gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3">
                               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50">
                                 <Lightbulb className="h-4 w-4 text-amber-500" />
@@ -1575,6 +1735,183 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
           </div>
         </div>
       )}
+
+      {showHypothesisModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-xl max-h-[90vh] rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4 shrink-0">
+              <h2 className="text-lg font-semibold text-[#111827]">
+                {editingHypothesisId ? "编辑假设" : "新增假设"}
+              </h2>
+              <button onClick={() => setShowHypothesisModal(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">假设方向</label>
+                <Input
+                  value={hypothesisForm.direction}
+                  onChange={(e) => setHypothesisForm((prev) => ({ ...prev, direction: e.target.value }))}
+                  placeholder="如：技术攻关、团队能力、市场趋势"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">假设分类</label>
+                <Input
+                  value={hypothesisForm.category}
+                  onChange={(e) => setHypothesisForm((prev) => ({ ...prev, category: e.target.value }))}
+                  placeholder="如：算力与芯片、模型训练框架"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">假设内容 <span className="text-red-500">*</span></label>
+                <Input
+                  value={hypothesisForm.name}
+                  onChange={(e) => setHypothesisForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="请输入假设的具体内容"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">详细描述</label>
+                <textarea
+                  value={hypothesisForm.description}
+                  onChange={(e) => setHypothesisForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="请输入假设的详细描述，包括背景、数据支撑等"
+                  rows={3}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">推荐理由</label>
+                <textarea
+                  value={hypothesisForm.recommendation}
+                  onChange={(e) => setHypothesisForm((prev) => ({ ...prev, recommendation: e.target.value }))}
+                  placeholder="请输入推荐理由，说明该假设的投资价值"
+                  rows={2}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">支撑材料</label>
+                <p className="text-xs text-[#9CA3AF] mb-1.5">每行一个，格式：材料名称 (格式)，如 "行业报告 (PDF)"</p>
+                <textarea
+                  value={hypothesisForm.materialsStr}
+                  onChange={(e) => setHypothesisForm((prev) => ({ ...prev, materialsStr: e.target.value }))}
+                  placeholder={"行业分析报告 (PDF)\n竞品对比表 (XLSX)"}
+                  rows={3}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4 bg-[#F9FAFB] rounded-b-2xl shrink-0">
+              <button onClick={() => setShowHypothesisModal(false)} className="rounded-lg border border-[#D1D5DB] bg-white px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB]">
+                取消
+              </button>
+              <button onClick={saveHypothesis} disabled={!hypothesisForm.name.trim()} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed">
+                {editingHypothesisId ? "保存修改" : "确认新增"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTermModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-xl max-h-[90vh] rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4 shrink-0">
+              <h2 className="text-lg font-semibold text-[#111827]">
+                {editingTermId ? "编辑条款" : "新增条款"}
+              </h2>
+              <button onClick={() => setShowTermModal(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">条款方向</label>
+                <Input
+                  value={termForm.direction}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, direction: e.target.value }))}
+                  placeholder="如：控制权条款、投资保护条款、退出条款"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">条款分类</label>
+                <Input
+                  value={termForm.category}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, category: e.target.value }))}
+                  placeholder="如：董事会席位、信息权、反稀释条款"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">条款内容 <span className="text-red-500">*</span></label>
+                <Input
+                  value={termForm.name}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="请输入条款的具体内容"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">详细描述</label>
+                <textarea
+                  value={termForm.description}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="请输入条款的详细描述，包括法律依据、执行要点等"
+                  rows={3}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">推荐理由</label>
+                <textarea
+                  value={termForm.recommendation}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, recommendation: e.target.value }))}
+                  placeholder="请输入推荐理由，说明该条款的设置价值"
+                  rows={2}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">支撑材料</label>
+                <p className="text-xs text-[#9CA3AF] mb-1.5">每行一个，格式：材料名称 (格式)，如 "投资条款模板 (PDF)"</p>
+                <textarea
+                  value={termForm.materialsStr}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, materialsStr: e.target.value }))}
+                  placeholder={"投资条款标准模板 (PDF)\n行业分析报告 (PDF)"}
+                  rows={3}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#374151] mb-1.5">关联假设</label>
+                <p className="text-xs text-[#9CA3AF] mb-1.5">每行一个，格式：假设内容 (方向/分类)</p>
+                <textarea
+                  value={termForm.relatedHypothesesStr}
+                  onChange={(e) => setTermForm((prev) => ({ ...prev, relatedHypothesesStr: e.target.value }))}
+                  placeholder={"国产AI芯片可替代英伟达方案 (技术攻关/算力与芯片)"}
+                  rows={2}
+                  className="w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827] placeholder:text-[#9CA3AF] focus:border-[#2563EB] focus:outline-none focus:ring-1 focus:ring-[#2563EB] resize-none font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] px-6 py-4 bg-[#F9FAFB] rounded-b-2xl shrink-0">
+              <button onClick={() => setShowTermModal(false)} className="rounded-lg border border-[#D1D5DB] bg-white px-4 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB]">
+                取消
+              </button>
+              <button onClick={saveTerm} disabled={!termForm.name.trim()} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed">
+                {editingTermId ? "保存修改" : "确认新增"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1584,9 +1921,10 @@ function CreateStrategy({ onCancel, onSave, strategies }: { onCancel: () => void
 /* ------------------------------------------------------------------ */
 type StrategiesView = "list" | "create"
 
-export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrategy, onCreatePending }: StrategiesGridProps) {
+export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrategy, onCreatePending, onCreateStrategy }: StrategiesGridProps) {
   const [view, setView] = useState<StrategiesView>("list")
   const [searchQuery, setSearchQuery] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
 
   const filteredStrategies = strategies.filter(
     (s) =>
@@ -1594,38 +1932,46 @@ export function StrategiesGrid({ strategies, onStrategiesChange, onSelectStrateg
       s.description.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  function handleSaveStrategy(result: CreateStrategyResult) {
-    if (onCreatePending) {
-      // Create a pending strategy change request with generated content
-      const pendingStrategy: PendingStrategy = {
-        id: `ps-${Date.now()}`,
-        strategy: result.strategy,
-        changeId: `CR-${Date.now().toString().slice(-6)}`,
-        changeName: `新建策略：${result.strategy.name}`,
-        initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
-        initiatedAt: new Date().toISOString().split("T")[0],
-        reviewers: [
-          { id: "lisi", name: "李四", initials: "李四" },
-          { id: "wangwu", name: "王五", initials: "王五" },
-        ],
-        generatedHypotheses: result.generatedHypotheses,
-        generatedTerms: result.generatedTerms,
-        uploadedMaterials: result.uploadedMaterials,
+  async function handleSaveStrategy(result: CreateStrategyResult) {
+    setIsSaving(true)
+    try {
+      if (onCreateStrategy) {
+        const saved = await onCreateStrategy(result)
+        if (saved) {
+          onStrategiesChange([saved, ...strategies])
+        }
+      } else if (onCreatePending) {
+        const pendingStrategy: PendingStrategy = {
+          id: `ps-${Date.now()}`,
+          strategy: result.strategy,
+          changeId: `CR-${Date.now().toString().slice(-6)}`,
+          changeName: `新建策略：${result.strategy.name}`,
+          initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+          initiatedAt: new Date().toISOString().split("T")[0],
+          reviewers: [
+            { id: "lisi", name: "李四", initials: "李四" },
+            { id: "wangwu", name: "王五", initials: "王五" },
+          ],
+          generatedHypotheses: result.generatedHypotheses,
+          generatedTerms: result.generatedTerms,
+          uploadedMaterials: result.uploadedMaterials,
+        }
+        onCreatePending(pendingStrategy)
+      } else {
+        const newStrategy: Strategy = {
+          ...result.strategy,
+          id: `s-${Date.now()}`,
+        }
+        onStrategiesChange([newStrategy, ...strategies])
       }
-      onCreatePending(pendingStrategy)
-    } else {
-      // Fallback: directly add the strategy
-      const newStrategy: Strategy = {
-        ...result.strategy,
-        id: `s-${Date.now()}`,
-      }
-      onStrategiesChange([newStrategy, ...strategies])
+      setView("list")
+    } finally {
+      setIsSaving(false)
     }
-    setView("list")
   }
 
   if (view === "create") {
-    return <CreateStrategy onCancel={() => setView("list")} onSave={handleSaveStrategy} strategies={strategies} />
+    return <CreateStrategy onCancel={() => setView("list")} onSave={handleSaveStrategy} strategies={strategies} isSaving={isSaving} />
   }
 
   return (
