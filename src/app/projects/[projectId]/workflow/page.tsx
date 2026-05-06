@@ -12,6 +12,23 @@ export default function WorkflowPage() {
 
   const { data: project, isLoading: projectLoading } = api.project.getById.useQuery({ id: projectId })
 
+  const { data: hypotheses } = api.hypothesis.getByProject.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  )
+  const { data: terms } = api.term.getByProjectId.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  )
+  const { data: materials } = api.project.getMaterials.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  )
+
+  const hypothesesCount = hypotheses?.length ?? 0
+  const termsCount = terms?.length ?? 0
+  const materialsCount = materials?.length ?? 0
+
   function handlePhasesChange(newPhases: Phase[]) {
     setPhases(newPhases)
   }
@@ -42,6 +59,9 @@ export default function WorkflowPage() {
       onPhasesChange={handlePhasesChange}
       onCreatePendingPhase={handleCreatePendingPhase}
       isExited={false}
+      hypothesesCount={hypothesesCount}
+      termsCount={termsCount}
+      materialsCount={materialsCount}
     />
   )
 }

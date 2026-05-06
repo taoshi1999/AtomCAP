@@ -5561,7 +5561,7 @@ ${logs}
           // Compact view when sidebar is open
           <div className="flex-1 flex items-start justify-center p-6">
             {currentPhase && (
-              <CompactPhaseCard phase={currentPhase} />
+              <CompactPhaseCard phase={currentPhase} hypothesesCount={hypothesesCount} termsCount={termsCount} materialsCount={materialsCount} />
             )}
           </div>
         ) : (
@@ -5670,10 +5670,9 @@ ${logs}
 
                                     {/* Stats */}
                                     {(() => {
-                                      const isActive = phase.status === "active"
-                                      const displayH = isActive && hypothesesCount !== undefined ? hypothesesCount : phase.hypothesesCount
-                                      const displayT = isActive && termsCount !== undefined ? termsCount : phase.termsCount
-                                      const displayM = isActive && materialsCount !== undefined ? materialsCount : phase.materialsCount
+                                      const displayH = hypothesesCount !== undefined ? hypothesesCount : phase.hypothesesCount
+                                      const displayT = termsCount !== undefined ? termsCount : phase.termsCount
+                                      const displayM = materialsCount !== undefined ? materialsCount : phase.materialsCount
                                       return (
                                         <div className="grid grid-cols-3 gap-2 mb-3">
                                           <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
@@ -6442,7 +6441,7 @@ function ActionButton({ icon: Icon, label, onClick }: { icon: typeof Lightbulb; 
   )
 }
 
-function CompactPhaseCard({ phase }: { phase: Phase }) {
+function CompactPhaseCard({ phase, hypothesesCount, termsCount, materialsCount }: { phase: Phase; hypothesesCount?: number; termsCount?: number; materialsCount?: number }) {
   const sc = statusConfig[phase.status]
 
   return (
@@ -6474,21 +6473,21 @@ function CompactPhaseCard({ phase }: { phase: Phase }) {
           <ListChecks className="h-3 w-3 text-[#2563EB]" />
           <div>
             <p className="text-[10px] text-[#9CA3AF]">{"\u5047\u8BBE"}</p>
-            <p className="text-xs font-semibold text-[#111827]">{phase.hypothesesCount}</p>
+            <p className="text-xs font-semibold text-[#111827]">{hypothesesCount ?? phase.hypothesesCount}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
           <FileText className="h-3 w-3 text-emerald-600" />
           <div>
             <p className="text-[10px] text-[#9CA3AF]">{"\u6761\u6B3E"}</p>
-            <p className="text-xs font-semibold text-[#111827]">{phase.termsCount}</p>
+            <p className="text-xs font-semibold text-[#111827]">{termsCount ?? phase.termsCount}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
           <FolderOpen className="h-3 w-3 text-amber-600" />
           <div>
             <p className="text-[10px] text-[#9CA3AF]">{"\u6750\u6599"}</p>
-            <p className="text-xs font-semibold text-[#111827]">{phase.materialsCount}</p>
+            <p className="text-xs font-semibold text-[#111827]">{materialsCount ?? phase.materialsCount}</p>
           </div>
         </div>
       </div>
