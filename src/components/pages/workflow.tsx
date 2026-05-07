@@ -5441,9 +5441,8 @@ ${logs}
                   return (
                     <div key={group.label} className="flex items-start gap-4">
                       <div className="flex flex-col items-center shrink-0 w-[72px] pt-1">
-                        <span className={cn("h-2.5 w-2.5 rounded-full", isLastGroup(gIdx) ? "bg-blue-500" : "bg-green-500")} />
                         {badge && (
-                          <span className={cn("mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", badge.colorCls, badge.borderCls, badge.textCls)}>
+                          <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", badge.colorCls, badge.borderCls, badge.textCls)}>
                             <CheckCircle className="h-3 w-3" />
                             {badge.label}
                           </span>
