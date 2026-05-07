@@ -7,6 +7,7 @@ import {
   StrategiesGrid,
   type Strategy,
   type PendingStrategy,
+  type CreateStrategyResult,
 } from "@/src/components/pages/strategies-grid"
 import { ConsultationCenter } from "@/src/components/pages/consultation-center"
 import { ResearchCenter } from "@/src/components/pages/research-center"
@@ -25,6 +26,7 @@ interface StrategyCenterProps {
   createdFrameworks?: AnalysisFramework[]
   onCreatedFrameworksChange?: (frameworks: AnalysisFramework[]) => void
   initialSubPage?: SubPage
+  onCreateStrategy?: (result: CreateStrategyResult) => Promise<Strategy | null>
 }
 
 // ─── Tab Config ───────────────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ export function StrategyCenter({
   createdFrameworks = [],
   onCreatedFrameworksChange,
   initialSubPage = "consultation",
+  onCreateStrategy,
 }: StrategyCenterProps) {
   const [subPage, setSubPage] = useState<SubPage>(initialSubPage)
 
@@ -111,6 +114,7 @@ export function StrategyCenter({
             onStrategiesChange={onStrategiesChange}
             onSelectStrategy={onSelectStrategy}
             onCreatePending={onCreatePending}
+            onCreateStrategy={onCreateStrategy}
           />
         )}
       </div>
