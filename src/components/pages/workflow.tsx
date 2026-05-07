@@ -1304,6 +1304,44 @@ export function Workflow({
     }
   }
 
+  function handleCreateNewSubPhase() {
+    const activePhase = projectPhases.find(p => p.status === "active")
+    if (!activePhase) return
+    const groupPhases = projectPhases.filter(p => p.groupLabel === activePhase.groupLabel)
+    const nextNum = groupPhases.length + 1
+    const newPhase = createPhase(nextNum, activePhase.groupLabel)
+    onCreatePendingPhase?.({
+      id: `pending-phase-${Date.now()}`,
+      projectId, projectName,
+      phase: newPhase,
+      changeId: `CR-P-${Date.now().toString().slice(-6)}`,
+      changeName: `新建${newPhase.fullLabel}`,
+      changeType: `next-${activePhase.groupLabel === "投前期" ? "pre-investment" : activePhase.groupLabel === "投中期" ? "mid-investment" : "post-investment"}`,
+      initiator: { id: "zhangwei", name: "张伟", initials: "张伟" },
+      initiatedAt: new Date().toISOString().split("T")[0],
+      reviewers: [
+        { id: "zhangwei", name: "张伟", initials: "张伟" },
+        { id: "lisi", name: "李四", initials: "李四" },
+      ],
+    })
+  }
+
+  function handleAdvanceToNextMajorPhase() {
+    const activePhase = projectPhases.find(p => p.status === "active")
+    if (!activePhase) {
+      handleLiXiang()
+      return
+    }
+
+    if (activePhase.groupLabel === "投前期") {
+      handleTouJue()
+    } else if (activePhase.groupLabel === "投中期") {
+      handleDiKuan()
+    } else if (activePhase.groupLabel === "投后期") {
+      handleTuiChu()
+    }
+  }
+
   function handleOpenSidebar(type: SidebarType) {
     // For hypothesis-suggestions, open full page view instead of sidebar
     if (type === "hypothesis-suggestions") {
@@ -5334,88 +5372,23 @@ ${logs}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {/* ── New investment lifecycle buttons ── */}
-              {isNewProject && currentPreInvestmentPhase > 0 && !isInMidInvestment && !isInPostInvestment && (
+              {isNewProject && projectPhases.length > 0 && !isExited && (
                 <>
                   <button
-                    onClick={handleStartNextPreInvestmentPhase}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                    onClick={handleCreateNewSubPhase}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#D1D5DB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
                   >
                     <Plus className="h-4 w-4" />
-                    启动下一阶段
+                    新建
                   </button>
                   <button
-                    onClick={handleTouJue}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
+                    onClick={handleAdvanceToNextMajorPhase}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
                   >
                     <ArrowRight className="h-4 w-4" />
-                    投决
-                  </button>
-                </>
-              )}
-              {isNewProject && isInMidInvestment && !isInPostInvestment && (
-                <>
-                  <button
-                    onClick={handleStartNextMidInvestmentPhase}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                  >
-                    <Plus className="h-4 w-4" />
                     启动下一阶段
                   </button>
-                  <button
-                    onClick={handleDiKuan}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#F59E0B] bg-white px-4 py-2.5 text-sm font-medium text-[#D97706] transition-colors hover:bg-[#FFFBEB]"
-                  >
-                    <CreditCard className="h-4 w-4" />
-                    划款
-                  </button>
                 </>
-              )}
-              {isNewProject && isInPostInvestment && !isExited && (
-                <>
-                  <button
-                    onClick={handleStartNextPostInvestmentPhase}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                  >
-                    <Plus className="h-4 w-4" />
-                    启动下一阶段
-                  </button>
-                  <button
-                    onClick={handleTuiChu}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#EF4444] bg-white px-4 py-2.5 text-sm font-medium text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    退出
-                  </button>
-                </>
-              )}
-              {/* ── Legacy 设立期/存续期 buttons (existing new-project system) ── */}
-              {isNewProject && !isInDuration && currentSetupPhase > 0 && (
-                <>
-                  <button
-                    onClick={handleStartNextSetupPhase}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                  >
-                    <Plus className="h-4 w-4" />
-                    启动下一阶段
-                  </button>
-                  <button
-                    onClick={handleEnterDuration}
-                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[#10B981] bg-white px-4 py-2.5 text-sm font-medium text-[#10B981] transition-colors hover:bg-[#ECFDF5]"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                    进入存续期
-                  </button>
-                </>
-              )}
-              {isNewProject && isInDuration && (
-                <button
-                  onClick={handleStartNextDurationPhase}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                >
-                  <Plus className="h-4 w-4" />
-                  启动下一阶段
-                </button>
               )}
               {!isNewProject && (
                 <button
@@ -5432,269 +5405,210 @@ ${logs}
 
         {/* Phase Timeline or Compact Card */}
         {activeSidebar ? (
-          // Compact view when sidebar is open
           <div className="flex-1 flex items-start justify-center p-6">
             {currentPhase && (
-              <CompactPhaseCard phase={currentPhase} />
+              <CompactPhaseCard phase={currentPhase} hypothesesCount={hypothesesCount} termsCount={termsCount} materialsCount={materialsCount} />
             )}
           </div>
         ) : (
-          // Full timeline view
-          <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden">
-            <div className="flex items-start gap-4 p-6 min-w-max h-full">
-              {/* 已立项 badge — shown before 投前期-阶段一 when 立项 has been approved */}
-              {liXiangRecord && isNewProject && projectPhases.length > 0 && (
-                <div className="flex items-center shrink-0">
-                  <div className="flex flex-col items-center">
-                    {/* spacer matching group-header row height */}
-                    <div className="mb-3 h-[22px]" />
-                    <button
-                      onClick={() => setShowLiXiangInfoDialog(true)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 whitespace-nowrap shadow-sm"
-                    >
-                      <CheckCircle className="h-3.5 w-3.5" />
-                      已立项
-                    </button>
-                  </div>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-[#9CA3AF] mt-[33px]" />
-                </div>
-              )}
-              {projectPhases.map((phase, idx) => {
-                const isSelected = selectedPhase === phase.id
-                const sc = statusConfig[phase.status]
-                const showGroupHeader = phase.groupLabel !== lastGroup
-                lastGroup = phase.groupLabel
-                const isLastInGroup = idx < projectPhases.length - 1 ? projectPhases[idx + 1].groupLabel !== phase.groupLabel : true
-                const isSetup = phase.groupLabel === "设立期"
-                  || phase.groupLabel === "投前期"
-                  || phase.groupLabel === "投中期"
+          <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="p-6 space-y-6">
+              {(() => {
+                const groups: { label: string; phases: Phase[] }[] = []
+                for (const phase of projectPhases) {
+                  const last = groups.length > 0 ? groups[groups.length - 1] : null
+                  if (last && last.label === phase.groupLabel) {
+                    last.phases.push(phase)
+                  } else {
+                    groups.push({ label: phase.groupLabel, phases: [phase] })
+                  }
+                }
 
-                return (
-                  <div key={phase.id} className="flex items-start shrink-0">
-                    {/* 已投决 badge between 投前期 and 投中期 */}
-                    {/* 已投决 badge between 投前期 and 投中期 */}
-                    {touJueRecord && showGroupHeader && phase.groupLabel === "投中期" && (
-                      <div className="flex items-center shrink-0">
-                        <div className="flex flex-col items-center">
-                          <div className="mb-3 h-[22px]" />
-                          <button
-                            onClick={() => setShowTouJueInfoDialog(true)}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 whitespace-nowrap shadow-sm"
-                          >
-                            <CheckCircle className="h-3.5 w-3.5" />
-                            已投决
-                          </button>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-[#9CA3AF] mt-[33px]" />
+                const statusBadgeMap: Record<string, { label: string; colorCls: string; borderCls: string; textCls: string }> = {
+                  "投前期": { label: "已立项", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "投中期": { label: "已投决", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "投后期": { label: "已划款", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "退出": { label: "已退出", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "设立期": { label: "已立项", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                  "存续期": { label: "已投决", colorCls: "bg-green-50", borderCls: "border-green-200", textCls: "text-green-700" },
+                }
+
+                const isLastGroup = (gIdx: number) => gIdx === groups.length - 1
+
+                return groups.map((group, gIdx) => {
+                  const badge = statusBadgeMap[group.label]
+                  const hasActive = group.phases.some(p => p.status === "active")
+                  return (
+                    <div key={group.label} className="flex items-start gap-4">
+                      <div className="flex flex-col items-center shrink-0 w-[72px] pt-1">
+                        <span className={cn("h-2.5 w-2.5 rounded-full", isLastGroup(gIdx) ? "bg-blue-500" : "bg-green-500")} />
+                        {badge && (
+                          <span className={cn("mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", badge.colorCls, badge.borderCls, badge.textCls)}>
+                            <CheckCircle className="h-3 w-3" />
+                            {badge.label}
+                          </span>
+                        )}
                       </div>
-                    )}
-                    {/* 已划款 badge between 投中期 and 投后期 */}
-                    {huaKuanRecord && showGroupHeader && phase.groupLabel === "投后期" && (
-                      <div className="flex items-center shrink-0">
-                        <div className="flex flex-col items-center">
-                          <div className="mb-3 h-[22px]" />
-                          <button
-                            onClick={() => setShowHuaKuanInfoDialog(true)}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 whitespace-nowrap shadow-sm"
-                          >
-                            <CheckCircle className="h-3.5 w-3.5" />
-                            已划款
-                          </button>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-[#9CA3AF] mt-[33px]" />
-                      </div>
-                    )}
-                    {/* Group header + card */}
-                    <div className="flex flex-col">
-                      {showGroupHeader && (
+                      <div className="flex-1 min-w-0">
                         <div className="mb-3 flex items-center gap-2">
-                          <span className={cn("h-2.5 w-2.5 rounded-full",
-                            phase.groupLabel === "投前期" ? "bg-blue-500"
-                              : phase.groupLabel === "投中期" ? "bg-amber-500"
-                                : phase.groupLabel === "投后期" ? "bg-teal-500"
-                                  : isSetup ? "bg-violet-500" : "bg-teal-500"
-                          )} />
-                          <span className="text-sm font-semibold text-[#374151]">{phase.groupLabel}</span>
+                          <span className={cn("h-2.5 w-2.5 rounded-full", isLastGroup(gIdx) ? "bg-blue-500" : "bg-green-500")} />
+                          <span className="text-sm font-semibold text-[#374151]">{group.label}</span>
                         </div>
-                      )}
-                      {!showGroupHeader && <div className="mb-3 h-[22px]" />}
+                        <div className="flex items-start gap-4 overflow-x-auto pb-2">
+                          {group.phases.map((phase) => {
+                            const isSelected = selectedPhase === phase.id
+                            const sc = statusConfig[phase.status]
+                            const isSetup = phase.groupLabel === "设立期"
+                              || phase.groupLabel === "投前期"
+                              || phase.groupLabel === "投中期"
 
-                      {/* Phase Card */}
-                      <button
-                        data-phase={phase.id}
-                        onClick={() => handleSelectPhase(phase.id)}
-                        className={cn(
-                          "w-[260px] rounded-xl border-2 p-5 text-left transition-all",
-                          isSelected
-                            ? "border-[#2563EB] bg-blue-50/40 shadow-lg shadow-blue-100/50 ring-1 ring-[#2563EB]/20"
-                            : cn("hover:shadow-md", sc.borderCls, sc.bgCls)
-                        )}
-                      >
-                        {/* Card Header */}
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-sm font-semibold text-[#111827]">{phase.name}</h3>
-                          <Badge className={cn("text-[10px] px-1.5 py-0", sc.badgeCls)}>
-                            <span className={cn("mr-1 inline-block h-1.5 w-1.5 rounded-full", sc.dotCls)} />
-                            {sc.label}
-                          </Badge>
+                            const displayH = hypothesesCount !== undefined ? hypothesesCount : phase.hypothesesCount
+                            const displayT = termsCount !== undefined ? termsCount : phase.termsCount
+                            const displayM = materialsCount !== undefined ? materialsCount : phase.materialsCount
+
+                            return (
+                              <div key={phase.id} className="flex flex-col shrink-0">
+                                <button
+                                  data-phase={phase.id}
+                                  onClick={() => handleSelectPhase(phase.id)}
+                                  className={cn(
+                                    "w-[260px] rounded-xl border-2 p-5 text-left transition-all",
+                                    isSelected
+                                      ? "border-[#2563EB] bg-blue-50/40 shadow-lg shadow-blue-100/50 ring-1 ring-[#2563EB]/20"
+                                      : cn("hover:shadow-md", sc.borderCls, sc.bgCls)
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm font-semibold text-[#111827]">{phase.name}</h3>
+                                    <Badge className={cn("text-[10px] px-1.5 py-0", sc.badgeCls)}>
+                                      <span className={cn("mr-1 inline-block h-1.5 w-1.5 rounded-full", sc.dotCls)} />
+                                      {sc.label}
+                                    </Badge>
+                                  </div>
+
+                                  {phase.assignee && (
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <Avatar className="h-6 w-6">
+                                        <AvatarFallback className="bg-[#E5E7EB] text-[10px] text-[#374151]">
+                                          {phase.assigneeAvatar}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <span className="text-xs text-[#6B7280]">{"负责人: "}{phase.assignee}</span>
+                                    </div>
+                                  )}
+
+                                  <div className="grid grid-cols-3 gap-2 mb-3">
+                                    <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
+                                      <ListChecks className="h-3 w-3 text-[#2563EB]" />
+                                      <div>
+                                        <p className="text-[10px] text-[#9CA3AF]">{"假设"}</p>
+                                        <p className="text-xs font-semibold text-[#111827]">{displayH}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
+                                      <FileText className="h-3 w-3 text-emerald-600" />
+                                      <div>
+                                        <p className="text-[10px] text-[#9CA3AF]">{"条款"}</p>
+                                        <p className="text-xs font-semibold text-[#111827]">{displayT}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
+                                      <FolderOpen className="h-3 w-3 text-amber-600" />
+                                      <div>
+                                        <p className="text-[10px] text-[#9CA3AF]">{"材料"}</p>
+                                        <p className="text-xs font-semibold text-[#111827]">{displayM}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {phase.startDate && (
+                                    <div className="text-[11px] text-[#9CA3AF] mb-3">
+                                      {phase.startDate}
+                                      {phase.endDate ? ` → ${phase.endDate}` : " → 进行中"}
+                                    </div>
+                                  )}
+
+                                  {phase.logs.length > 0 && (
+                                    <div className="border-t border-[#E5E7EB] pt-3 space-y-1.5">
+                                      <p className="text-[10px] font-medium text-[#9CA3AF] uppercase tracking-wider">{"更新日志"}</p>
+                                      {phase.logs.slice(-2).map((log, i) => (
+                                        <div key={i} className="flex items-start gap-1.5">
+                                          <Clock className="h-3 w-3 mt-0.5 text-[#D1D5DB] shrink-0" />
+                                          <p className="text-[11px] text-[#6B7280] leading-snug">
+                                            <span className="text-[#374151] font-medium">{log.author}</span>
+                                            {" "}{log.action}
+                                            <span className="text-[#9CA3AF]">{" · "}{log.date}</span>
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {phase.status === "upcoming" && (
+                                    <div className="flex items-center justify-center py-4 text-[#D1D5DB]">
+                                      <p className="text-xs">{"待启动"}</p>
+                                    </div>
+                                  )}
+
+                                  {isSelected && (
+                                    <div className="mt-3 flex items-center gap-1.5 text-[#2563EB]">
+                                      <Check className="h-3.5 w-3.5" />
+                                      <span className="text-xs font-medium">{"当前选中"}</span>
+                                    </div>
+                                  )}
+                                </button>
+
+                                {isSelected && phase.status !== "upcoming" && (
+                                  <div className="mt-3 w-[260px] space-y-1.5">
+                                    {isSetup ? (
+                                      <>
+                                        <ActionButton icon={Lightbulb} label="假设改进建议" onClick={() => handleOpenSidebar("hypothesis-suggestions")} />
+                                        <ActionButton icon={FileText} label="条款构建建议" onClick={() => handleOpenSidebar("term-suggestions")} />
+                                        <ActionButton icon={FolderSearch} label="材料收集建议" onClick={() => handleOpenSidebar("material-suggestions")} />
+                                        <ActionButton icon={Brain} label="AI调研材料" onClick={() => handleOpenSidebar("ai-research")} />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ActionButton icon={ClipboardList} label="跟踪情况汇总" onClick={() => handleOpenSidebar("tracking-summary")} />
+                                        <ActionButton icon={FolderSearch} label="材料收集建议" onClick={() => handleOpenSidebar("material-suggestions")} />
+                                        <ActionButton icon={Brain} label="AI调研材料" onClick={() => handleOpenSidebar("ai-research")} />
+                                      </>
+                                    )}
+                                    <button
+                                      onClick={() => handleOpenSidebar("ai-chat")}
+                                      className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-violet-500 to-purple-600 px-3 py-2 text-xs font-medium text-white transition-all hover:from-violet-600 hover:to-purple-700"
+                                    >
+                                      <MessageSquare className="h-3.5 w-3.5" />
+                                      AI智能问答
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
-
-                        {/* Assignee */}
-                        {phase.assignee && (
-                          <div className="flex items-center gap-2 mb-3">
-                            <Avatar className="h-6 w-6">
-                              <AvatarFallback className="bg-[#E5E7EB] text-[10px] text-[#374151]">
-                                {phase.assigneeAvatar}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="text-xs text-[#6B7280]">{"\u8D1F\u8D23\u4EBA: "}{phase.assignee}</span>
-                          </div>
-                        )}
-
-                        {/* Stats */}
-                        {(() => {
-                          const isActive = phase.status === "active"
-                          const displayH = isActive && hypothesesCount !== undefined ? hypothesesCount : phase.hypothesesCount
-                          const displayT = isActive && termsCount !== undefined ? termsCount : phase.termsCount
-                          const displayM = isActive && materialsCount !== undefined ? materialsCount : phase.materialsCount
-                          return (
-                            <div className="grid grid-cols-3 gap-2 mb-3">
-                              <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
-                                <ListChecks className="h-3 w-3 text-[#2563EB]" />
-                                <div>
-                                  <p className="text-[10px] text-[#9CA3AF]">{"\u5047\u8BBE"}</p>
-                                  <p className="text-xs font-semibold text-[#111827]">{displayH}</p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
-                                <FileText className="h-3 w-3 text-emerald-600" />
-                                <div>
-                                  <p className="text-[10px] text-[#9CA3AF]">{"\u6761\u6B3E"}</p>
-                                  <p className="text-xs font-semibold text-[#111827]">{displayT}</p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1.5 border border-[#E5E7EB]">
-                                <FolderOpen className="h-3 w-3 text-amber-600" />
-                                <div>
-                                  <p className="text-[10px] text-[#9CA3AF]">{"\u6750\u6599"}</p>
-                                  <p className="text-xs font-semibold text-[#111827]">{displayM}</p>
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })()}
-
-                        {/* Date */}
-                        {phase.startDate && (
-                          <div className="text-[11px] text-[#9CA3AF] mb-3">
-                            {phase.startDate}
-                            {phase.endDate ? ` \u2192 ${phase.endDate}` : " \u2192 \u8FDB\u884C\u4E2D"}
-                          </div>
-                        )}
-
-                        {/* Recent Logs */}
-                        {phase.logs.length > 0 && (
-                          <div className="border-t border-[#E5E7EB] pt-3 space-y-1.5">
-                            <p className="text-[10px] font-medium text-[#9CA3AF] uppercase tracking-wider">{"\u66F4\u65B0\u65E5\u5FD7"}</p>
-                            {phase.logs.slice(-2).map((log, i) => (
-                              <div key={i} className="flex items-start gap-1.5">
-                                <Clock className="h-3 w-3 mt-0.5 text-[#D1D5DB] shrink-0" />
-                                <p className="text-[11px] text-[#6B7280] leading-snug">
-                                  <span className="text-[#374151] font-medium">{log.author}</span>
-                                  {" "}{log.action}
-                                  <span className="text-[#9CA3AF]">{" \u00B7 "}{log.date}</span>
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Upcoming placeholder */}
-                        {phase.status === "upcoming" && (
-                          <div className="flex items-center justify-center py-4 text-[#D1D5DB]">
-                            <p className="text-xs">{"\u5F85\u542F\u52A8"}</p>
-                          </div>
-                        )}
-
-                        {/* Selected indicator */}
-                        {isSelected && (
-                          <div className="mt-3 flex items-center gap-1.5 text-[#2563EB]">
-                            <Check className="h-3.5 w-3.5" />
-                            <span className="text-xs font-medium">{"\u5F53\u524D\u9009\u4E2D"}</span>
-                          </div>
-                        )}
-                      </button>
-
-                      {/* Action Buttons - Only shown for selected phase */}
-                      {isSelected && phase.status !== "upcoming" && (
-                        <div className="mt-3 w-[260px] space-y-1.5">
-                          {/* Phase-specific buttons - vertical layout */}
-                          {isSetup ? (
-                            <>
-                              <ActionButton icon={Lightbulb} label="假设改进建议" onClick={() => handleOpenSidebar("hypothesis-suggestions")} />
-                              <ActionButton icon={FileText} label="条款构建建议" onClick={() => handleOpenSidebar("term-suggestions")} />
-                              <ActionButton icon={FolderSearch} label="材料收集建议" onClick={() => handleOpenSidebar("material-suggestions")} />
-                              <ActionButton icon={Brain} label="AI调研材料" onClick={() => handleOpenSidebar("ai-research")} />
-                            </>
-                          ) : (
-                            <>
-                              <ActionButton icon={ClipboardList} label="跟踪情况汇总" onClick={() => handleOpenSidebar("tracking-summary")} />
-                              <ActionButton icon={FolderSearch} label="材料收集建议" onClick={() => handleOpenSidebar("material-suggestions")} />
-                              <ActionButton icon={Brain} label="AI调研材料" onClick={() => handleOpenSidebar("ai-research")} />
-                            </>
-                          )}
-                          {/* AI Chat Button */}
-                          <button
-                            onClick={() => handleOpenSidebar("ai-chat")}
-                            className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-violet-500 to-purple-600 px-3 py-2 text-xs font-medium text-white transition-all hover:from-violet-600 hover:to-purple-700"
-                          >
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            AI智能问答
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Connector Arrow (between cards) */}
-                    {idx < PHASES.length - 1 && (
-                      <div className="flex items-center self-center mt-6 px-1">
-                        {isLastInGroup ? (
-                          <div className="flex items-center gap-1">
-                            <div className="h-px w-4 bg-[#D1D5DB]" />
-                            <ChevronRight className="h-4 w-4 text-[#9CA3AF]" />
-                            <div className="h-px w-4 bg-[#D1D5DB]" />
-                          </div>
-                        ) : (
-                          <div className="flex items-center">
-                            <div className="h-px w-6 bg-[#D1D5DB]" />
-                            <ArrowRight className="h-3.5 w-3.5 text-[#D1D5DB]" />
-                          </div>
-                        )}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-              {/* 已退出 badge at the end of timeline */}
-              {tuiChuRecord && isExited && (
-                <div className="flex items-center shrink-0">
-                  <div className="flex items-center self-center mt-6 px-1">
-                    <div className="flex items-center gap-1">
-                      <div className="h-px w-4 bg-[#D1D5DB]" />
-                      <ChevronRight className="h-4 w-4 text-[#9CA3AF]" />
-                      <div className="h-px w-4 bg-[#D1D5DB]" />
                     </div>
+                  )
+                })
+              })()}
+
+              {projectPhases.length === 0 && isNewProject && (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#EFF6FF] mb-4">
+                    <GitBranch className="h-8 w-8 text-[#2563EB]" />
                   </div>
-                  <div className="flex flex-col items-center">
-                    <div className="mb-3 h-[22px]" />
-                    <button
-                      onClick={() => setShowTuiChuInfoDialog(true)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 whitespace-nowrap shadow-sm"
-                    >
-                      <CheckCircle className="h-3.5 w-3.5" />
-                      已退出
-                    </button>
-                  </div>
+                  <h3 className="text-lg font-semibold text-[#111827] mb-2">启动项目工作流</h3>
+                  <p className="text-sm text-[#6B7280] mb-6 text-center max-w-md">
+                    点击"立项"开始项目生命周期管理，系统将自动创建第一个投前期阶段
+                  </p>
+                  <button
+                    onClick={handleLiXiang}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    立项
+                  </button>
                 </div>
               )}
             </div>

@@ -67,6 +67,7 @@ model Project {
   documents Document[]
   hypotheses Hypothesis[]
   terms     Term[]
+  phases    ProjectPhase[]
 
   @@map("projects")
 }
@@ -335,4 +336,24 @@ model TermHypothesis {
 
   @@unique([termId, hypothesisId])
   @@map("term_hypotheses")
+}
+
+model ProjectPhase {
+  id            String   @id @default(cuid())
+  projectId     String   @map("project_id")
+  groupLabel    String   @map("group_label")       // 投前期/投中期/投后期/退出
+  name          String                             // e.g. "投前期 - 阶段1"
+  fullLabel     String   @map("full_label")
+  assignee      String?
+  assigneeAvatar String?  @map("assignee_avatar") @db.VarChar(10)
+  status        String   @default("active") @db.VarChar(20)  // completed/active/upcoming
+  startDate     String?  @map("start_date") @db.VarChar(20)
+  endDate       String?  @map("end_date") @db.VarChar(20)
+  phaseOrder    Int      @default(0) @map("phase_order")     // 排序序号
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_phases")
 }
