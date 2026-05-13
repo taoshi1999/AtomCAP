@@ -5372,22 +5372,41 @@ ${logs}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {isNewProject && projectPhases.length > 0 && !isExited && (
+              {isNewProject && !isExited && (
                 <>
-                  <button
-                    onClick={handleCreateNewSubPhase}
-                    className="inline-flex items-center gap-2 rounded-lg border border-[#D1D5DB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
-                  >
-                    <Plus className="h-4 w-4" />
-                    新建
-                  </button>
-                  <button
-                    onClick={handleAdvanceToNextMajorPhase}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                    启动下一阶段
-                  </button>
+                  {projectPhases.length === 0 ? (
+                    <button
+                      onClick={handleLiXiang}
+                      className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      立项
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleAdvanceToNextMajorPhase}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                      >
+                        {projectPhases.some(p => p.groupLabel === "投前期") && !projectPhases.some(p => p.groupLabel === "投中期") ? (
+                          <><ArrowRight className="h-4 w-4" />投决</>
+                        ) : projectPhases.some(p => p.groupLabel === "投中期") && !projectPhases.some(p => p.groupLabel === "投后期") ? (
+                          <><CreditCard className="h-4 w-4" />划款</>
+                        ) : projectPhases.some(p => p.groupLabel === "投后期") ? (
+                          <><LogOut className="h-4 w-4" />退出</>
+                        ) : (
+                          <><CheckCircle className="h-4 w-4" />立项</>
+                        )}
+                      </button>
+                      <button
+                        onClick={handleCreateNewSubPhase}
+                        className="inline-flex items-center gap-2 rounded-lg border border-[#D1D5DB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
+                      >
+                        <Plus className="h-4 w-4" />
+                        启动下一阶段
+                      </button>
+                    </>
+                  )}
                 </>
               )}
               {!isNewProject && (
@@ -5442,10 +5461,18 @@ ${logs}
                     <div key={group.label} className="flex items-start gap-4">
                       <div className="flex flex-col items-center shrink-0 w-[72px] pt-1">
                         {badge && (
-                          <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", badge.colorCls, badge.borderCls, badge.textCls)}>
+                          <button
+                            onClick={() => {
+                              if (group.label === "投前期") setShowLiXiangInfoDialog(true)
+                              else if (group.label === "投中期") setShowTouJueInfoDialog(true)
+                              else if (group.label === "投后期") setShowHuaKuanInfoDialog(true)
+                              else if (group.label === "退出") setShowTuiChuInfoDialog(true)
+                            }}
+                            className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap cursor-pointer transition-colors hover:opacity-80", badge.colorCls, badge.borderCls, badge.textCls)}
+                          >
                             <CheckCircle className="h-3 w-3" />
                             {badge.label}
-                          </span>
+                          </button>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
