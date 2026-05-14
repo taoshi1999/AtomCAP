@@ -610,4 +610,94 @@ export const projectRouter = createTRPCRouter({
         where: { id: input.id },
       })
     }),
+
+  getPhases: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ input }: { input: { projectId: string } }) => {
+      try {
+        const phases = await prisma.projectPhase.findMany({
+          where: { projectId: input.projectId },
+          orderBy: { phaseOrder: 'asc' },
+        })
+        return phases
+      } catch (error) {
+        if (!isDbUnavailable(error)) {
+          throw error
+        }
+        console.warn('[project.getPhases] DB unavailable, returning empty:', error)
+        return []
+      }
+    }),
+
+  createPhase: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      groupLabel: z.string(),
+      name: z.string(),
+      fullLabel: z.string(),
+      assignee: z.string().optional(),
+      assigneeAvatar: z.string().optional(),
+      status: z.string().default("active"),
+      startDate: z.string().optional(),
+      phaseOrder: z.number(),
+    }))
+    .mutation(async ({ input }: { input: any }) => {
+      const activePhases = await prisma.projectPhase.findMany({
+        where: { projectId: input.projectId, status: "active" },
+      })
+      await Promise.all(
+        activePhases.map(p =>
+          prisma.projectPhase.update({
+            where: { id: p.id },
+            data: { status: "completed", endDate: new Date().toISOString().split("T")[0] },
+          })
+        )
+      )
+      return prisma.projectPhase.create({
+        data: {
+          projectId: input.projectId,
+          groupLabel: input.groupLabel,
+          name: input.name,
+          fullLabel: input.fullLabel,
+          assignee: input.assignee,
+          assigneeAvatar: input.assigneeAvatar,
+          status: input.status,
+          startDate: input.startDate,
+          phaseOrder: input.phaseOrder,
+        },
+      })
+    }),
+
+  updatePhase: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      status: z.string().optional(),
+      endDate: z.string().optional(),
+      groupLabel: z.string().optional(),
+      name: z.string().optional(),
+      fullLabel: z.string().optional(),
+      assignee: z.string().optional(),
+      assigneeAvatar: z.string().optional(),
+      startDate: z.string().optional(),
+      phaseOrder: z.number().optional(),
+    }))
+    .mutation(async ({ input }: { input: any }) => {
+      const { id, ...data } = input
+      return prisma.projectPhase.update({
+        where: { id },
+        data,
+      })
+    }),
+
+  advanceStage: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      newStage: z.string(),
+    }))
+    .mutation(async ({ input }: { input: { projectId: string; newStage: string } }) => {
+      return prisma.project.update({
+        where: { id: input.projectId },
+        data: { stage: input.newStage, status: input.newStage },
+      })
+    }),
 })

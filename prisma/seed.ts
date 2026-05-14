@@ -568,6 +568,87 @@ async function seedTerms() {
   await prisma.term.createMany({ data: termsData })
 }
 
+async function seedProjectPhases() {
+  const seedUser = await prisma.user.upsert({
+    where: { email: 'seed@atomcap.local' },
+    update: {},
+    create: {
+      email: 'seed@atomcap.local',
+      name: 'Seed User',
+    },
+  })
+
+  const projects = await prisma.project.findMany({
+    where: { creatorId: seedUser.id },
+    select: { id: true, name: true, stage: true },
+  })
+
+  if (projects.length === 0) return
+
+  await prisma.projectPhase.deleteMany({
+    where: { projectId: { in: projects.map(p => p.id) } },
+  })
+
+  const today = new Date().toISOString().split("T")[0]
+  const daysAgo = (d: number) => {
+    const dt = new Date()
+    dt.setDate(dt.getDate() - d)
+    return dt.toISOString().split("T")[0]
+  }
+
+  for (const project of projects) {
+    const stage = project.stage || ""
+    let phasesData: Array<{
+      groupLabel: string
+      name: string
+      fullLabel: string
+      assignee: string
+      assigneeAvatar: string
+      status: string
+      startDate: string
+      endDate: string | null
+      phaseOrder: number
+    }> = []
+
+    if (stage.includes("投前")) {
+      phasesData = [
+        { groupLabel: "投前期", name: "投前期 - 阶段1", fullLabel: "投前期 - 阶段1", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(60), endDate: daysAgo(45), phaseOrder: 1 },
+        { groupLabel: "投前期", name: "投前期 - 阶段2", fullLabel: "投前期 - 阶段2", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(44), endDate: daysAgo(30), phaseOrder: 2 },
+        { groupLabel: "投前期", name: "投前期 - 阶段3", fullLabel: "投前期 - 阶段3", assignee: "张伟", assigneeAvatar: "张", status: "active", startDate: daysAgo(29), endDate: null, phaseOrder: 3 },
+      ]
+    } else if (stage.includes("投中")) {
+      phasesData = [
+        { groupLabel: "投前期", name: "投前期 - 阶段1", fullLabel: "投前期 - 阶段1", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(90), endDate: daysAgo(75), phaseOrder: 1 },
+        { groupLabel: "投前期", name: "投前期 - 阶段2", fullLabel: "投前期 - 阶段2", assignee: "李四", assigneeAvatar: "李", status: "completed", startDate: daysAgo(74), endDate: daysAgo(60), phaseOrder: 2 },
+        { groupLabel: "投前期", name: "投前期 - 阶段3", fullLabel: "投前期 - 阶段3", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(59), endDate: daysAgo(45), phaseOrder: 3 },
+        { groupLabel: "投中期", name: "投中期 - 阶段1", fullLabel: "投中期 - 阶段1", assignee: "王芳", assigneeAvatar: "王", status: "completed", startDate: daysAgo(44), endDate: daysAgo(30), phaseOrder: 4 },
+        { groupLabel: "投中期", name: "投中期 - 阶段2", fullLabel: "投中期 - 阶段2", assignee: "张伟", assigneeAvatar: "张", status: "active", startDate: daysAgo(29), endDate: null, phaseOrder: 5 },
+      ]
+    } else if (stage.includes("投后")) {
+      phasesData = [
+        { groupLabel: "投前期", name: "投前期 - 阶段1", fullLabel: "投前期 - 阶段1", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(120), endDate: daysAgo(105), phaseOrder: 1 },
+        { groupLabel: "投前期", name: "投前期 - 阶段2", fullLabel: "投前期 - 阶段2", assignee: "李四", assigneeAvatar: "李", status: "completed", startDate: daysAgo(104), endDate: daysAgo(90), phaseOrder: 2 },
+        { groupLabel: "投前期", name: "投前期 - 阶段3", fullLabel: "投前期 - 阶段3", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(89), endDate: daysAgo(75), phaseOrder: 3 },
+        { groupLabel: "投中期", name: "投中期 - 阶段1", fullLabel: "投中期 - 阶段1", assignee: "王芳", assigneeAvatar: "王", status: "completed", startDate: daysAgo(74), endDate: daysAgo(60), phaseOrder: 4 },
+        { groupLabel: "投中期", name: "投中期 - 阶段2", fullLabel: "投中期 - 阶段2", assignee: "张伟", assigneeAvatar: "张", status: "completed", startDate: daysAgo(59), endDate: daysAgo(45), phaseOrder: 5 },
+        { groupLabel: "投后期", name: "投后期 - 阶段1", fullLabel: "投后期 - 阶段1", assignee: "李四", assigneeAvatar: "李", status: "completed", startDate: daysAgo(44), endDate: daysAgo(30), phaseOrder: 6 },
+        { groupLabel: "投后期", name: "投后期 - 阶段2", fullLabel: "投后期 - 阶段2", assignee: "王芳", assigneeAvatar: "王", status: "active", startDate: daysAgo(29), endDate: null, phaseOrder: 7 },
+      ]
+    } else {
+      phasesData = [
+        { groupLabel: "投前期", name: "投前期 - 阶段1", fullLabel: "投前期 - 阶段1", assignee: "张伟", assigneeAvatar: "张", status: "active", startDate: today, endDate: null, phaseOrder: 1 },
+      ]
+    }
+
+    await prisma.projectPhase.createMany({
+      data: phasesData.map(p => ({
+        projectId: project.id,
+        ...p,
+      })),
+    })
+  }
+}
+
 async function main() {
   console.log('🌱 Seeding database...')
 
@@ -591,6 +672,9 @@ async function main() {
 
   await seedTerms()
   console.log('  ✔ Terms (×3 projects × 6 terms)')
+
+  await seedProjectPhases()
+  console.log('  ✔ ProjectPhase')
 
   console.log('✅ Seed complete')
 }
