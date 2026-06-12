@@ -56,7 +56,9 @@ npm run dev                                          # http://localhost:5173
 - [x] 通用对话接 `llm.complete()` 流式（`complete_stream()` 复用档位路由与海外合规降级；SSE 新增 error 事件；会话/消息落库带租户过滤，历史回放 `GET /messages`；流内用 `SessionLocal` 短事务——FastAPI ≥0.106 在流式响应前关闭依赖会话）
 - [x] domain_events 在所有对象动作处记账（注册/登录、deliverable 四个动作、会话/消息、agent run 状态流转 `agent_run.started/succeeded/failed` —— `services/agent_runs.py`）
 - [x] 赛道前瞻子图完成后 assistant 消息落库（object_ref 块）+ 真实 deliverable_id 推送（`agents/runner.py` 编排：run 创建 → 子图执行 progress 去重推送 → Thesis 经 SCHEMA_REGISTRY 强校验入库（回链 run 与来源会话）→ `thesis.created` → assistant 消息 → run 收尾；失败路径统一 `agent_run.failed` + error 事件，不落脏数据。`assemble_thesis` 节点已真实实现：PREMIUM 档结构化输出 + 合规开关透传，上游节点为空时基于赛道常识出初版判断，无证据结论自动 `inferred=True`）
-- [ ] 赛道前瞻其余节点真实实现（parse_track/classify/value_chain/sub_directions/fit_score 提示词；collect_signals 接 Connector 并落 evidence_items——博查/企查查需付费 key，先留接口桩）
+- [x] 赛道前瞻 LLM 节点真实实现（parse_track/classify_signals/value_chain/gen_sub_directions/fit_score：提示词 + 档位按任务轻重 FAST/STANDARD + 合规开关全节点透传；中间结构化模型 `agents/thesis_scout/schemas.py` 复用 Thesis 内嵌模型零转换损耗；classify 空信号守卫不调 LLM；fit 评分按名合并进子赛道草稿、缺失回退机构整体分；`tests/test_thesis_nodes.py` 含真实 LangGraph 子图端到端集成测试）
+- [ ] collect_signals 接 Connector 并落 evidence_items（博查/企查查需付费 key，接口桩返回空；实装时用 `track_definition.search_keywords` 检索，信号带 evidence_id 供 Claim 绑定）
+- [ ] load_preference / load_history 实装（preferences 表 active 版本；domain_events 按赛道回放历史判断）
 - [ ] Agent 执行迁 ARQ 队列 + Postgres checkpointer（当前内联在请求流中执行，编排已收敛在 runner，整体搬迁即可）
 - [ ] Langfuse 接入（自部署或云版）
 - [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）

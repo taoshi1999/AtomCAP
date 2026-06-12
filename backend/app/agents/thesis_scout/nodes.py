@@ -1,12 +1,16 @@
 """赛道前瞻 Agent 各节点实现。
 
-骨架阶段：节点结构、状态流转、档位选择已就位；assemble_thesis 已是真实实现，
-检索/分类类节点的提示词与 Connector 接入为 TODO。
+LLM 节点（parse_track/classify_signals/value_chain/gen_sub_directions/
+fit_score/assemble_thesis）均为真实实现；collect_signals 与
+load_preference/load_history 仍为桩（Connector 付费 key、preferences 服务未实装）。
+
 原则：
-- 轻任务（拆解/分类）用 FAST 档，综合判断用 STANDARD，最终组装用 PREMIUM
-- 每条检索结果先落 evidence_items，结论经 Claim 绑定 evidence_ids
+- 轻任务（拆解/分类）用 FAST 档，综合判断用 STANDARD，最终组装用 PREMIUM（约定 3）
+- 每条检索结果先落 evidence_items，结论经 Claim 绑定 evidence_ids；
+  无证据结论由 Claim 自动 inferred=True（约定 2），严禁提示词外伪造证据 id
 - 信号必须区分热度（heat）与结构性（structural），结构性加权
 - 节点是纯函数（state in → state out），不碰数据库；落库由 agents/runner.py 编排
+- 所有 LLM 调用经 _ask() 透传 allow_overseas（约定 5）
 """
 
 from __future__ import annotations
@@ -14,16 +18,58 @@ from __future__ import annotations
 import json
 import uuid
 
+from typing import TypeVar
+
+from pydantic import BaseModel
+
+from app.agents.thesis_scout.schemas import (
+    ClassifiedSignals,
+    FitAssessment,
+    SubDirectionDrafts,
+    TrackDefinition,
+)
 from app.agents.thesis_scout.state import ThesisScoutState
 from app.llm.client import ModelTier, complete_structured
-from app.objects.thesis import Thesis
+from app.objects.thesis import Thesis, ValueChain
+
+
+T = TypeVar("T", bound=BaseModel)
+
+
+async def _ask(
+    state: ThesisScoutState, tier: ModelTier, system: str, payload: dict, schema: type[T]
+) -> T:
+    """统一封装：上下文 JSON 化 + 合规开关透传（约定 5）。"""
+    return await complete_structured(
+        tier,
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ],
+        schema,
+        allow_overseas=state.get("allow_overseas", False),
+    )
+
+
+PARSE_TRACK_SYSTEM = """你是一级市场（VC/PE）赛道研究员。把用户的投资方向问题拆解为明确的赛道定义：
+1. name：规范化赛道名称（用户口语 →行业通用叫法）
+2. includes：该赛道包括的细分领域/产业环节，5 个以内
+3. excludes：容易与之混淆但不属于该赛道的领域（划清研究边界）
+4. search_keywords：检索市场信号用的关键词，中英文各 2–4 个
+只依据用户问题本身拆解，不要引申判断机会好坏。"""
 
 
 async def parse_track(state: ThesisScoutState) -> dict:
     """Step 2：赛道定义拆解 —— 明确该赛道包括什么、不包括什么。"""
-    # TODO: complete_structured(ModelTier.FAST, ..., TrackDefinition)
+    td = await _ask(
+        state,
+        ModelTier.FAST,
+        PARSE_TRACK_SYSTEM,
+        {"用户问题": state["query"]},
+        TrackDefinition,
+    )
     return {
-        "track_definition": {"name": state["query"], "includes": [], "excludes": []},
+        "track_definition": td.model_dump(mode="json"),
         "progress": "正在拆解赛道定义…",
     }
 
@@ -32,9 +78,12 @@ async def collect_signals(state: ThesisScoutState) -> dict:
     """Step 3：多 Connector 并发收集市场信号（按赛道做 24h 缓存控成本）。
 
     检索面：现有玩家、融资事件、政策变化、技术突破、专利、人事变化、
-    供应链变化、需求变化。每条结果落 evidence_items。
+    供应链变化、需求变化。每条结果经 evidence/service 落 evidence_items，
+    信号自带 evidence_id 供下游 Claim 绑定。
+    桩说明：博查/企查查需付费 key（README 已标注），接口桩返回空列表；
+    实装时用 track_definition.search_keywords 作检索词。
     """
-    # TODO: asyncio.gather(*[c.search_news(...) for c in active_connectors])
+    # TODO: asyncio.gather(*[c.search_news(kw) for c in active_connectors for kw in keywords])
     return {"raw_signals": [], "progress": "正在收集市场信号…"}
 
 
@@ -50,38 +99,139 @@ async def load_history(state: ThesisScoutState) -> dict:
     return {"history": []}
 
 
+CLASSIFY_SYSTEM = """你是一级市场赛道研究员，对市场信号做分类与提炼。对每条输入信号：
+1. kind 判定：heat（热度信号：融资变多、媒体报道、大厂进入——只说明“有人看”）
+   或 structural（结构性信号：成本下降、技术成熟、政策窗口、供需反转——说明“可能值得投”）
+2. summary 用一句话提炼判断；输入信号自带 evidence_id 时填进 evidence_ids，
+   严禁伪造不存在的证据 id；没有就留空（系统会标记为模型推断）
+3. signal_date 尽量保留原信号时间
+丢弃与赛道定义无关的噪音信号。结构性信号是后续判断的主要依据。"""
+
+
 async def classify_signals(state: ThesisScoutState) -> dict:
     """区分热度信号与结构性信号。热度说明“有人看”，结构性才说明“可能值得投”。"""
-    # TODO: complete_structured(ModelTier.FAST, ..., list[MarketSignal])
-    return {"classified_signals": [], "progress": "正在区分热度信号与结构性信号…"}
+    raw = state.get("raw_signals") or []
+    if not raw:
+        # 无信号不调 LLM（控成本）；Connector 实装前这是常态路径
+        return {"classified_signals": [], "progress": "正在区分热度信号与结构性信号…"}
+    result = await _ask(
+        state,
+        ModelTier.FAST,
+        CLASSIFY_SYSTEM,
+        {"赛道定义": state.get("track_definition", {}), "原始信号": raw},
+        ClassifiedSignals,
+    )
+    return {
+        "classified_signals": [s.model_dump(mode="json") for s in result.signals],
+        "progress": "正在区分热度信号与结构性信号…",
+    }
+
+
+VALUE_CHAIN_SYSTEM = """你是一级市场赛道研究员，拆解赛道的产业链结构。输出上游/中游/下游各环节：
+1. 每个环节给出 name、examples（代表性细分或公司，没把握就少写，不要编造）
+2. margin_potential（毛利率潜力）、entry_difficulty（创业公司进入难度）、
+   suitable_stage（适合的投资阶段）给出简短判断
+3. customers 列出终端客户类型
+4. 有市场信号佐证的判断优先参考结构性信号；信号为空时基于行业常识给初版拆解"""
 
 
 async def value_chain(state: ThesisScoutState) -> dict:
     """Step 4：产业链上中下游拆解 + 各环节毛利潜力/进入难度/适合阶段判断。"""
-    # TODO: complete_structured(ModelTier.STANDARD, ..., ValueChain)
-    return {"value_chain": {}, "progress": "正在拆解产业链…"}
+    vc = await _ask(
+        state,
+        ModelTier.STANDARD,
+        VALUE_CHAIN_SYSTEM,
+        {
+            "赛道定义": state.get("track_definition", {}),
+            "市场信号": state.get("classified_signals", []),
+        },
+        ValueChain,
+    )
+    return {"value_chain": vc.model_dump(mode="json"), "progress": "正在拆解产业链…"}
+
+
+SUB_DIRECTIONS_SYSTEM = """你是一级市场赛道研究员，从产业链拆解中提炼 3–7 个值得关注的子赛道。要求：
+1. 每个子赛道：name、detail（做什么、为什么现在）、investment_reasons（推荐理由，
+   引用市场信号的 evidence_ids，无证据留空由系统标记推断）、key_risks（真实风险）、
+   suitable_stage（适合的投资阶段）、representative_companies（确有把握才写，不要编造）
+2. 子赛道之间要有区分度：覆盖产业链不同环节或不同切入逻辑，不要同义反复
+3. 结构性信号支撑的子赛道优先；纯热度驱动的要在风险里说明
+4. 机构偏好非空时，优先生成与偏好相关的方向，但不强行迎合"""
 
 
 async def gen_sub_directions(state: ThesisScoutState) -> dict:
-    """Step 5：生成 3–7 个子赛道，每个含详情/推荐理由(Claim)/代表公司/风险/适合阶段。"""
-    # TODO: complete_structured(ModelTier.STANDARD, ..., list[SubDirection])
-    return {"sub_directions": [], "progress": "正在生成子赛道…"}
+    """Step 5：生成 3–7 个子赛道草稿（机构匹配度由下一节点补全）。"""
+    drafts = await _ask(
+        state,
+        ModelTier.STANDARD,
+        SUB_DIRECTIONS_SYSTEM,
+        {
+            "赛道定义": state.get("track_definition", {}),
+            "市场信号": state.get("classified_signals", []),
+            "产业链": state.get("value_chain", {}),
+            "机构偏好": state.get("preference", {}),
+        },
+        SubDirectionDrafts,
+    )
+    return {
+        "sub_directions": [d.model_dump(mode="json") for d in drafts.sub_directions],
+        "progress": "正在生成子赛道…",
+    }
+
+
+FIT_SCORE_SYSTEM = """你是一级市场机构的投资策略分析师，按 rubric 给赛道与机构的匹配度打分（0–100）：
+- track_preference：赛道与机构偏好赛道的重合度（偏好为空给 50 并在 rationale 说明）
+- stage_match：子赛道适合阶段与机构投资阶段的匹配
+- moat_match：技术壁垒类型与机构偏好的匹配
+- geo_match：地域匹配（无地域信息给 50）
+- risk_appetite_match：风险特征与机构风险偏好的匹配
+- history_similarity：与机构历史项目的相似度（历史为空给 50 并说明；embedding 相似度后续接入）
+- exclusion_penalty：仅当命中机构不感兴趣清单时 >0，并说明命中哪条
+- total：加权合成（结构性机会权重高于热度）；rationale 用一句话解释总分
+输出 institution_fit（赛道整体）+ sub_direction_fits（逐个子赛道，name 必须与输入草稿一致）。
+诚实打分：信息不足就给中性分并说明，不要为了好看抬分。"""
 
 
 async def fit_score(state: ThesisScoutState) -> dict:
-    """Step 6：机构匹配度分项评分。
+    """Step 6：机构匹配度分项评分，并把分数合并进子赛道草稿。
 
-    公式：赛道偏好 + 阶段 + 壁垒 + 地域 + 风险偏好 + 历史相似度(embedding) - 不感兴趣惩罚。
-    每个因子 LLM 按 rubric 打分并给理由，分项明细全部保留（前端可解释）。
+    公式：赛道偏好 + 阶段 + 壁垒 + 地域 + 风险偏好 + 历史相似度 - 不感兴趣惩罚。
+    分项明细全部保留（前端可解释「为什么是 82 分」）。
+    TODO: history_similarity 接 embedding 相似度（pgvector）。
     """
-    # TODO: rubric 评分 + embed() 历史相似度
-    return {"fit": {}, "progress": "正在计算机构匹配度…"}
+    drafts = state.get("sub_directions", [])
+    assessment = await _ask(
+        state,
+        ModelTier.STANDARD,
+        FIT_SCORE_SYSTEM,
+        {
+            "赛道定义": state.get("track_definition", {}),
+            "子赛道草稿": drafts,
+            "机构偏好": state.get("preference", {}),
+            "机构历史": state.get("history", []),
+        },
+        FitAssessment,
+    )
+    institution_fit = assessment.institution_fit.model_dump(mode="json")
+    fit_by_name = {
+        f.name: f.fit.model_dump(mode="json") for f in assessment.sub_direction_fits
+    }
+    # 评分缺失的子赛道回退用机构整体分（绝不让草稿丢失）
+    merged = [
+        {**d, "fit_score": fit_by_name.get(d.get("name"), institution_fit)} for d in drafts
+    ]
+    return {
+        "fit": institution_fit,
+        "sub_directions": merged,
+        "progress": "正在计算机构匹配度…",
+    }
 
 
 ASSEMBLE_SYSTEM = """你是一级市场（VC/PE）的资深赛道研究员，负责把前序分析组装成最终的赛道前瞻判断（Thesis 对象）。
 
 要求：
-1. 子赛道（sub_directions）3–7 个，每个都给出可操作的判断与适合的投资阶段
+1. 子赛道（sub_directions）3–7 个，优先沿用「候选子赛道」的内容与 fit_score，
+   只做提炼润色，不推翻前序分析
 2. key_risks 必须至少给出 1 条真实风险——没有风险点的判断像销售材料，不可信
 3. 严禁伪造 evidence_ids：上下文中没有给出证据 id 时一律留空数组，由系统标记为模型推断
 4. opportunity_level 取值 高/中/低，risk_level 取值 高/中高/中/低
@@ -96,26 +246,21 @@ async def assemble_thesis(state: ThesisScoutState) -> dict:
 
     校验不过会在 complete_structured 内带错误信息自动重试修复（核心约定 1）。
     落库不在节点内做——节点保持纯函数，由 agents/runner.py 编排短事务入库。
-    骨架阶段上游节点尚未产出真实信号/证据，无证据结论由 Claim 自动标记
-    inferred=True（核心约定 2），前端渲染「模型推断」标识。
     """
-    context = {
-        "用户问题": state.get("query", ""),
-        "赛道定义": state.get("track_definition", {}),
-        "市场信号": state.get("classified_signals", []),
-        "产业链": state.get("value_chain", {}),
-        "候选子赛道": state.get("sub_directions", []),
-        "机构偏好": state.get("preference", {}),
-        "机构匹配度评分": state.get("fit", {}),
-    }
-    thesis = await complete_structured(
+    thesis = await _ask(
+        state,
         ModelTier.PREMIUM,
-        [
-            {"role": "system", "content": ASSEMBLE_SYSTEM},
-            {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
-        ],
+        ASSEMBLE_SYSTEM,
+        {
+            "用户问题": state.get("query", ""),
+            "赛道定义": state.get("track_definition", {}),
+            "市场信号": state.get("classified_signals", []),
+            "产业链": state.get("value_chain", {}),
+            "候选子赛道": state.get("sub_directions", []),
+            "机构偏好": state.get("preference", {}),
+            "机构匹配度评分": state.get("fit", {}),
+        },
         Thesis,
-        allow_overseas=state.get("allow_overseas", False),
     )
     if state.get("conversation_id"):
         thesis.created_from_conversation = uuid.UUID(state["conversation_id"])
