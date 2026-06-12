@@ -1,0 +1,49 @@
+# LiteLLM 模型网关配置
+# 核心约定：应用代码只引用 fast / standard / premium 三个档位别名，
+# 换模型只改这个文件，代码零改动。
+# 模型名请在接入时核对各厂商最新版本（下方为 2026-06 的常见命名）。
+
+model_list:
+  # ---- fast：拆解、分类、抽取等轻任务 ----
+  - model_name: fast
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+  - model_name: fast
+    litellm_params:
+      model: openai/qwen-flash            # 阿里云百炼 OpenAI 兼容模式
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: os.environ/DASHSCOPE_API_KEY
+
+  # ---- standard：综合推理、子赛道生成 ----
+  - model_name: standard
+    litellm_params:
+      model: deepseek/deepseek-chat       # DeepSeek V4
+      api_key: os.environ/DEEPSEEK_API_KEY
+  - model_name: standard
+    litellm_params:
+      model: openai/qwen-max              # Qwen3.5 旗舰
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: os.environ/DASHSCOPE_API_KEY
+
+  # ---- premium：高质量交付 / 海外用户（注意数据出境合规，需机构级开关） ----
+  - model_name: premium
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ---- embedding ----
+  - model_name: embed
+    litellm_params:
+      model: openai/text-embedding-v4     # 百炼 embedding；自部署 BGE-M3 时替换 api_base
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: os.environ/DASHSCOPE_API_KEY
+
+litellm_settings:
+  num_retries: 2
+  request_timeout: 120
+  fallbacks:
+    - standard: ["premium"]   # 国产模型故障时升级兜底
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

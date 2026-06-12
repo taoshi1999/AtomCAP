@@ -1,0 +1,19 @@
+# 赛道前瞻 golden 评测集（Phase 1 建满 10 题）
+# 评测维度：引用准确率（第一指标）、子赛道数量 3-7、结构性信号占比、
+#           风险点非空、fit_score 分项完整、Schema 校验通过率
+cases:
+  - id: ai-hardware
+    query: 帮我找找 AI 硬件这个赛道有什么值得关注的方向？
+    expect:
+      sub_directions_between: [3, 7]
+      must_have_risks: true
+  - id: humanoid-upstream
+    query: 人形机器人上游还能不能投？
+    expect:
+      sub_directions_between: [3, 7]
+      must_have_risks: true
+  - id: semiconductor-equipment
+    query: 半导体设备国产替代有哪些细分方向？
+    expect:
+      sub_directions_between: [3, 7]
+      must_have_risks: true

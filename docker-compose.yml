@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: atomcap
+      POSTGRES_PASSWORD: atomcap_dev
+      POSTGRES_DB: atomcap
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atomcap"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  litellm:
+    # 安全要求：固定具体版本号，禁止使用 latest / main-stable 等滚动标签
+    # 部署前到 https://github.com/BerriAI/litellm/releases 确认最新稳定版
+    image: ghcr.io/berriai/litellm:main-v1.72.0
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      litellm:
+        condition: service_started
+
+  worker:
+    build: ./backend
+    command: ["arq", "worker.main.WorkerSettings"]
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # Langfuse v3 需要 clickhouse + minio，体量较大，Phase 0 期间建议：
+  # 1) 用 Langfuse Cloud 试用；或 2) 单独用官方 docker-compose 私有化部署后，
+  # 在 .env 中配置 LANGFUSE_HOST / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY 接入。
+
+volumes:
+  pgdata:
