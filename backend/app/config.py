@@ -16,6 +16,9 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 1440  # 24h，开发期免频繁换 token
+    # 开发回退：未携带凭证时返回固定开发租户（前端登录 UI 接通前的过渡），生产必须 false
+    auth_dev_fallback: bool = False
 
     # 数据源
     bocha_api_key: str = ""

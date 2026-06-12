@@ -14,12 +14,13 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.router import Intent, classify_intent
 from app.agents.thesis_scout.graph import thesis_scout_graph
+from app.api.deps import CurrentUser, get_current_user
 
 router = APIRouter()
 
@@ -29,8 +30,16 @@ class SendMessageRequest(BaseModel):
 
 
 @router.post("/{conversation_id}/messages")
-async def send_message(conversation_id: uuid.UUID, body: SendMessageRequest):
-    """接收用户消息，SSE 返回流式结果。"""
+async def send_message(
+    conversation_id: uuid.UUID,
+    body: SendMessageRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """接收用户消息，SSE 返回流式结果。
+
+    租户上下文已注入：后续消息落库/Agent run 归属 user.institution_id；
+    海外模型调用前需检查 user.allow_overseas_models（核心约定 5）。
+    """
 
     async def event_stream():
         # 1) 意图路由（LLM 结构化分类；网关未就绪时降级为 chat）

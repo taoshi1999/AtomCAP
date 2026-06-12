@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.conversations import router as conversations_router
 from app.api.deliverables import router as deliverables_router
 
@@ -18,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(deliverables_router, prefix="/api/deliverables", tags=["deliverables"])
 

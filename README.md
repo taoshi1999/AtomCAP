@@ -14,7 +14,7 @@ backend/
     connectors/   # 数据源抽象 + 博查/企查查/Tavily 适配器
     evidence/     # 证据链服务（Source 落库、结论连边）
     services/     # 对象存取（入库强校验）、domain_events 记账
-    api/          # 对话 SSE（token/progress/object/done 协议）、对象动作
+    api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/done 协议）、对象动作（记账）
   worker/         # ARQ：长任务 + cron（赛道监控、经验沉淀）
   tests/          # Schema 契约测试
   evals/          # 赛道前瞻 golden 评测集
@@ -51,13 +51,18 @@ npm run dev                                          # http://localhost:5173
 ## Phase 0 待办（按技术规划）
 
 - [x] Alembic 初始化 + 首个 migration（0001：pgvector 扩展 + 全部 15 表 + HNSW 向量索引；`tests/test_migration_contract.py` 保证迁移与 ORM 不漂移；离线审阅用 `alembic upgrade head --sql`）
-- [ ] JWT 认证与多租户上下文（`api/deps.py` 的 TODO）
+- [x] JWT 认证与多租户上下文（`/api/auth/register` 机构引导注册 + `/login` 签发 JWT；`get_current_user` 注入租户上下文并实时读 `allow_overseas_models`；开发回退开关 `AUTH_DEV_FALLBACK`；deliverable 动作端点已带租户过滤并写 domain_events）
 - [ ] 通用对话接 `llm.complete()` 流式
-- [ ] domain_events 在所有对象动作处记账
+- [ ] domain_events 在所有对象动作处记账（已接：注册/登录、deliverable 四个动作；待接：消息落库、agent run 状态流转）
 - [ ] Langfuse 接入（自部署或云版）
+- [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
+- [ ] 用户邀请加入既有机构（多用户；注册仅做机构引导）
+- [ ] 前端登录页 + token 注入（接通后关闭 AUTH_DEV_FALLBACK）
 
 ## 核心约定（不可破坏）
 
 1. 专用 Agent 的输出必须是 `SCHEMA_REGISTRY` 注册的对象，入库前强制校验
 2. 结论一律用 `Claim` 表达：有 `evidence_ids`，或显式 `inferred=True`
-3. 业务代码只引用模型档位别名（f
+3. 业务代码只引用模型档位别名（fast/standard/premium），不写死模型名
+4. 用户操作与状态流转必须写 `domain_events`（经验沉淀 Agent 的唯一数据来源）
+5. 海外模型调用前检查机构级开关 `allow_overseas_models`（数据出境合规）
