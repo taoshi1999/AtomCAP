@@ -1,16 +1,22 @@
 """赛道前瞻 Agent 各节点实现。
 
-骨架阶段：节点结构、状态流转、档位选择已就位，检索与提示词为 TODO。
+骨架阶段：节点结构、状态流转、档位选择已就位；assemble_thesis 已是真实实现，
+检索/分类类节点的提示词与 Connector 接入为 TODO。
 原则：
-- 轻任务（拆解/分类）用 FAST 档，综合判断用 STANDARD，最终组装可用 PREMIUM
+- 轻任务（拆解/分类）用 FAST 档，综合判断用 STANDARD，最终组装用 PREMIUM
 - 每条检索结果先落 evidence_items，结论经 Claim 绑定 evidence_ids
 - 信号必须区分热度（heat）与结构性（structural），结构性加权
+- 节点是纯函数（state in → state out），不碰数据库；落库由 agents/runner.py 编排
 """
 
 from __future__ import annotations
 
+import json
+import uuid
+
 from app.agents.thesis_scout.state import ThesisScoutState
-from app.llm.client import ModelTier, complete_structured  # noqa: F401  骨架阶段未全部用到
+from app.llm.client import ModelTier, complete_structured
+from app.objects.thesis import Thesis
 
 
 async def parse_track(state: ThesisScoutState) -> dict:
@@ -72,10 +78,45 @@ async def fit_score(state: ThesisScoutState) -> dict:
     return {"fit": {}, "progress": "正在计算机构匹配度…"}
 
 
-async def assemble_thesis(state: ThesisScoutState) -> dict:
-    """Step 7/8：组装 Thesis 对象（Pydantic 强校验）→ 落库 → 返回推荐动作。
+ASSEMBLE_SYSTEM = """你是一级市场（VC/PE）的资深赛道研究员，负责把前序分析组装成最终的赛道前瞻判断（Thesis 对象）。
 
-    校验不过会在 complete_structured 内自动带错误重试修复。
+要求：
+1. 子赛道（sub_directions）3–7 个，每个都给出可操作的判断与适合的投资阶段
+2. key_risks 必须至少给出 1 条真实风险——没有风险点的判断像销售材料，不可信
+3. 严禁伪造 evidence_ids：上下文中没有给出证据 id 时一律留空数组，由系统标记为模型推断
+4. opportunity_level 取值 高/中/低，risk_level 取值 高/中高/中/低
+5. 上下文中的「市场信号」「产业链」「机构匹配度」为空时，基于赛道常识给出初版判断，
+   不要编造具体融资事件或政策名称
+6. 全部用简体中文输出
+"""
+
+
+async def assemble_thesis(state: ThesisScoutState) -> dict:
+    """Step 7/8：组装 Thesis 对象（PREMIUM 档结构化输出 + Pydantic 强校验）。
+
+    校验不过会在 complete_structured 内带错误信息自动重试修复（核心约定 1）。
+    落库不在节点内做——节点保持纯函数，由 agents/runner.py 编排短事务入库。
+    骨架阶段上游节点尚未产出真实信号/证据，无证据结论由 Claim 自动标记
+    inferred=True（核心约定 2），前端渲染「模型推断」标识。
     """
-    # TODO: complete_structured(ModelTier.PREMIUM, ..., Thesis) → services.deliverables.save()
-    return {"thesis": None, "progress": "正在组装 Thesis…"}
+    context = {
+        "用户问题": state.get("query", ""),
+        "赛道定义": state.get("track_definition", {}),
+        "市场信号": state.get("classified_signals", []),
+        "产业链": state.get("value_chain", {}),
+        "候选子赛道": state.get("sub_directions", []),
+        "机构偏好": state.get("preference", {}),
+        "机构匹配度评分": state.get("fit", {}),
+    }
+    thesis = await complete_structured(
+        ModelTier.PREMIUM,
+        [
+            {"role": "system", "content": ASSEMBLE_SYSTEM},
+            {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+        ],
+        Thesis,
+        allow_overseas=state.get("allow_overseas", False),
+    )
+    if state.get("conversation_id"):
+        thesis.created_from_conversation = uuid.UUID(state["conversation_id"])
+    return {"thesis": thesis.model_dump(mode="json"), "progress": "Thesis 已生成"}

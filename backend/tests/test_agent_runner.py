@@ -1,0 +1,242 @@
+"""赛道前瞻执行编排（agents/runner.py）单元测试 —— 不连库、不连网关。
+
+覆盖：
+- 成功路径：progress 去重推送 → deliverable 强校验入库（created_by_run_id 回链）
+  → thesis.created → assistant 消息带 object_ref 块 → run succeeded + 事件记账
+- 失败路径：子图异常 → run failed + agent_run.failed，error 事件推送，不落脏数据
+- 空产出路径：子图完成但无 thesis → 按失败处理
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import uuid
+
+import pytest
+from sqlalchemy.dialects import postgresql
+
+import app.agents.runner as runner
+from app.agents.runner import AGENT_FAILED_MSG, EMPTY_THESIS_ERROR, run_thesis_scout
+from app.models.models import AgentRun, Deliverable, DomainEvent, Message
+
+INST = uuid.uuid4()
+USER = uuid.uuid4()
+CONV = uuid.uuid4()
+
+
+# ---------- 假 Session / 假子图 ----------
+
+class _Store:
+    def __init__(self):
+        self.added: list = []
+        self.update_params: list[dict] = []
+
+    def of(self, cls):
+        return [o for o in self.added if isinstance(o, cls)]
+
+    def events(self):
+        return [e.event_type for e in self.of(DomainEvent)]
+
+
+class _NullTxn:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, store: _Store):
+        self._store = store
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def begin(self):
+        return _NullTxn()
+
+    def add(self, obj):
+        self._store.added.append(obj)
+
+    async def flush(self):
+        for obj in self._store.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+
+    async def execute(self, stmt):
+        compiled = stmt.compile(dialect=postgresql.dialect())
+        self._store.update_params.append(dict(compiled.params))
+        return None
+
+
+class _FakeGraph:
+    """逐 chunk 产出 state（values 模式语义：全量 state），可注入异常。"""
+
+    def __init__(self, chunks, exc: Exception | None = None):
+        self.chunks = chunks
+        self.exc = exc
+        self.initial_state: dict | None = None
+
+    async def astream(self, state, *, stream_mode):
+        assert stream_mode == "values"
+        self.initial_state = state
+        merged: dict = dict(state)
+        for c in self.chunks:
+            merged = {**merged, **c}
+            yield merged
+        if self.exc is not None:
+            raise self.exc
+
+
+def _fit():
+    return {
+        "track_preference": 80, "stage_match": 70, "moat_match": 60,
+        "geo_match": 90, "risk_appetite_match": 75, "history_similarity": 50,
+        "exclusion_penalty": 0, "total": 72, "rationale": "测试评分",
+    }
+
+
+def _sub(name: str):
+    return {
+        "name": name, "detail": "细分详情",
+        "investment_reasons": [{"text": "推荐理由", "evidence_ids": [], "inferred": True}],
+        "representative_companies": [], "key_risks": [],
+        "suitable_stage": "A轮", "fit_score": _fit(),
+    }
+
+
+def thesis_payload():
+    """能通过 SCHEMA_REGISTRY[THESIS] 强校验的最小 payload。"""
+    return {
+        "schema_version": 1,
+        "thesis_name": "AI 硬件",
+        "one_line_view": "上游存在结构性机会",
+        "opportunity_level": "高",
+        "risk_level": "中",
+        "advice": "优先关注上游",
+        "sub_directions": [_sub("子赛道A"), _sub("子赛道B"), _sub("子赛道C")],
+        "investment_reason": [{"text": "与机构偏好匹配", "evidence_ids": [], "inferred": True}],
+        "institution_fit_score": _fit(),
+        "value_chain": {"upstream": [], "midstream": [], "downstream": [], "customers": []},
+        "recent_signals": [],
+        "representative_companies": [],
+        "key_risks": [{"text": "供给过剩风险", "evidence_ids": [], "inferred": True}],
+    }
+
+
+def _run(monkeypatch, graph: _FakeGraph):
+    store = _Store()
+    monkeypatch.setattr(runner, "SessionLocal", lambda: _FakeSession(store))
+    monkeypatch.setattr(runner, "thesis_scout_graph", graph)
+
+    async def collect():
+        return [
+            ev
+            async for ev in run_thesis_scout(
+                institution_id=INST,
+                user_id=USER,
+                allow_overseas=True,
+                conversation_id=CONV,
+                query="AI硬件还有什么机会",
+            )
+        ]
+
+    return asyncio.run(collect()), store
+
+
+# ---------- 成功路径 ----------
+
+def test_success_full_pipeline(monkeypatch):
+    graph = _FakeGraph(
+        [
+            {"progress": "正在拆解赛道定义…"},
+            {"progress": "正在收集市场信号…"},
+            {"progress": "正在收集市场信号…"},  # 重复 progress 应去重
+            {"progress": "Thesis 已生成", "thesis": thesis_payload()},
+        ]
+    )
+    events, store = _run(monkeypatch, graph)
+
+    # 子图输入带租户/合规上下文（核心约定 5 的传递链路）
+    assert graph.initial_state["institution_id"] == str(INST)
+    assert graph.initial_state["allow_overseas"] is True
+
+    # SSE：progress 去重 + object 推真实 deliverable_id
+    progresses = [e["data"] for e in events if e["event"] == "progress"]
+    assert progresses == ["正在拆解赛道定义…", "正在收集市场信号…", "Thesis 已生成"]
+    [obj_ev] = [e for e in events if e["event"] == "object"]
+    obj = json.loads(obj_ev["data"])
+
+    # deliverable 入库：强校验 + run 回链 + 来源会话
+    [d] = store.of(Deliverable)
+    assert obj == {"type": "thesis", "deliverable_id": str(d.id)}
+    assert d.payload["thesis_name"] == "AI 硬件"
+    [run] = store.of(AgentRun)
+    assert d.created_by_run_id == run.id
+    assert d.source_conversation_id == CONV
+
+    # assistant 消息：object_ref 块指向真实 deliverable
+    [m] = store.of(Message)
+    assert m.role == "assistant"
+    assert {"type": "object_ref", "deliverable_id": str(d.id)} in m.content
+
+    # domain_events：started → thesis.created → message.completed → succeeded
+    assert store.events() == [
+        "agent_run.started",
+        "thesis.created",
+        "message.completed",
+        "agent_run.succeeded",
+    ]
+
+    # run 收尾 UPDATE：succeeded + 步骤轨迹
+    [params] = store.update_params
+    assert params["status"] == "succeeded"
+    assert params["steps"]["trail"] == progresses
+    assert params["error"] is None
+
+
+def test_schema_violation_marks_run_failed(monkeypatch):
+    """入库前强校验（核心约定 1）：payload 不合法 → 不落 deliverable，run 标记 failed。"""
+    bad = thesis_payload()
+    bad["sub_directions"] = bad["sub_directions"][:1]  # 少于 3 个，违反 Schema
+    graph = _FakeGraph([{"progress": "Thesis 已生成", "thesis": bad}])
+    events, store = _run(monkeypatch, graph)
+
+    assert [e["event"] for e in events][-1] == "error"
+    assert store.of(Message) == []
+    assert store.events() == ["agent_run.started", "agent_run.failed"]
+    [params] = store.update_params
+    assert params["status"] == "failed"
+
+
+# ---------- 失败路径 ----------
+
+def test_graph_exception_finishes_run_failed(monkeypatch):
+    graph = _FakeGraph([{"progress": "正在拆解赛道定义…"}], exc=RuntimeError("网关超时"))
+    events, store = _run(monkeypatch, graph)
+
+    assert events == [
+        {"event": "progress", "data": "正在拆解赛道定义…"},
+        {"event": "error", "data": AGENT_FAILED_MSG},
+    ]
+    assert store.of(Deliverable) == [] and store.of(Message) == []
+    assert store.events() == ["agent_run.started", "agent_run.failed"]
+    [params] = store.update_params
+    assert params["status"] == "failed"
+    assert "网关超时" in params["error"]
+    assert params["steps"]["trail"] == ["正在拆解赛道定义…"]
+
+
+def test_empty_thesis_treated_as_failure(monkeypatch):
+    graph = _FakeGraph([{"progress": "正在组装 Thesis…", "thesis": None}])
+    events, store = _run(monkeypatch, graph)
+
+    assert [e["event"] for e in events][-1] == "error"
+    assert store.events() == ["agent_run.started", "agent_run.failed"]
+    [params] = store.update_params
+    assert EMPTY_THESIS_ERROR in params["error"]

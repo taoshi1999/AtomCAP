@@ -17,3 +17,5 @@ dist/
 # git 历史备份（沙箱挂载层对 .git 小文件同步不可靠，单文件 bundle 作恢复用）
 .git.bundle
 pytest-cache-files-*/
+# 沙箱写探针（挂载层产物，无法删除）
+.write_probe

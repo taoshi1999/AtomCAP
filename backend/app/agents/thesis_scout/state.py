@@ -10,6 +10,7 @@ class ThesisScoutState(TypedDict, total=False):
     query: str                      # 用户原始问题
     institution_id: str
     conversation_id: str
+    allow_overseas: bool            # 机构合规开关，LLM 调用前必须传入档位路由（核心约定 5）
     # 中间产物
     track_definition: dict[str, Any]   # 赛道包括什么/不包括什么
     raw_signals: list[dict]            # Connector 原始检索结果（已落 evidence_items）

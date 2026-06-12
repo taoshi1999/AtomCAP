@@ -10,13 +10,14 @@ backend/
     objects/      # ★ 交付结果对象 Pydantic Schema —— 系统契约原点（Thesis 已完整定义）
     models/       # SQLAlchemy ORM（三类对象 + 证据链 + domain_events + RAG）
     llm/          # 档位路由（fast/standard/premium）+ 结构化输出（校验失败自动修复）
-    agents/       # 主图意图路由 + 四个专用 Agent 子图（赛道前瞻 8 步已搭好）
+    agents/       # 主图意图路由 + 四个专用 Agent 子图 + runner 执行编排
+                  #   （子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
     connectors/   # 数据源抽象 + 博查/企查查/Tavily 适配器
     evidence/     # 证据链服务（Source 落库、结论连边）
-    services/     # 对象存取（入库强校验）、domain_events 记账
+    services/     # 对象存取（入库强校验）、domain_events 记账、agent_runs 生命周期
     api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/error/done 协议 + 历史回放）、对象动作（记账）
   worker/         # ARQ：长任务 + cron（赛道监控、经验沉淀）
-  tests/          # Schema 契约测试
+  tests/          # Schema 契约测试 + 运行编排测试
   evals/          # 赛道前瞻 golden 评测集
 frontend/
   src/
@@ -53,8 +54,10 @@ npm run dev                                          # http://localhost:5173
 - [x] Alembic 初始化 + 首个 migration（0001：pgvector 扩展 + 全部 15 表 + HNSW 向量索引；`tests/test_migration_contract.py` 保证迁移与 ORM 不漂移；离线审阅用 `alembic upgrade head --sql`）
 - [x] JWT 认证与多租户上下文（`/api/auth/register` 机构引导注册 + `/login` 签发 JWT；`get_current_user` 注入租户上下文并实时读 `allow_overseas_models`；开发回退开关 `AUTH_DEV_FALLBACK`；deliverable 动作端点已带租户过滤并写 domain_events）
 - [x] 通用对话接 `llm.complete()` 流式（`complete_stream()` 复用档位路由与海外合规降级；SSE 新增 error 事件；会话/消息落库带租户过滤，历史回放 `GET /messages`；流内用 `SessionLocal` 短事务——FastAPI ≥0.106 在流式响应前关闭依赖会话）
-- [ ] domain_events 在所有对象动作处记账（已接：注册/登录、deliverable 四个动作、会话创建、消息落库 message.sent/message.completed；待接：agent run 状态流转）
-- [ ] 赛道前瞻子图完成后 assistant 消息落库（object_ref 块）+ 真实 deliverable_id 推送
+- [x] domain_events 在所有对象动作处记账（注册/登录、deliverable 四个动作、会话/消息、agent run 状态流转 `agent_run.started/succeeded/failed` —— `services/agent_runs.py`）
+- [x] 赛道前瞻子图完成后 assistant 消息落库（object_ref 块）+ 真实 deliverable_id 推送（`agents/runner.py` 编排：run 创建 → 子图执行 progress 去重推送 → Thesis 经 SCHEMA_REGISTRY 强校验入库（回链 run 与来源会话）→ `thesis.created` → assistant 消息 → run 收尾；失败路径统一 `agent_run.failed` + error 事件，不落脏数据。`assemble_thesis` 节点已真实实现：PREMIUM 档结构化输出 + 合规开关透传，上游节点为空时基于赛道常识出初版判断，无证据结论自动 `inferred=True`）
+- [ ] 赛道前瞻其余节点真实实现（parse_track/classify/value_chain/sub_directions/fit_score 提示词；collect_signals 接 Connector 并落 evidence_items——博查/企查查需付费 key，先留接口桩）
+- [ ] Agent 执行迁 ARQ 队列 + Postgres checkpointer（当前内联在请求流中执行，编排已收敛在 runner，整体搬迁即可）
 - [ ] Langfuse 接入（自部署或云版）
 - [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
 - [ ] 用户邀请加入既有机构（多用户；注册仅做机构引导）

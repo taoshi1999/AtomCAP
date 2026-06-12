@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -21,7 +20,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.router import Intent, classify_intent
-from app.agents.thesis_scout.graph import thesis_scout_graph
+from app.agents.runner import run_thesis_scout
 from app.api.deps import CurrentUser, get_current_user
 from app.db import SessionLocal
 from app.llm.client import ModelTier, complete_stream
@@ -83,17 +82,17 @@ async def send_message(
             intent = None
 
         if intent and intent.intent is Intent.THESIS_SCOUT and intent.confidence >= 0.7:
-            # 3a) 专用 Agent：异步跑赛道前瞻子图，步骤进度实时推送
-            #     生产实现：入 ARQ 队列 + Postgres checkpointer，此处骨架先内联执行
-            async for chunk in thesis_scout_graph.astream(
-                {"query": body.content, "conversation_id": str(conversation_id)},
-                stream_mode="values",
+            # 3a) 专用 Agent：run 生命周期 + 子图执行 + deliverable 入库 +
+            #     assistant 消息（object_ref）全部由 agents/runner.py 编排，
+            #     状态流转写 domain_events。生产形态迁 ARQ 队列 + checkpointer。
+            async for ev in run_thesis_scout(
+                institution_id=user.institution_id,
+                user_id=user.user_id,
+                allow_overseas=user.allow_overseas_models,
+                conversation_id=conversation_id,
+                query=body.content,
             ):
-                if chunk.get("progress"):
-                    yield {"event": "progress", "data": chunk["progress"]}
-                await asyncio.sleep(0)
-            # TODO: 子图完成后 → save_deliverable() → 推送对象引用 + assistant 消息落库
-            yield {"event": "object", "data": '{"type": "thesis", "deliverable_id": null}'}
+                yield ev
         else:
             # 3b) 通用对话：llm.complete_stream() 流式，token 逐段下发
             llm_messages = to_llm_messages(history, body.content)
