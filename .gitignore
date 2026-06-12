@@ -14,3 +14,6 @@ dist/
 # misc
 .DS_Store
 *.log
+# git 历史备份（沙箱挂载层对 .git 小文件同步不可靠，单文件 bundle 作恢复用）
+.git.bundle
+pytest-cache-files-*/
