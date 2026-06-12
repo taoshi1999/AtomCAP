@@ -18,7 +18,14 @@ from sqlalchemy.dialects import postgresql
 
 import app.agents.runner as runner
 from app.agents.runner import AGENT_FAILED_MSG, EMPTY_THESIS_ERROR, run_thesis_scout
-from app.models.models import AgentRun, Deliverable, DomainEvent, Message
+from app.models.models import (
+    AgentRun,
+    Deliverable,
+    DomainEvent,
+    EvidenceItemRow,
+    EvidenceLinkRow,
+    Message,
+)
 
 INST = uuid.uuid4()
 USER = uuid.uuid4()
@@ -62,6 +69,9 @@ class _FakeSession:
 
     def add(self, obj):
         self._store.added.append(obj)
+
+    def add_all(self, objs):
+        self._store.added.extend(objs)
 
     async def flush(self):
         for obj in self._store.added:
@@ -240,3 +250,75 @@ def test_empty_thesis_treated_as_failure(monkeypatch):
     assert store.events() == ["agent_run.started", "agent_run.failed"]
     [params] = store.update_params
     assert EMPTY_THESIS_ERROR in params["error"]
+
+
+# ---------- 证据链路径 ----------
+
+def test_success_persists_evidence_and_strips_hallucinated_ids(monkeypatch):
+    """证据落库 + 连边 + 幻觉 id 剥除（核心约定 2 的代码级兜底）。"""
+    eid_real = str(uuid.uuid4())
+    eid_fake = str(uuid.uuid4())
+    payload = thesis_payload()
+    # 真实引用 + 幻觉引用混在同一 Claim；另一 Claim 全是幻觉引用
+    payload["key_risks"] = [
+        {"text": "有据风险", "evidence_ids": [eid_real, eid_fake], "inferred": False}
+    ]
+    payload["investment_reason"] = [
+        {"text": "纯幻觉引用", "evidence_ids": [eid_fake], "inferred": False}
+    ]
+    graph = _FakeGraph(
+        [
+            {
+                "progress": "正在收集市场信号…",
+                "evidence_sources": [
+                    {
+                        "evidence_id": eid_real,
+                        "source_type": "web_search",
+                        "title": "信号A",
+                        "url": "https://example.com/a",
+                        "snippet": "摘要",
+                        "published_at": "2026-06-01",
+                        "connector": "bocha",
+                        "raw": {"k": "v"},
+                    }
+                ],
+            },
+            {"progress": "Thesis 已生成", "thesis": payload},
+        ]
+    )
+    events, store = _run(monkeypatch, graph)
+    assert [e["event"] for e in events][-1] == "object"
+
+    # 证据按预分配 id 落库（id 与 Claim 绑定全程一致）
+    [item] = store.of(EvidenceItemRow)
+    assert str(item.id) == eid_real
+    assert item.institution_id == INST and item.connector == "bocha"
+    assert item.raw == {"k": "v"}
+
+    # 幻觉 id 被剥除；剥空的 Claim 自动 inferred=True，真实引用保留 inferred=False
+    [d] = store.of(Deliverable)
+    [risk] = d.payload["key_risks"]
+    assert risk["evidence_ids"] == [eid_real] and risk["inferred"] is False
+    [reason] = d.payload["investment_reason"]
+    assert reason["evidence_ids"] == [] and reason["inferred"] is True
+
+    # 实际被引用的证据与 deliverable 连边
+    [lk] = store.of(EvidenceLinkRow)
+    assert str(lk.from_id) == eid_real
+    assert lk.to_id == d.id and lk.relation == "supports"
+
+
+def test_success_without_evidence_strips_all_ids(monkeypatch):
+    """无采集证据时（Connector 未配置 key 的常态路径）：一切 evidence_id 都是伪造，全部剥除。"""
+    payload = thesis_payload()
+    payload["key_risks"] = [
+        {"text": "风险", "evidence_ids": [str(uuid.uuid4())], "inferred": False}
+    ]
+    graph = _FakeGraph([{"progress": "Thesis 已生成", "thesis": payload}])
+    events, store = _run(monkeypatch, graph)
+
+    assert [e["event"] for e in events][-1] == "object"
+    assert store.of(EvidenceItemRow) == [] and store.of(EvidenceLinkRow) == []
+    [d] = store.of(Deliverable)
+    [risk] = d.payload["key_risks"]
+    assert risk["evidence_ids"] == [] and risk["inferred"] is True

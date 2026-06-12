@@ -12,7 +12,7 @@ backend/
     llm/          # 档位路由（fast/standard/premium）+ 结构化输出（校验失败自动修复）
     agents/       # 主图意图路由 + 四个专用 Agent 子图 + runner 执行编排
                   #   （子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
-    connectors/   # 数据源抽象 + 博查/企查查/Tavily 适配器
+    connectors/   # 数据源抽象 + registry 聚合检索（key 启用/合规闸门/去重截断）+ 博查（已实装）/企查查/Tavily
     evidence/     # 证据链服务（Source 落库、结论连边）
     services/     # 对象存取（入库强校验）、domain_events 记账、agent_runs 生命周期
     api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/error/done 协议 + 历史回放）、对象动作（记账）
@@ -57,7 +57,9 @@ npm run dev                                          # http://localhost:5173
 - [x] domain_events 在所有对象动作处记账（注册/登录、deliverable 四个动作、会话/消息、agent run 状态流转 `agent_run.started/succeeded/failed` —— `services/agent_runs.py`）
 - [x] 赛道前瞻子图完成后 assistant 消息落库（object_ref 块）+ 真实 deliverable_id 推送（`agents/runner.py` 编排：run 创建 → 子图执行 progress 去重推送 → Thesis 经 SCHEMA_REGISTRY 强校验入库（回链 run 与来源会话）→ `thesis.created` → assistant 消息 → run 收尾；失败路径统一 `agent_run.failed` + error 事件，不落脏数据。`assemble_thesis` 节点已真实实现：PREMIUM 档结构化输出 + 合规开关透传，上游节点为空时基于赛道常识出初版判断，无证据结论自动 `inferred=True`）
 - [x] 赛道前瞻 LLM 节点真实实现（parse_track/classify_signals/value_chain/gen_sub_directions/fit_score：提示词 + 档位按任务轻重 FAST/STANDARD + 合规开关全节点透传；中间结构化模型 `agents/thesis_scout/schemas.py` 复用 Thesis 内嵌模型零转换损耗；classify 空信号守卫不调 LLM；fit 评分按名合并进子赛道草稿、缺失回退机构整体分；`tests/test_thesis_nodes.py` 含真实 LangGraph 子图端到端集成测试）
-- [ ] collect_signals 接 Connector 并落 evidence_items（博查/企查查需付费 key，接口桩返回空；实装时用 `track_definition.search_keywords` 检索，信号带 evidence_id 供 Claim 绑定）
+- [x] collect_signals 接 Connector 并落 evidence_items（`connectors/registry.py`：按已配置 key 启用数据源、global 源被 `allow_overseas` 闸住——检索词出境与模型调用同等对待；多源×多关键词并发聚合、单源失败降级、URL 去重、按时间截断控成本；信号预分配 evidence_id 供 Claim 绑定，runner 成功事务统一落 evidence_items 并把被引用证据与 deliverable 连边；payload 中不属于本次采集的 evidence_id 一律剥除、剥空的 Claim 自动 `inferred=True`——约定 2 的代码级兜底。博查 web-search 已实装 HTTP 调用并以 MockTransport 离线验证解析契约；企查查/Tavily 仍为桩）
+- [ ] 博查真实 key 冒烟测试；企查查（工商/股东/对外投资）与 Tavily 实装
+- [ ] 信号检索 24h Redis 缓存（按 赛道×关键词，控按量计费成本，技术规划 Step 3）
 - [ ] load_preference / load_history 实装（preferences 表 active 版本；domain_events 按赛道回放历史判断）
 - [ ] Agent 执行迁 ARQ 队列 + Postgres checkpointer（当前内联在请求流中执行，编排已收敛在 runner，整体搬迁即可）
 - [ ] Langfuse 接入（自部署或云版）

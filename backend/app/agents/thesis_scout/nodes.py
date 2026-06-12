@@ -1,8 +1,9 @@
 """赛道前瞻 Agent 各节点实现。
 
 LLM 节点（parse_track/classify_signals/value_chain/gen_sub_directions/
-fit_score/assemble_thesis）均为真实实现；collect_signals 与
-load_preference/load_history 仍为桩（Connector 付费 key、preferences 服务未实装）。
+fit_score/assemble_thesis）与 collect_signals（Connector 聚合检索 + 证据 id
+预分配）均为真实实现；load_preference/load_history 仍为桩（preferences
+服务与事件回放未实装）。
 
 原则：
 - 轻任务（拆解/分类）用 FAST 档，综合判断用 STANDARD，最终组装用 PREMIUM（约定 3）
@@ -29,6 +30,7 @@ from app.agents.thesis_scout.schemas import (
     TrackDefinition,
 )
 from app.agents.thesis_scout.state import ThesisScoutState
+from app.connectors.registry import active_connectors, gather_signals
 from app.llm.client import ModelTier, complete_structured
 from app.objects.thesis import Thesis, ValueChain
 
@@ -75,16 +77,44 @@ async def parse_track(state: ThesisScoutState) -> dict:
 
 
 async def collect_signals(state: ThesisScoutState) -> dict:
-    """Step 3：多 Connector 并发收集市场信号（按赛道做 24h 缓存控成本）。
+    """Step 3：多 Connector 并发收集市场信号，每条预分配 evidence_id。
 
-    检索面：现有玩家、融资事件、政策变化、技术突破、专利、人事变化、
-    供应链变化、需求变化。每条结果经 evidence/service 落 evidence_items，
-    信号自带 evidence_id 供下游 Claim 绑定。
-    桩说明：博查/企查查需付费 key（README 已标注），接口桩返回空列表；
-    实装时用 track_definition.search_keywords 作检索词。
+    检索面：现有玩家、融资事件、政策变化、技术突破等（详见技术规划）。
+    检索词用 track_definition.search_keywords（缺失回退用户原始问题）。
+    节点保持纯函数不碰数据库——返回两个视图：
+    - raw_signals：LLM 上下文瘦身视图（无 raw 报文，snippet 截断）
+    - evidence_sources：完整 Source + 预分配 evidence_id，由 runner 在
+      成功收尾事务中批量落 evidence_items（先绑定后持久化，id 全程一致）
+    global 区源仅 allow_overseas=True 时启用（检索词出境合规，约定 5 精神）；
+    未配置任何数据源 key 时走空信号路径（博查/企查查付费 key——README 已标注）。
     """
-    # TODO: asyncio.gather(*[c.search_news(kw) for c in active_connectors for kw in keywords])
-    return {"raw_signals": [], "progress": "正在收集市场信号…"}
+    td = state.get("track_definition") or {}
+    keywords = [k for k in (td.get("search_keywords") or []) if k]
+    if not keywords and state.get("query"):
+        keywords = [state["query"]]
+    connectors = active_connectors(allow_overseas=state.get("allow_overseas", False))
+    sources = await gather_signals(connectors, keywords=keywords, track=td.get("name") or "")
+
+    evidence_sources: list[dict] = []
+    raw_signals: list[dict] = []
+    for s in sources:
+        eid = str(uuid.uuid4())  # 预分配证据 id，供 classify→Claim 绑定
+        evidence_sources.append({"evidence_id": eid, **s.model_dump(mode="json")})
+        raw_signals.append(
+            {
+                "evidence_id": eid,
+                "source_type": s.source_type,
+                "title": s.title,
+                "url": s.url,
+                "snippet": s.snippet[:500],
+                "published_at": s.published_at,
+            }
+        )
+    return {
+        "raw_signals": raw_signals,
+        "evidence_sources": evidence_sources,
+        "progress": "正在收集市场信号…",
+    }
 
 
 async def load_preference(state: ThesisScoutState) -> dict:

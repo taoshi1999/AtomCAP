@@ -2,8 +2,9 @@
 
 职责边界：
 - 子图节点保持纯函数（state in → state out），不碰数据库
-- 本模块负责 DB 短事务：run 创建/收尾、deliverable 强校验入库、
-  assistant 消息（object_ref 块）落库——全部写 domain_events（核心约定 1/4）
+- 本模块负责 DB 短事务：run 创建/收尾、证据落库与连边（幻觉 evidence_id
+  先剥除，核心约定 2）、deliverable 强校验入库、assistant 消息（object_ref 块）
+  落库——用户可见动作全部写 domain_events（核心约定 1/4）
 - 产出 SSE 事件字典（progress / object / error），done 由 API 层统一收尾
 
 生产形态是 ARQ 队列 + Postgres checkpointer 异步执行；当前内联在请求流中，
@@ -19,6 +20,7 @@ from typing import Any
 
 from app.agents.thesis_scout.graph import thesis_scout_graph
 from app.db import SessionLocal
+from app.evidence import service as evidence_service
 from app.objects import DeliverableType
 from app.services.agent_runs import finish_run, start_run
 from app.services.conversations import save_message
@@ -76,9 +78,19 @@ async def run_thesis_scout(
         if not thesis_payload:
             raise RuntimeError(EMPTY_THESIS_ERROR)
 
-        # 3) 成功收尾（单事务）：deliverable 入库（SCHEMA_REGISTRY 强校验）
-        #    → thesis.created → assistant 消息（object_ref 块）→ run succeeded
+        # 证据链前置：剥除不属于本次采集的 evidence_id（LLM 幻觉防线，约定 2）。
+        # 剥空的 Claim 在入库强校验时自动 inferred=True，绝不静默放行伪造引用。
+        evidence_sources = final_state.get("evidence_sources") or []
+        valid_ids = {str(es["evidence_id"]) for es in evidence_sources}
+        thesis_payload = evidence_service.sanitize_evidence_ids(thesis_payload, valid_ids)
+
+        # 3) 成功收尾（单事务）：证据落库 → deliverable 入库（SCHEMA_REGISTRY 强校验）
+        #    → 引用证据连边 → thesis.created → assistant 消息（object_ref 块）→ run succeeded
         async with SessionLocal() as db, db.begin():
+            if evidence_sources:
+                await evidence_service.save_collected(
+                    db, institution_id=institution_id, evidence_sources=evidence_sources
+                )
             deliverable = await save_deliverable(
                 db,
                 institution_id=institution_id,
@@ -87,6 +99,15 @@ async def run_thesis_scout(
                 source_conversation_id=conversation_id,
                 created_by_run_id=run_id,
             )
+            # Claim 实际引用的证据与交付物连边（前端证据链展开的查询入口）
+            for eid in sorted(evidence_service.referenced_evidence_ids(deliverable.payload)):
+                await evidence_service.link(
+                    db,
+                    institution_id=institution_id,
+                    from_id=eid,
+                    to_id=deliverable.id,
+                    relation="supports",
+                )
             await record_event(
                 db,
                 institution_id=institution_id,
