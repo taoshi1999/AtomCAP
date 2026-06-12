@@ -10,6 +10,7 @@ premium 档可能路由到海外模型：调用前必须检查机构级开关
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from enum import StrEnum
 from typing import TypeVar
 
@@ -51,6 +52,31 @@ async def complete(
         temperature=temperature,
     )
     return resp.choices[0].message.content or ""
+
+
+async def complete_stream(
+    tier: ModelTier,
+    messages: list[dict],
+    *,
+    allow_overseas: bool = False,
+    temperature: float = 0.3,
+) -> AsyncIterator[str]:
+    """流式补全：逐段产出增量文本（SSE token 事件的数据源）。
+
+    与 complete() 同一套档位路由与合规降级；调用方负责拼接全文落库。
+    """
+    stream = await _client.chat.completions.create(
+        model=resolve_tier(tier, allow_overseas=allow_overseas).value,
+        messages=messages,
+        temperature=temperature,
+        stream=True,
+    )
+    async for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
 
 
 async def complete_structured(
