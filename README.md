@@ -36,8 +36,9 @@ docker compose up -d postgres redis litellm
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
+alembic upgrade head                                 # 建表（含 pgvector 扩展与 HNSW 向量索引）
 uvicorn app.main:app --reload                        # http://localhost:8000/docs
-pytest                                               # Schema 契约测试
+pytest                                               # Schema 契约测试 + 迁移契约测试
 
 # 前端
 cd frontend
@@ -49,7 +50,7 @@ npm run dev                                          # http://localhost:5173
 
 ## Phase 0 待办（按技术规划）
 
-- [ ] Alembic 初始化（`alembic init -t async alembic`）+ 首个 migration（建表 + pgvector 扩展）
+- [x] Alembic 初始化 + 首个 migration（0001：pgvector 扩展 + 全部 15 表 + HNSW 向量索引；`tests/test_migration_contract.py` 保证迁移与 ORM 不漂移；离线审阅用 `alembic upgrade head --sql`）
 - [ ] JWT 认证与多租户上下文（`api/deps.py` 的 TODO）
 - [ ] 通用对话接 `llm.complete()` 流式
 - [ ] domain_events 在所有对象动作处记账
@@ -59,6 +60,4 @@ npm run dev                                          # http://localhost:5173
 
 1. 专用 Agent 的输出必须是 `SCHEMA_REGISTRY` 注册的对象，入库前强制校验
 2. 结论一律用 `Claim` 表达：有 `evidence_ids`，或显式 `inferred=True`
-3. 业务代码只引用模型档位别名（fast/standard/premium），不写死模型名
-4. 用户操作与状态流转必须写 `domain_events`（经验沉淀 Agent 的唯一数据来源）
-5. 海外模型调用前检查机构级开关 `allow_overseas_models`（数据出境合规）
+3. 业务代码只引用模型档位别名（f
