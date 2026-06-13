@@ -1,9 +1,9 @@
 """赛道前瞻 Agent 各节点实现。
 
-LLM 节点（parse_track/classify_signals/value_chain/gen_sub_directions/
-fit_score/assemble_thesis）与 collect_signals（Connector 聚合检索 + 证据 id
-预分配）均为真实实现；load_preference/load_history 仍为桩（preferences
-服务与事件回放未实装）。
+全部九个节点均为真实实现。load_preference/load_history 不直接查库：
+runner 在 run 创建事务中预加载 preferences active 版本与 domain_events
+回放（preference_input / history_events 注入初始 state），节点只做
+校验、按赛道过滤与 LLM 视图构造——节点保持纯函数，可独立测试。
 
 原则：
 - 轻任务（拆解/分类）用 FAST 档，综合判断用 STANDARD，最终组装用 PREMIUM（约定 3）
@@ -21,7 +21,7 @@ import uuid
 
 from typing import TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.agents.thesis_scout.schemas import (
     ClassifiedSignals,
@@ -32,6 +32,7 @@ from app.agents.thesis_scout.schemas import (
 from app.agents.thesis_scout.state import ThesisScoutState
 from app.connectors.registry import active_connectors, gather_signals
 from app.llm.client import ModelTier, complete_structured
+from app.objects.preference import InvestmentPreference
 from app.objects.thesis import Thesis, ValueChain
 
 
@@ -118,15 +119,88 @@ async def collect_signals(state: ThesisScoutState) -> dict:
 
 
 async def load_preference(state: ThesisScoutState) -> dict:
-    """加载机构投资偏好（preferences 表 active 版本）。"""
-    # TODO: services.preferences.get_active(institution_id)
-    return {"preference": {}}
+    """机构投资偏好：校验 runner 预加载的 active 版本，构造 LLM 视图。
+
+    runner 经 services.preferences.get_active 已做过一次校验；这里再兜底一次，
+    保证节点单独调用（测试/重放）时同样不会把脏数据递给下游提示词。
+    """
+    raw = state.get("preference_input") or {}
+    if not raw:
+        return {"preference": {}}
+    try:
+        pref = InvestmentPreference.model_validate(raw)
+    except ValidationError:
+        return {"preference": {}}
+    # 空字段剔除，缩小提示词体积（fit_score 对缺失字段有 50 分回退语义）
+    view = {k: v for k, v in pref.model_dump(mode="json").items() if v not in (None, [], "")}
+    return {"preference": view}
+
+
+# 单条历史在提示词里的预算（条数），防止老机构事件流水撑爆上下文
+_HISTORY_VIEW_LIMIT = 50
+
+
+def _track_keywords(track_definition: dict) -> set[str]:
+    """从赛道定义提取小写关键词集合（名称 + includes + 检索词）。"""
+    kws: set[str] = set()
+    for field in ("name",):
+        v = track_definition.get(field)
+        if isinstance(v, str) and v.strip():
+            kws.add(v.strip().lower())
+    for field in ("includes", "search_keywords"):
+        for v in track_definition.get(field) or []:
+            if isinstance(v, str) and v.strip():
+                kws.add(v.strip().lower())
+    return kws
+
+
+def _event_view(ev: dict) -> dict:
+    """单条 domain_event 的 LLM 视图：只留判断所需字段。"""
+    payload = ev.get("payload") or {}
+    view = {
+        "event": ev.get("event_type"),
+        "when": (ev.get("occurred_at") or "")[:10],  # 日期粒度足够
+    }
+    for key in ("track", "one_line_view", "reason", "action"):
+        if payload.get(key):
+            view[key] = payload[key]
+    return view
 
 
 async def load_history(state: ThesisScoutState) -> dict:
-    """加载机构历史：关注过的赛道、生成过的项目池、被证伪的判断（来自 domain_events）。"""
-    # TODO: services.events.history_for_track(...)
-    return {"history": []}
+    """机构历史：关注过的赛道、生成过的项目池、被证伪的判断（domain_events 回放）。
+
+    runner 预加载机构最近的关键事件（history_events，新→旧）；本节点按
+    parse_track 产出的赛道关键词过滤出同赛道历史，并附全机构行为统计——
+    fit_score 的 history_similarity 因子既看同赛道经历，也看机构整体偏好惯性。
+    """
+    events = state.get("history_events") or []
+    if not events:
+        return {"history": []}
+
+    kws = _track_keywords(state.get("track_definition") or {})
+
+    def related(ev: dict) -> bool:
+        if not kws:
+            return True  # 无赛道定义时不过滤（极端兜底，正常流 parse_track 先行）
+        payload = ev.get("payload") or {}
+        text = " ".join(
+            str(payload.get(k, "")) for k in ("track", "one_line_view", "reason")
+        ).lower()
+        return any(k in text for k in kws if k)
+
+    matched = [_event_view(ev) for ev in events if related(ev)][:_HISTORY_VIEW_LIMIT]
+
+    # 全机构统计：事件类型 → 次数（体现机构行为惯性，如频繁证伪某类判断）
+    stats: dict[str, int] = {}
+    for ev in events:
+        et = ev.get("event_type") or "unknown"
+        stats[et] = stats.get(et, 0) + 1
+
+    history: list[dict] = matched
+    if stats:
+        history = [{"机构近期行为统计": stats, "同赛道历史条数": len(matched)}] + matched
+    return {"history": history}
 
 
 CLASSIFY_SYSTEM = """你是一级市场赛道研究员，对市场信号做分类与提炼。对每条输入信号：

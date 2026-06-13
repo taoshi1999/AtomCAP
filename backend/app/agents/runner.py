@@ -22,10 +22,11 @@ from app.agents.thesis_scout.graph import thesis_scout_graph
 from app.db import SessionLocal
 from app.evidence import service as evidence_service
 from app.objects import DeliverableType
+from app.services import preferences as preferences_service
 from app.services.agent_runs import finish_run, start_run
 from app.services.conversations import save_message
 from app.services.deliverables import save_deliverable
-from app.services.events import record_event
+from app.services.events import recent_history, record_event
 
 AGENT_FAILED_MSG = "赛道前瞻分析执行失败，请稍后重试。"
 EMPTY_THESIS_ERROR = "子图执行完成但未产出 Thesis 对象"
@@ -44,7 +45,9 @@ async def run_thesis_scout(
     成功：progress* → object（真实 deliverable_id）；失败：progress* → error。
     无论成败，agent_runs 与 domain_events 都有完整记录。
     """
-    # 1) 创建 run（短事务先提交，长任务全程可观测）
+    # 1) 创建 run（短事务先提交，长任务全程可观测）；同事务预加载
+    #    偏好 active 版本与 domain_events 回放——子图节点不碰库（纯函数），
+    #    load_preference/load_history 只做校验与按赛道过滤
     async with SessionLocal() as db, db.begin():
         run = await start_run(
             db,
@@ -53,6 +56,10 @@ async def run_thesis_scout(
             agent="thesis_scout",
             conversation_id=conversation_id,
         )
+        preference_input = await preferences_service.get_active(
+            db, institution_id=institution_id
+        )
+        history_events = await recent_history(db, institution_id=institution_id)
     run_id = run.id
 
     # 2) 执行子图。values 模式逐超步产出全量 state，progress 去重后实时推送
@@ -65,6 +72,8 @@ async def run_thesis_scout(
                 "institution_id": str(institution_id),
                 "conversation_id": str(conversation_id),
                 "allow_overseas": allow_overseas,
+                "preference_input": preference_input,
+                "history_events": history_events,
             },
             stream_mode="values",
         ):
@@ -115,7 +124,12 @@ async def run_thesis_scout(
                 event_type=f"{DeliverableType.THESIS.value}.created",
                 subject_type=DeliverableType.THESIS.value,
                 subject_id=deliverable.id,
-                payload={"agent_run_id": str(run_id)},
+                payload={
+                    "agent_run_id": str(run_id),
+                    # 赛道上下文：load_history 按赛道回放历史的匹配依据
+                    "track": thesis_payload.get("thesis_name"),
+                    "one_line_view": thesis_payload.get("one_line_view"),
+                },
             )
             one_line = thesis_payload.get("one_line_view") or "分析完成"
             await save_message(

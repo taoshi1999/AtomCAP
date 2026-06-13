@@ -11,6 +11,8 @@ class ThesisScoutState(TypedDict, total=False):
     institution_id: str
     conversation_id: str
     allow_overseas: bool            # 机构合规开关，LLM 调用前必须传入档位路由（核心约定 5）
+    preference_input: dict[str, Any]   # runner 预加载的 active 偏好（节点不碰库，约定见 runner）
+    history_events: list[dict]         # runner 预加载的 domain_events 回放（新→旧）
     # 中间产物
     track_definition: dict[str, Any]   # 赛道包括什么/不包括什么
     raw_signals: list[dict]            # Connector 检索结果的 LLM 视图（带预分配 evidence_id，不含 raw 报文）

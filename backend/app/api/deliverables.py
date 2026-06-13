@@ -83,7 +83,11 @@ async def trigger_action(
         subject_type=row.type,
         subject_id=row.id,
         user_id=user.user_id,
-        payload={"action": action},
+        payload={
+            "action": action,
+            # 赛道上下文随事件落盘（事后无法补）：load_history 按赛道回放的匹配依据
+            "track": (row.payload or {}).get("thesis_name"),
+        },
     )
     # TODO Phase 1: 入 ARQ 队列触发对应 agent run（生成项目池/简报/重新推荐）
     return {

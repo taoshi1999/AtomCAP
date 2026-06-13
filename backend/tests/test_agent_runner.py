@@ -139,10 +139,28 @@ def thesis_payload():
     }
 
 
+FAKE_PREF = {"track_preferences": ["AI 硬件"], "stages": ["A"]}
+FAKE_HISTORY = [
+    {"event_type": "thesis.followed", "subject_type": "thesis", "subject_id": None,
+     "occurred_at": "2026-06-01T00:00:00", "payload": {"track": "AI 硬件"}},
+]
+
+
 def _run(monkeypatch, graph: _FakeGraph):
     store = _Store()
     monkeypatch.setattr(runner, "SessionLocal", lambda: _FakeSession(store))
     monkeypatch.setattr(runner, "thesis_scout_graph", graph)
+
+    async def _fake_pref(db, *, institution_id):
+        assert institution_id == INST
+        return dict(FAKE_PREF)
+
+    async def _fake_hist(db, *, institution_id, **kw):
+        assert institution_id == INST
+        return list(FAKE_HISTORY)
+
+    monkeypatch.setattr(runner.preferences_service, "get_active", _fake_pref)
+    monkeypatch.setattr(runner, "recent_history", _fake_hist)
 
     async def collect():
         return [
@@ -175,6 +193,9 @@ def test_success_full_pipeline(monkeypatch):
     # 子图输入带租户/合规上下文（核心约定 5 的传递链路）
     assert graph.initial_state["institution_id"] == str(INST)
     assert graph.initial_state["allow_overseas"] is True
+    # 偏好/历史由 runner 预加载注入（节点纯函数不碰库）
+    assert graph.initial_state["preference_input"] == FAKE_PREF
+    assert graph.initial_state["history_events"] == FAKE_HISTORY
 
     # SSE：progress 去重 + object 推真实 deliverable_id
     progresses = [e["data"] for e in events if e["event"] == "progress"]
@@ -194,6 +215,11 @@ def test_success_full_pipeline(monkeypatch):
     [m] = store.of(Message)
     assert m.role == "assistant"
     assert {"type": "object_ref", "deliverable_id": str(d.id)} in m.content
+
+    # thesis.created 事件带赛道上下文（load_history 按赛道回放的匹配依据）
+    created = [e for e in store.of(DomainEvent) if e.event_type == "thesis.created"]
+    assert created[0].payload["track"] == "AI 硬件"
+    assert created[0].payload["one_line_view"] == "上游存在结构性机会"
 
     # domain_events：started → thesis.created → message.completed → succeeded
     assert store.events() == [

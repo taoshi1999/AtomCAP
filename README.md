@@ -14,7 +14,7 @@ backend/
                   #   （子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
     connectors/   # 数据源抽象 + registry 聚合检索（key 启用/合规闸门/去重截断）+ 博查（已实装）/企查查/Tavily
     evidence/     # 证据链服务（Source 落库、结论连边）
-    services/     # 对象存取（入库强校验）、domain_events 记账、agent_runs 生命周期
+    services/     # 对象存取（入库强校验）、domain_events 记账与历史回放、偏好读取、agent_runs 生命周期
     api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/error/done 协议 + 历史回放）、对象动作（记账）
   worker/         # ARQ：长任务 + cron（赛道监控、经验沉淀）
   tests/          # Schema 契约测试 + 运行编排测试
@@ -60,11 +60,12 @@ npm run dev                                          # http://localhost:5173
 - [x] collect_signals 接 Connector 并落 evidence_items（`connectors/registry.py`：按已配置 key 启用数据源、global 源被 `allow_overseas` 闸住——检索词出境与模型调用同等对待；多源×多关键词并发聚合、单源失败降级、URL 去重、按时间截断控成本；信号预分配 evidence_id 供 Claim 绑定，runner 成功事务统一落 evidence_items 并把被引用证据与 deliverable 连边；payload 中不属于本次采集的 evidence_id 一律剥除、剥空的 Claim 自动 `inferred=True`——约定 2 的代码级兜底。博查 web-search 已实装 HTTP 调用并以 MockTransport 离线验证解析契约；企查查/Tavily 仍为桩）
 - [ ] 博查真实 key 冒烟测试；企查查（工商/股东/对外投资）与 Tavily 实装
 - [ ] 信号检索 24h Redis 缓存（按 赛道×关键词，控按量计费成本，技术规划 Step 3）
-- [ ] load_preference / load_history 实装（preferences 表 active 版本；domain_events 按赛道回放历史判断）
+- [x] load_preference / load_history 实装（`services/preferences.get_active`：active 取最大 version、payload 经 InvestmentPreference 校验、脏数据降级空偏好；`services/events.recent_history`：按机构回放白名单事件——runner 在 run 创建事务中预加载注入初始 state，节点保持纯函数：load_preference 校验+剔空字段，load_history 按 parse_track 关键词过滤同赛道历史、附机构行为统计头、上限 50 条；thesis.created 与 deliverable 动作事件 payload 已带 track 上下文供回放匹配——事件流水事后无法补）
 - [ ] Agent 执行迁 ARQ 队列 + Postgres checkpointer（当前内联在请求流中执行，编排已收敛在 runner，整体搬迁即可）
 - [ ] Langfuse 接入（自部署或云版）
 - [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
 - [ ] 用户邀请加入既有机构（多用户；注册仅做机构引导）
+- [ ] preferences 写路径（API + `preference.updated` 事件；当前仅读路径，diff 确认流随 Phase 4 经验沉淀实现）
 - [ ] 前端登录页 + token 注入（接通后关闭 AUTH_DEV_FALLBACK）
 
 ## 核心约定（不可破坏）
