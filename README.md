@@ -14,8 +14,8 @@ backend/
                   #   （子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
     connectors/   # 数据源抽象 + registry 聚合检索（key 启用/合规闸门/去重截断）+ 博查（已实装）/企查查/Tavily
     evidence/     # 证据链服务（Source 落库、结论连边）
-    services/     # 对象存取（入库强校验）、domain_events 记账与历史回放、偏好读取、agent_runs 生命周期
-    api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/error/done 协议 + 历史回放）、对象动作（记账）
+    services/     # 对象存取（入库强校验）、domain_events 记账与历史回放、偏好读写（版本化）、agent_runs 生命周期
+    api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/error/done 协议 + 历史回放）、对象动作（记账）、偏好读写
   worker/         # ARQ：长任务 + cron（赛道监控、经验沉淀）
   tests/          # Schema 契约测试 + 运行编排测试
   evals/          # 赛道前瞻 golden 评测集
@@ -65,7 +65,7 @@ npm run dev                                          # http://localhost:5173
 - [ ] Langfuse 接入（自部署或云版）
 - [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
 - [ ] 用户邀请加入既有机构（多用户；注册仅做机构引导）
-- [ ] preferences 写路径（API + `preference.updated` 事件；当前仅读路径，diff 确认流随 Phase 4 经验沉淀实现）
+- [x] preferences 写路径（`GET`/`PUT /api/preferences`；PUT 经 `InvestmentPreference` 校验后创建新 active 版本、旧版置否、写 `preference.updated` 事件；版本号由服务层分配并忽略入参；脏输入 422 不入库；经验沉淀 diff 确认流 Phase 4 复用本写路径）
 - [ ] 前端登录页 + token 注入（接通后关闭 AUTH_DEV_FALLBACK）
 
 ## 核心约定（不可破坏）
