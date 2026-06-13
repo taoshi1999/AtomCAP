@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     qcc_app_key: str = ""
     qcc_secret_key: str = ""
     tavily_api_key: str = ""
+    # 信号检索缓存 TTL（秒）；按量计费数据源粒度为天级，默认 24h。0 关闭缓存
+    signal_cache_ttl_seconds: int = 86400
 
     # 可观测
     langfuse_host: str = ""

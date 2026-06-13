@@ -30,7 +30,7 @@ from app.agents.thesis_scout.schemas import (
     TrackDefinition,
 )
 from app.agents.thesis_scout.state import ThesisScoutState
-from app.connectors.registry import active_connectors, gather_signals
+from app.connectors.registry import active_connectors, cached_gather_signals
 from app.llm.client import ModelTier, complete_structured
 from app.objects.preference import InvestmentPreference
 from app.objects.thesis import Thesis, ValueChain
@@ -93,8 +93,14 @@ async def collect_signals(state: ThesisScoutState) -> dict:
     keywords = [k for k in (td.get("search_keywords") or []) if k]
     if not keywords and state.get("query"):
         keywords = [state["query"]]
-    connectors = active_connectors(allow_overseas=state.get("allow_overseas", False))
-    sources = await gather_signals(connectors, keywords=keywords, track=td.get("name") or "")
+    allow_overseas = state.get("allow_overseas", False)
+    connectors = active_connectors(allow_overseas=allow_overseas)
+    sources = await cached_gather_signals(
+        connectors,
+        keywords=keywords,
+        track=td.get("name") or "",
+        allow_overseas=allow_overseas,
+    )
 
     evidence_sources: list[dict] = []
     raw_signals: list[dict] = []
