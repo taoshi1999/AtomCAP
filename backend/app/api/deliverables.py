@@ -11,11 +11,17 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
+from app.agents.runner import run_deal_sourcing
 from app.api.deps import CurrentUser, get_current_user
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.models.models import Deliverable
+from app.objects import DeliverableType
+from app.objects.thesis import ThesisStatus
+from app.services.conversations import ensure_conversation, save_message, text_blocks
 from app.services.events import record_event
+from app.services.thesis_context import thesis_context_from_payload
 
 router = APIRouter()
 
@@ -89,10 +95,105 @@ async def trigger_action(
             "track": (row.payload or {}).get("thesis_name"),
         },
     )
-    # TODO Phase 1: 入 ARQ 队列触发对应 agent run（生成项目池/简报/重新推荐）
+    # 生成项目池有专用 SSE 端点（见 generate_deal_pool）真正驱动 deal_sourcing 子图；
+    # 简报/重新推荐待 Phase 1 入 ARQ 队列触发对应 agent run。
     return {
         "deliverable_id": str(row.id),
         "action": action,
         "status": row.status,
         "event_recorded": True,
     }
+
+
+GENERATE_DEAL_POOL_FAILED_MSG = "生成项目池失败，请稍后重试。"
+
+
+@router.post("/{deliverable_id}/generate-deal-pool")
+async def generate_deal_pool(
+    deliverable_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Thesis「生成项目池」专用端点：从赛道判断驱动 deal_sourcing，SSE 流式产出 DealList。
+
+    与自然语言触发的公开信号挖掘不同——本端点加载**整份 Thesis 视图**
+    （子赛道 / 产业链位置 / 机构匹配度 / 风险）构建 thesis_context，喂给
+    gen_search_strategy 据整个赛道判断拆搜索策略（设计文档流程一 Step 2），
+    产出的 DealList 自动 source_type=thesis_generated 且回链 source_thesis_id。
+
+    租户过滤 + 类型校验在流前完成（返回 404/422）；真正的状态翻转 / 记账 / 子图执行
+    全部在生成器内用 SessionLocal 短事务，避免 FastAPI 在流式响应前关闭请求级会话。
+    SSE 事件协议与对话端点一致：progress / object / error / done。
+    """
+    row = await _get_owned(db, deliverable_id, user)
+    if row.type != DeliverableType.THESIS.value:
+        raise HTTPException(status_code=422, detail="仅 Thesis 对象可生成项目池")
+
+    thesis_payload = row.payload or {}
+    thesis_context = thesis_context_from_payload(thesis_payload)
+    thesis_name = thesis_payload.get("thesis_name") or "赛道"
+    institution_id = user.institution_id
+    user_id = user.user_id
+    allow_overseas = user.allow_overseas_models
+    conversation_id = uuid.uuid4()  # 为本次项目池生成新建会话承载 run 与 assistant 消息
+
+    async def event_stream():
+        # 1) 短事务：翻转 Thesis 状态 → 记账 thesis.deal_pool_requested → 建会话 + 种下用户消息
+        async with SessionLocal() as wdb, wdb.begin():
+            owned = await wdb.scalar(
+                select(Deliverable).where(
+                    Deliverable.id == deliverable_id,
+                    Deliverable.institution_id == institution_id,
+                )
+            )
+            if owned is not None:
+                owned.status = ThesisStatus.DEAL_POOL_GENERATED.value
+                await record_event(
+                    wdb,
+                    institution_id=institution_id,
+                    user_id=user_id,
+                    event_type=f"{DeliverableType.THESIS.value}.deal_pool_requested",
+                    subject_type=DeliverableType.THESIS.value,
+                    subject_id=owned.id,
+                    payload={
+                        "action": "generate_deal_pool",
+                        "track": thesis_name,
+                        "conversation_id": str(conversation_id),
+                    },
+                )
+            await ensure_conversation(
+                wdb,
+                institution_id=institution_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                title_hint=f"{thesis_name} 项目池",
+            )
+            await save_message(
+                wdb,
+                institution_id=institution_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                role="user",
+                blocks=text_blocks(f"根据《{thesis_name}》赛道判断生成候选项目池"),
+                event_payload={
+                    "intent": "deal_sourcing",
+                    "source_thesis_id": str(deliverable_id),
+                },
+            )
+
+        # 2) 进 deal_sourcing 搜寻流：source_thesis_id + thesis_context 驱动策略，DealList 回链
+        query = f"根据《{thesis_name}》赛道判断，找一批匹配的候选项目"
+        async for ev in run_deal_sourcing(
+            institution_id=institution_id,
+            user_id=user_id,
+            allow_overseas=allow_overseas,
+            conversation_id=conversation_id,
+            query=query,
+            source_thesis_id=deliverable_id,
+            thesis_context=thesis_context,
+        ):
+            yield ev
+
+        yield {"event": "done", "data": ""}
+
+    return EventSourceResponse(event_stream())
