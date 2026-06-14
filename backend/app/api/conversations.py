@@ -15,13 +15,18 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.router import Intent, classify_intent
 from app.agents.runner import run_deal_intake, run_deal_sourcing, run_thesis_scout
 from app.api.deps import CurrentUser, get_current_user
+from app.services.document_extract import (
+    DependencyMissingError,
+    DocumentError,
+    extract_text,
+)
 from app.db import SessionLocal
 from app.llm.client import ModelTier, complete_stream
 from app.services.conversations import (
@@ -154,4 +159,68 @@ async def send_message(
 
         yield {"event": "done", "data": ""}
 
-    return EventSourceRespons
+    return EventSourceResponse(event_stream())
+
+
+@router.post("/{conversation_id}/upload")
+async def upload_material(
+    conversation_id: uuid.UUID,
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """上传 BP / 项目表（PDF/Word/Excel/文本）→ 抽取文本 → 走 Deal Intake 分析流（SSE）。
+
+    文件型材料触发：先在 API 层把文件抽成纯文本（app/services/document_extract.py，纯函数、
+    离线可测），再以同一个 run_deal_intake 编排产出 Company + Deal 业务对象进入项目工作台。
+    source_type 由文件类型推断：Excel→internal_excel（内部项目表），PDF/Word/文本→bp_upload。
+    解析失败（格式不支持/超限/空文件）返回 4xx；依赖缺失（部署遗漏）返回 503。
+    """
+    data = await file.read()
+    try:
+        result = extract_text(
+            filename=file.filename or "",
+            data=data,
+            content_type=file.content_type,
+        )
+    except DependencyMissingError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except DocumentError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    async def event_stream():
+        # 1) 短事务：建会话（如需）→ 把「已上传 BP」记成一条 user 消息（材料正文落库可回放）
+        async with SessionLocal() as db, db.begin():
+            await ensure_conversation(
+                db,
+                institution_id=user.institution_id,
+                user_id=user.user_id,
+                conversation_id=conversation_id,
+                title_hint=file.filename or "上传项目材料",
+            )
+            await save_message(
+                db,
+                institution_id=user.institution_id,
+                user_id=user.user_id,
+                conversation_id=conversation_id,
+                role="user",
+                blocks=text_blocks(f"[上传文件] {file.filename}\n\n{result.text}"),
+            )
+
+        # 2) 抽取层告警（如扫描件 PDF 抽不到文字）以 progress 先行下发，便于前端提示
+        for w in result.warnings:
+            yield {"event": "progress", "data": w}
+
+        # 3) 直接进 Deal Intake 分析流（上传即「分析一个具体项目」，无需再过意图分类）
+        async for ev in run_deal_intake(
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            allow_overseas=user.allow_overseas_models,
+            conversation_id=conversation_id,
+            material=result.text,
+            source_type=result.source_type.value,
+        ):
+            yield ev
+
+        yield {"event": "done", "data": ""}
+
+    return EventSourceResponse(event_stream())
