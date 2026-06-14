@@ -238,3 +238,81 @@ def test_graph_end_to_end_produces_deal_list(monkeypatch):
 
     seen = [c.get("progress") for c in chunks if c.get("progress")]
     assert "项目池已生成" in seen
+
+
+# ---------- Step 5：工商核验 verify_candidates ----------
+
+from app.connectors.base import Source  # noqa: E402
+
+
+def _registry_sources(name: str, *, uscc="91440300MA5XXXXXXX", status="存续"):
+    """模拟企查查 company_lookup 返回：工商照面 + 一条股东。"""
+    return [
+        Source(
+            source_type="company_registry",
+            title=f"{name} 工商照面",
+            connector="qcc",
+            raw={"Name": name, "CreditCode": uscc, "Status": status, "KeyNo": "k1"},
+        ),
+        Source(
+            source_type="company_shareholder",
+            title=f"{name} 股东：张三",
+            connector="qcc",
+            raw={"StockName": "张三", "StockPercent": "60%"},
+        ),
+    ]
+
+
+def _patch_verify(monkeypatch, lookup):
+    """让 verify_candidates 走到 lookup：active_connectors 非空 + 注入假 lookup_company。"""
+    monkeypatch.setattr(nodes, "active_connectors", lambda **kw: [object()])
+
+    async def fake_lookup(connectors, name):
+        return lookup(name)
+
+    monkeypatch.setattr(nodes, "lookup_company", fake_lookup)
+
+
+def test_verify_enriches_hit_candidate_and_appends_evidence(monkeypatch):
+    """命中工商照面：补 uscc + 规范名别名 + 绑定证据的核验 Claim，并累加 evidence_sources。"""
+    _patch_verify(monkeypatch, lambda name: _registry_sources("深圳光羽智能科技有限公司"))
+    cand = _draft("光羽科技").model_dump(mode="json")
+    state = {"candidates": [cand], "evidence_sources": [{"evidence_id": "pre", "title": "旧信号"}]}
+    out = asyncio.run(nodes.verify_candidates(state))
+
+    c = out["candidates"][0]
+    assert c["uscc"] == "91440300MA5XXXXXXX"
+    assert "深圳光羽智能科技有限公司" in c["aliases"]
+    # 原信号理由 + 新核验理由
+    assert len(c["selection_reasons"]) == 2
+    verify_claim = c["selection_reasons"][-1]
+    assert "工商核验" in verify_claim["text"]
+    assert verify_claim["inferred"] is False
+    assert len(verify_claim["evidence_ids"]) == 1
+    # 旧证据保留 + 工商照面/股东两条新证据落入，核验 Claim 指向照面 evidence_id
+    eids = {es["evidence_id"] for es in out["evidence_sources"]}
+    assert "pre" in eids
+    assert verify_claim["evidence_ids"][0] in eids
+    assert len(out["evidence_sources"]) == 3
+
+
+def test_verify_miss_keeps_candidate_and_no_fake_evidence(monkeypatch):
+    """未命中：候选保持原样、不补 uscc、不造证据（约定 2 不伪造）。"""
+    _patch_verify(monkeypatch, lambda name: [])
+    cand = _draft("查无此司").model_dump(mode="json")
+    state = {"candidates": [cand], "evidence_sources": []}
+    out = asyncio.run(nodes.verify_candidates(state))
+    c = out["candidates"][0]
+    assert c.get("uscc") in (None, "")
+    assert len(c["selection_reasons"]) == 1          # 仅原信号理由
+    assert out["evidence_sources"] == []
+
+
+def test_verify_empty_or_no_connector_passthrough(monkeypatch):
+    """无候选直接透传；无工商源 key（active_connectors 空）不查不改。"""
+    assert asyncio.run(nodes.verify_candidates({"candidates": []}))["candidates"] == []
+    monkeypatch.setattr(nodes, "active_connectors", lambda **kw: [])
+    cand = _draft("光羽科技").model_dump(mode="json")
+    out = asyncio.run(nodes.verify_candidates({"candidates": [cand]}))
+    assert len(out["candidates"][0]["selection_reasons"]) == 1
+    assert "evidence_sources" not in out             # 无源时不动证据

@@ -15,6 +15,7 @@ def build_deal_sourcing_graph():
     g.add_node("mine_signals", nodes.mine_signals)
     g.add_node("generate_candidates", nodes.generate_candidates)
     g.add_node("dedupe_candidates", nodes.dedupe_candidates)
+    g.add_node("verify_candidates", nodes.verify_candidates)
     g.add_node("score_candidates", nodes.score_candidates)
     g.add_node("assemble_deal_list", nodes.assemble_deal_list)
 
@@ -22,7 +23,8 @@ def build_deal_sourcing_graph():
     g.add_edge("gen_search_strategy", "mine_signals")
     g.add_edge("mine_signals", "generate_candidates")
     g.add_edge("generate_candidates", "dedupe_candidates")
-    g.add_edge("dedupe_candidates", "score_candidates")
+    g.add_edge("dedupe_candidates", "verify_candidates")
+    g.add_edge("verify_candidates", "score_candidates")
     g.add_edge("score_candidates", "assemble_deal_list")
     g.add_edge("assemble_deal_list", END)
 

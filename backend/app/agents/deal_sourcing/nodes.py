@@ -5,6 +5,7 @@
   → mine_signals（Step 3 公开数据挖掘：多 Connector 并发，每条预分配 evidence_id）
   → generate_candidates（Step 4-7 Signal-to-Deal：从信号反推候选公司）
   → dedupe_candidates（Step 5 实体识别去重：名称规范化 + 别名合并，纯函数确定性）
+  → verify_candidates（Step 5 工商核验：企查查 company_lookup 补 uscc/规范名，落核验证据）
   → score_candidates（Step 8-9 机构匹配度评分 + 推荐理由/轻量风险 + 推荐分层）
   → assemble_deal_list（Step 10 组装 DealList，PREMIUM 仅做池级命名与总览）
 
@@ -18,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -32,7 +34,7 @@ from app.agents.deal_sourcing.schemas import (
     SearchStrategy,
 )
 from app.agents.deal_sourcing.state import DealSourcingState
-from app.connectors.registry import active_connectors, cached_gather_signals
+from app.connectors.registry import active_connectors, cached_gather_signals, lookup_company
 from app.llm.client import ModelTier, complete_structured
 from app.objects.deal_list import DealSourceType, RecommendationTier
 
@@ -200,7 +202,8 @@ def dedupe_candidates(state: DealSourcingState) -> dict:
     - 按规范化名 + 已知别名建立去重键，命中即合并
     - 合并 aliases、selection_reasons（按 text 去重），保留信息最全的主名
     纯 Python 确定性逻辑：可独立测试、零 LLM 成本。
-    （创始人/官网/工商主体的深度交叉匹配待 Company 业务对象与企查查实体库接入后增强。）
+    （工商主体核验在下一节点 verify_candidates 用企查查 company_lookup 完成；
+    创始人/官网级深度交叉匹配待 Company 业务对象沉淀后进一步增强。）
     """
     cands = state.get("candidates") or []
     if not cands:
@@ -252,6 +255,104 @@ def dedupe_candidates(state: DealSourcingState) -> dict:
     return {
         "candidates": list(merged.values()),
         "progress": "正在做实体识别与去重…",
+    }
+
+
+# ---------- Step 5：工商核验（企查查 company_lookup，确定性富化 + 落证据） ----------
+
+MAX_VERIFY = 20          # 单次最多核验候选数（控开放平台配额/调用成本）
+VERIFY_CONCURRENCY = 5   # 工商查询并发上限
+
+
+def _registry_basic(sources: list) -> dict | None:
+    """从 company_lookup 返回里取工商照面 Source 的原始报文（None 表示未命中）。"""
+    for s in sources:
+        if getattr(s, "source_type", "") == "company_registry":
+            return s.raw or {}
+    return None
+
+
+def _reg_field(raw: dict, *keys: str) -> str:
+    for k in keys:
+        v = raw.get(k)
+        if v not in (None, ""):
+            return str(v)
+    return ""
+
+
+async def verify_candidates(state: DealSourcingState) -> dict:
+    """Step 5：对去重后的候选做工商核验（企查查 company_lookup）。
+
+    设计文档把「新注册公司的工商信息」列为最宝贵的项目信息来源之一。这里对每个候选
+    并发拉工商照面/股东/对外投资，把命中结果：
+    - 落进 evidence_sources（每条 Source 预分配 evidence_id，runner 成功事务统一持久化）；
+    - 用工商主体规范名补全 aliases、用统一社会信用代码补 uscc（确定性，不过 LLM）；
+    - 追加一条绑定工商照面 evidence_id 的核验 Claim 到 selection_reasons（约定 2：有据可查）。
+    未命中的候选保持原样、绝不伪造证据。company_lookup 走工商源（region=cn），
+    active_connectors 已按 allow_overseas 过滤（约定 5）；无工商源 key 时全部未命中、链路无副作用。
+    """
+    cands = state.get("candidates") or []
+    if not cands:
+        return {"candidates": cands, "progress": "正在做工商核验…"}
+
+    connectors = active_connectors(allow_overseas=state.get("allow_overseas", False))
+    if not connectors:
+        return {"candidates": cands, "progress": "正在做工商核验…"}
+
+    targets = cands[:MAX_VERIFY]
+    sem = asyncio.Semaphore(VERIFY_CONCURRENCY)
+
+    async def _lookup(name: str) -> list:
+        async with sem:
+            return await lookup_company(connectors, name)
+
+    results = await asyncio.gather(
+        *(_lookup((c.get("company_name") or "").strip()) for c in targets)
+    )
+
+    # 在已有 evidence_sources 基础上累加（TypedDict 无 reducer，须读旧值合并返回）
+    evidence_sources: list[dict] = list(state.get("evidence_sources") or [])
+
+    for cand, sources in zip(targets, results):
+        if not sources:
+            continue
+        basic = _registry_basic(sources)
+        # 工商照面 evidence_id：核验 Claim 绑定它；其余股东/对外投资亦各自落证据
+        registry_eid: str | None = None
+        for s in sources:
+            eid = str(uuid.uuid4())
+            evidence_sources.append({"evidence_id": eid, **s.model_dump(mode="json")})
+            if registry_eid is None and getattr(s, "source_type", "") == "company_registry":
+                registry_eid = eid
+
+        if basic is None or registry_eid is None:
+            continue  # 仅命中股东/对外投资但无照面——不补核验结论，避免误导
+
+        reg_name = _reg_field(basic, "Name")
+        uscc = _reg_field(basic, "CreditCode", "USCC")
+        status = _reg_field(basic, "Status", "ShortStatus")
+
+        if uscc and not cand.get("uscc"):
+            cand["uscc"] = uscc
+        if reg_name and reg_name != cand.get("company_name"):
+            aliases = list(cand.get("aliases") or [])
+            if reg_name not in aliases:
+                aliases.append(reg_name)
+            cand["aliases"] = aliases
+
+        verify_text = f"企查查工商核验：主体「{reg_name or cand.get('company_name')}」已登记"
+        if status:
+            verify_text += f"（经营状态：{status}）"
+        if uscc:
+            verify_text += f"，统一社会信用代码 {uscc}"
+        reasons = list(cand.get("selection_reasons") or [])
+        reasons.append({"text": verify_text, "evidence_ids": [registry_eid], "inferred": False})
+        cand["selection_reasons"] = reasons
+
+    return {
+        "candidates": cands,
+        "evidence_sources": evidence_sources,
+        "progress": "正在做工商核验…",
     }
 
 
