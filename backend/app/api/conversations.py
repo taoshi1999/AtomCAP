@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.router import Intent, classify_intent
-from app.agents.runner import run_thesis_scout
+from app.agents.runner import run_deal_sourcing, run_thesis_scout
 from app.api.deps import CurrentUser, get_current_user
 from app.db import SessionLocal
 from app.llm.client import ModelTier, complete_stream
@@ -93,6 +93,17 @@ async def send_message(
                 query=body.content,
             ):
                 yield ev
+        elif intent and intent.intent is Intent.DEAL_SOURCING and intent.confidence >= 0.7:
+            # 3a') 项目获取（Deal Sourcing 搜寻流）：同 run 生命周期编排，产出 DealList。
+            #      自然语言触发走公开信号挖掘；从 Thesis「生成项目池」触发由专用端点传 thesis_id。
+            async for ev in run_deal_sourcing(
+                institution_id=user.institution_id,
+                user_id=user.user_id,
+                allow_overseas=user.allow_overseas_models,
+                conversation_id=conversation_id,
+                query=body.content,
+            ):
+                yield ev
         else:
             # 3b) 通用对话：llm.complete_stream() 流式，token 逐段下发
             llm_messages = to_llm_messages(history, body.content)
@@ -130,28 +141,4 @@ async def send_message(
 
         yield {"event": "done", "data": ""}
 
-    return EventSourceResponse(event_stream())
-
-
-@router.get("/{conversation_id}/messages")
-async def list_messages(
-    conversation_id: uuid.UUID,
-    user: CurrentUser = Depends(get_current_user),
-):
-    """拉取会话历史（前端刷新/回放用），租户过滤。"""
-    async with SessionLocal() as db:
-        history = await load_history(
-            db,
-            institution_id=user.institution_id,
-            conversation_id=conversation_id,
-            limit=200,
-        )
-    return [
-        {
-            "id": str(m.id),
-            "role": m.role,
-            "content": m.content,
-            "created_at": m.created_at.isoformat(),
-        }
-        for m in history
-    ]
+    return EventSourceRespons

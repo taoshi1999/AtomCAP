@@ -7,11 +7,11 @@
 ```
 backend/
   app/
-    objects/      # ★ 交付结果对象 Pydantic Schema —— 系统契约原点（Thesis 已完整定义）
+    objects/      # ★ 交付结果对象 Pydantic Schema —— 系统契约原点（Thesis / DealList 已完整定义）
     models/       # SQLAlchemy ORM（三类对象 + 证据链 + domain_events + RAG）
     llm/          # 档位路由（fast/standard/premium）+ 结构化输出（校验失败自动修复）
-    agents/       # 主图意图路由 + 四个专用 Agent 子图 + runner 执行编排
-                  #   （子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
+    agents/       # 主图意图路由 + 专用 Agent 子图（赛道前瞻 thesis_scout / 项目获取 deal_sourcing）
+                  #   + runner 执行编排（子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
     connectors/   # 数据源抽象 + registry 聚合检索（key 启用/合规闸门/去重截断）+ 博查（已实装）/企查查/Tavily
     evidence/     # 证据链服务（Source 落库、结论连边）
     services/     # 对象存取（入库强校验）、domain_events 记账与历史回放、偏好读写（版本化）、agent_runs 生命周期
@@ -63,6 +63,9 @@ npm run dev                                          # http://localhost:5173
 - [ ] 博查真实 key 冒烟测试；企查查真实 key 冒烟（端点路径与字段名按开放平台文档校准）；Tavily 真实 key 冒烟
 - [x] 信号检索 24h 缓存（`connectors/cache.py`：`cached_gather_signals` 在 gather_signals 外套缓存，键含「合规开关 × 启用源集合 × 赛道 × 关键词集合 × 时间窗」——合规开关不同则源集合不同，严禁跨闸门复用结果（约定 5）；关键词大小写/顺序无关最大化命中；只缓存非空结果不钉死失败空集；redis 懒加载、不可用即透明降级为不缓存（缓存层故障绝不拖垮主检索）；TTL 走 `signal_cache_ttl_seconds` 默认 24h。`tests/test_signal_cache.py` 覆盖键稳定性/序列化/命中复用/降级/合规隔离）
 - [x] load_preference / load_history 实装（`services/preferences.get_active`：active 取最大 version、payload 经 InvestmentPreference 校验、脏数据降级空偏好；`services/events.recent_history`：按机构回放白名单事件——runner 在 run 创建事务中预加载注入初始 state，节点保持纯函数：load_preference 校验+剔空字段，load_history 按 parse_track 关键词过滤同赛道历史、附机构行为统计头、上限 50 条；thesis.created 与 deliverable 动作事件 payload 已带 track 上下文供回放匹配——事件流水事后无法补）
+- [x] 项目获取 Agent（Deal Sourcing 搜寻流）真实实现（`agents/deal_sourcing/`：设计文档流程一六节点 LangGraph 子图——gen_search_strategy（FAST，据整个来源 Thesis 与机构偏好拆搜索策略，不止赛道名）→ mine_signals（多 Connector 并发挖掘，每条预分配 evidence_id，复用 24h 缓存与 allow_overseas 闸控）→ generate_candidates（STANDARD，Signal-to-Deal 从信号反推公司，selection_reasons 绑定信号 evidence_id）→ dedupe_candidates（纯函数确定性实体对齐：名称规范化去后缀/括注 + 别名跨条命中合并 + 入选理由按 text 去重）→ score_candidates（STANDARD，逐候选 FitScoreBreakdown 分项 + 推荐分层 strong/watch/observe/reject + 推荐理由/轻量风险，评分缺失中性回退不丢候选，按分降序）→ assemble_deal_list（PREMIUM 仅做池级命名与总览，候选明细结构化保真不重写以保 evidence_ids）。DealList 交付对象扩展对齐 Step 8-10（fit_score/recommendation_tier/recommendation_reasons/initial_risks/source_type/search_themes）。runner.run_deal_sourcing 与赛道前瞻同构编排：run 生命周期 → 证据剥伪连边 → DealList 经 SCHEMA_REGISTRY 强校验入库 → `deal_list.created` 记账 → assistant 消息 object_ref；支持从 Thesis「生成项目池」传 source_thesis_id/thesis_context。conversations.py 接 DEAL_SOURCING 意图（≥0.7 置信度）。`tests/test_deal_sourcing_nodes.py` 11 用例覆盖档位/合规透传/空守卫/实体去重/评分合并回退排序/空池兜底/真实子图端到端，全套 100 测试通过）
+- [ ] 项目获取 Agent 分析流（Deal Intake：上传 BP/材料解析 → 创建 Deal → 项目画像 → 自动进项目工作台）+ 系统主动推送流；mine_signals 接入企查查 company_lookup 做工商实体补全（当前搜寻流只走新闻/融资信号源）
+- [ ] Thesis「生成项目池」专用端点（传 source_thesis_id 加载 Thesis 视图驱动搜索策略；当前自然语言触发走公开信号挖掘）
 - [ ] Agent 执行迁 ARQ 队列 + Postgres checkpointer（当前内联在请求流中执行，编排已收敛在 runner，整体搬迁即可）
 - [ ] Langfuse 接入（自部署或云版）
 - [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
