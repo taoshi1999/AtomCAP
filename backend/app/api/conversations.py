@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.router import Intent, classify_intent
-from app.agents.runner import run_deal_sourcing, run_thesis_scout
+from app.agents.runner import run_deal_intake, run_deal_sourcing, run_thesis_scout
 from app.api.deps import CurrentUser, get_current_user
 from app.db import SessionLocal
 from app.llm.client import ModelTier, complete_stream
@@ -102,6 +102,19 @@ async def send_message(
                 allow_overseas=user.allow_overseas_models,
                 conversation_id=conversation_id,
                 query=body.content,
+            ):
+                yield ev
+        elif intent and intent.intent is Intent.DEAL_INTAKE and intent.confidence >= 0.7:
+            # 3a'') 项目获取（Deal Intake 分析流）：用户带入某个具体项目（粘贴介绍/公司名/BP 文本）。
+            #       产出 Company + Deal 业务对象并进入项目工作台。文件型 BP 解析（上传 PDF/Word）
+            #       由专用上传端点抽取文本后再走本流，自然语言触发以消息正文为材料。
+            async for ev in run_deal_intake(
+                institution_id=user.institution_id,
+                user_id=user.user_id,
+                allow_overseas=user.allow_overseas_models,
+                conversation_id=conversation_id,
+                material=body.content,
+                source_type="user_input",
             ):
                 yield ev
         else:

@@ -25,10 +25,15 @@ class RecommendationTier(StrEnum):
 
 
 class DealSourceType(StrEnum):
+    # 搜寻流来源
     THESIS_GENERATED = "thesis_generated"
     PUBLIC_SIGNAL_MINING = "public_signal_mining"
-    USER_INPUT = "user_input"
     SYSTEM_PUSH = "system_push"
+    # 分析流来源（用户主动带入的项目，《项目获取Agent》流程二 Step 7）
+    USER_INPUT = "user_input"
+    BP_UPLOAD = "bp_upload"
+    FA_RECOMMENDATION = "fa_recommendation"
+    INTERNAL_EXCEL = "internal_excel"
 
 
 class DealCandidate(BaseModel):

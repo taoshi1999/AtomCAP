@@ -6,6 +6,7 @@ deliverables 表 payload 入库前必须通过对应 Schema 校验。
 
 from app.objects.base import BaseDeliverable, Claim, DeliverableType
 from app.objects.dd_report import DDReport
+from app.objects.deal import DealAnalysis, DealExtraction, DealProfile, DealStatus
 from app.objects.deal_list import DealList
 from app.objects.evidence import EvidenceItem, EvidenceLink
 from app.objects.preference import InvestmentPreference
@@ -24,6 +25,10 @@ __all__ = [
     "Thesis",
     "DealList",
     "DDReport",
+    "DealProfile",
+    "DealExtraction",
+    "DealAnalysis",
+    "DealStatus",
     "EvidenceItem",
     "EvidenceLink",
     "InvestmentPreference",

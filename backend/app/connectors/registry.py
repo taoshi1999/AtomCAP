@@ -64,6 +64,30 @@ async def gather_signals(connectors, *, keywords, track="", days=90):
     return merged[:MAX_SIGNALS]
 
 
+async def lookup_company(connectors, name: str) -> list[Source]:
+    """企业实体补全：对支持 company_lookup 的源（企查查工商/股东/对外投资）并发查询。
+
+    供 Deal Intake 分析流外部信息补全用（设计文档流程二 Step 4）。
+    单源失败降级、按 (url|title) 去重；不实现 company_lookup 的源由 _safe 吞掉 NotImplementedError。
+    company_lookup 走工商源（region=cn），连接器集合本身已按 allow_overseas 过滤。
+    """
+    if not connectors or not name:
+        return []
+    batches = await asyncio.gather(
+        *(_safe(c.company_lookup(name), connector=c.name, what="company") for c in connectors)
+    )
+    seen: set[str] = set()
+    merged: list[Source] = []
+    for batch in batches:
+        for s in batch:
+            key = (s.url or s.title).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(s)
+    return merged
+
+
 async def cached_gather_signals(connectors, *, keywords, track="", days=90,
                                 allow_overseas=False, cache=None):
     keywords = [k for k in keywords if k][:MAX_KEYWORDS]
