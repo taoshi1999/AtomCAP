@@ -9,9 +9,13 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-MIGRATION = (
-    Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0001_initial_schema.py"
-)
+VERSIONS_DIR = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+# 向量维度断言仍只针对建向量列的初始迁移
+MIGRATION = VERSIONS_DIR / "0001_initial_schema.py"
+
+
+def _migration_files() -> list[Path]:
+    return sorted(p for p in VERSIONS_DIR.glob("*.py") if p.name[0].isdigit())
 
 
 def _call_name(node: ast.Call) -> str:
@@ -37,10 +41,10 @@ def _columns_in(node: ast.AST) -> set[str]:
     return cols
 
 
-def _migration_tables() -> dict[str, set[str]]:
-    tree = ast.parse(MIGRATION.read_text(encoding="utf-8"))
+def _tables_in_file(path: Path) -> dict[str, set[str]]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
 
-    # 辅助函数（_pk/_tenant/_ts）展开后的公共列
+    # 辅助函数（_pk/_tenant/_ts）展开后的公共列（每个迁移文件各自定义）
     helpers: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name.startswith("_"):
@@ -60,6 +64,14 @@ def _migration_tables() -> dict[str, set[str]]:
             else:
                 cols |= _columns_in(target)
         tables[tname] = cols
+    return tables
+
+
+def _migration_tables() -> dict[str, set[str]]:
+    """聚合 versions/ 下全部迁移文件建的表（增量迁移并集）。"""
+    tables: dict[str, set[str]] = {}
+    for path in _migration_files():
+        tables.update(_tables_in_file(path))
     return tables
 
 

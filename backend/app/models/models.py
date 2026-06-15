@@ -209,3 +209,70 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+# ---------- 经验沉淀 Agent 对象（agent_design/经验沉淀Agent.docx） ----------
+
+class UserActionRow(Base, TimestampMixin):
+    """用户与系统对象的显式交互（关注/不感兴趣/加入项目库/生成 Pre-DD 等）。
+
+    约定 4 的强化形态：除写 domain_events 外，落结构化 UserAction 并保存
+    target_snapshot（payload 内），对象后续被更新也不丢复盘上下文。
+    scanned 供经验沉淀 Agent 每 5 分钟增量扫描（按 created_at 游标 + 该标志去重）。
+    """
+
+    __tablename__ = "user_actions"
+    id: Mapped[uuid.UUID] = pk()
+    institution_id: Mapped[uuid.UUID] = tenant_fk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), index=True
+    )
+    action_type: Mapped[str] = mapped_column(String(50), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    polarity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    weight: Mapped[int] = mapped_column(Integer, default=0)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    scanned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # UserAction schema
+
+
+class ExperienceEventRow(Base, TimestampMixin):
+    """经验沉淀 Agent 从 Message / UserAction 归纳出的内部经验事件。
+
+    status 生命周期：open → candidate → advice_generated → accepted/rejected → archived。
+    advice_generated 标志便于 1 小时聚合任务筛「尚未生成过 advice」的事件。
+    """
+
+    __tablename__ = "experience_events"
+    id: Mapped[uuid.UUID] = pk()
+    institution_id: Mapped[uuid.UUID] = tenant_fk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    polarity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    strength: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    advice_generated: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # ExperienceEvent schema
+
+
+class PreferenceAdviceRow(Base, TimestampMixin):
+    """基于 ExperienceEvent 生成的偏好改进建议，进入人工审阅队列。
+
+    即便强信号也一律入此队列，绝不直接覆盖 Preference。接受后复用
+    services/preferences 写路径生成新版本并溯源。
+    """
+
+    __tablename__ = "preference_advice"
+    id: Mapped[uuid.UUID] = pk()
+    institution_id: Mapped[uuid.UUID] = tenant_fk()
+    preference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    base_preference_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    advice_type: Mapped[str] = mapped_column(String(50), index=True)
+    priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(30), default="pending_review", index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    applied: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # PreferenceAdvice schema
