@@ -78,6 +78,22 @@ npm run dev                                          # http://localhost:5173
 - [x] preferences 写路径（`GET`/`PUT /api/preferences`；PUT 经 `InvestmentPreference` 校验后创建新 active 版本、旧版置否、写 `preference.updated` 事件；版本号由服务层分配并忽略入参；脏输入 422 不入库；经验沉淀 diff 确认流 Phase 4 复用本写路径）
 - [x] 前端登录页 + token 注入（`pages/LoginPage.tsx` 登录/注册机构双模式表单，调 `/api/auth/login`、`/api/auth/register`，成功拿 JWT 经 `lib/auth.tsx` AuthProvider 存 localStorage 并 `setAuthToken` 注入；`bootstrapAuth()` 在 main.tsx 渲染前回灌 token 保证首屏请求带 Authorization；`RequireAuth` 守卫包住 `/` 与 `/workspace`，未登录跳 /login 并记来源回跳；`api.ts` 的 `apiJson` 与 SSE `sendMessage` 统一注入 Bearer 头（此前 SSE 漏带）；ChatPage 侧栏加退出登录。后端 `settings.auth_dev_fallback` 默认已为 False——登录闭环就此打通，无需再依赖 dev 回退。esbuild 逐文件 TSX transform 校验 6 文件语法通过）
 
+## 经验沉淀 Agent 路线（按 `agent_design/经验沉淀Agent.docx`，2026-06-15 新增设计）
+
+经验沉淀（投资学习）Agent 把用户行为转化为机构偏好，反哺赛道前瞻 / 项目获取 / Pre-DD 三个 Agent。设计文档定义四层管线（实时产生 → 经验归纳 → 偏好改进 → 最终沉淀）与五个对象（Message、UserAction、ExperienceEvent、Preference_Advice、Preference）。**与技术规划 Phase 4「周级 cron」的差异**：设计文档要求每 5 分钟增量扫描 + 每 1 小时聚合 + 强信号实时生成 Advice，且即便强信号也一律进人工审阅、绝不直接覆盖 Preference——经验沉淀的对象/字段/节奏以本设计文档为权威，技术规划仅保留架构主线。现状：`agents/experience/graph.py` 与 `worker/main.py` 仅有 `distill_experience` 周级 cron 桩。
+
+落地按以下独立可验证的增量推进（建议顺序）：
+
+- [ ] **五对象 Schema + ORM/迁移**：新增 `objects/experience.py`（UserAction / ExperienceEvent / Preference_Advice，含设计文档全部字段与枚举：`action_type`、`event_type`、`status`、`advice_type`、`review_status`）；`objects/preference.py` 的 `InvestmentPreference` 扩展为 `declared_strategy` + `learned_preference`（sector/subsector/industry_chain_position/stage/region 权重表，每项带 confidence）双块，向后兼容旧 `preferences.data`；ORM 加 `user_actions` / `experience_events` / `preference_advice` 三表 + Alembic 迁移（`test_migration_contract` 保证不漂移）
+- [ ] **UserAction 落库（约定 4 的强化）**：deal/thesis 的动作端点（follow_thesis / dislike_deal / join_project_library / enter_project_workspace / generate_pre_dd_brief 等）在写 domain_events 的同时落 `UserAction`，**必须保存 `target_snapshot`**（赛道/子赛道/产业链位置/阶段/地域/fit_score/风险等当时快照，对象后续被更新也不丢复盘上下文）；附设计文档行为权重表（查看详情 +1 … 生成 Pre-DD Brief +5 … 放弃项目 -5 … 标记风险不可接受 -6）
+- [ ] **PreferenceSignal 抽取**：Message 路径——LLM（STANDARD）判 `preference_signal_candidate` 并抽取 signal_type（显式偏好/反偏好/推荐纠偏/风险边界/策略修正/临时请求），**区分长期偏好与单次任务指令**（"这次先帮我找下游"不沉淀，"以后这个赛道不看上游"才沉淀）；UserAction 路径——纯函数按权重表 + target_snapshot 出 polarity/weight
+- [ ] **ExperienceEvent 匹配/更新/创建 + 生命周期**：纯函数匹配维度（同用户/机构、同赛道/子赛道/产业链位置/风险类型、同行为方向、时间窗、语义相似）→ 命中则更新（追加 source_id、更新 confidence/time_window/observed_pattern/preference_impact），否则建新；状态机 open→candidate→advice_generated→accepted/rejected→archived
+- [ ] **每 5 分钟增量扫描 cron**：`last_processed_message_id` / `last_processed_user_action_id` 游标增量读取，跑抽取→匹配→更新 ExperienceEvent；`processing_status.experience_agent_scanned` 防重复处理。先以 ARQ cron（5 分钟）落地，无 ARQ 时留手动触发端点便于离线验证
+- [ ] **每 1 小时聚合 + 强信号实时 → Preference_Advice**：1 小时 cron 扫 status=candidate/open 且达阈值（confidence>0.75 / 证据数足够 / strong 信号 / 多弱信号成稳定模式 / 未生成过 / 未被拒绝过相似）的事件，转成 `suggested_changes`（field_path + operation + current/suggested_value + delta + reason）；强显式指令实时生成（仍入审阅队列）
+- [ ] **Preference_Advice 人工审阅 API + 前端审阅卡片**：`GET /api/preference-advice`（pending 列表，前端只展示自然语言解释，不暴露底层事件）、`POST /api/preference-advice/{id}/review`（accept / reject / partial_accept，部分接受按 change_id 选择性应用）；前端偏好页「AtomCAP 正在帮我优化投资偏好」卡片 [应用]/[忽略]
+- [ ] **接受后版本化 Preference**：复用现有 `services/preferences` 写路径，应用 suggested_changes 生成新版本并溯源 `source_advice_ids` / `source_experience_event_ids` + 变更摘要/审阅人；拒绝记原因并降低同类 Advice 复现频率
+- [ ] **三 Agent 读取 `learned_preference` 反哺评分**：赛道前瞻 fit_score、项目获取 score_candidates、Pre-DD 评分读取学习到的权重表（约定 2 仍要求结论可解释），形成「越用越准」闭环
+
 ## 核心约定（不可破坏）
 
 1. 专用 Agent 的输出必须是 `SCHEMA_REGISTRY` 注册的对象，入库前强制校验
