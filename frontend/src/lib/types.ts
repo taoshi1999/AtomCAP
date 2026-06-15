@@ -95,3 +95,129 @@ export interface Deliverable<T = unknown> {
   type: DeliverableType;
   payload: T;
 }
+
+/* ============================================================================
+ * Deal 业务对象类型 —— 与 backend/app/objects/deal.py 镜像。
+ * 项目获取 Agent（Deal Intake 分析流）产出 DealProfile 落库 deals.data；
+ * 项目库 / 项目工作台 API（backend/app/api/deals.py）据此读取与推进。
+ * ==========================================================================*/
+
+// 与 backend DealStatus 对齐：管线状态机
+export type DealStatus =
+  | "sourced"
+  | "screening"
+  | "pre_dd"
+  | "ic_ready"
+  | "approved"
+  | "rejected";
+
+// 与 backend DealSourceType 对齐（项目来源）
+export type DealSourceType =
+  | "user_input"
+  | "bp_upload"
+  | "fa_recommendation"
+  | "internal_excel"
+  | "thesis_generated"
+  | string;
+
+// Step 3：材料解析出的客观事实（未提及字段留空）
+export interface DealExtraction {
+  company_name: string;
+  aliases: string[];
+  uscc?: string | null;
+  official_website?: string | null;
+  one_line_intro?: string | null;
+  track?: string | null;
+  sub_direction?: string | null;
+  product?: string | null;
+  tech_route?: string | null;
+  founders: string[];
+  funding_stage?: string | null;
+  funding_amount?: string | null;
+  valuation?: string | null;
+  revenue?: string | null;
+  customers: string[];
+  business_model?: string | null;
+  market_size?: string | null;
+  competitors: string[];
+  contact?: string | null;
+}
+
+// Step 8：初步分析研判（非完整 Pre-DD）
+export interface DealAnalysis {
+  portrait: string;
+  track_judgement?: string | null;
+  fit_score?: FitScoreBreakdown | null;
+  overall_fit: number;
+  highlights: Claim[];
+  initial_risks: Claim[];
+  info_gaps: string[];
+  open_questions: string[];
+  next_steps: Claim[];
+}
+
+export interface DealUserFeedback {
+  is_in_library: boolean;
+  is_liked: boolean;
+  is_disliked: boolean;
+  is_abandoned: boolean;
+}
+
+export interface DealWorkspace {
+  created: boolean;
+  conversation_id?: string | null;
+}
+
+// deals.data 完整契约（DealProfile）
+export interface DealProfile {
+  schema_version: number;
+  source_type: DealSourceType;
+  status: DealStatus;
+  extraction: DealExtraction;
+  analysis: DealAnalysis;
+  created_from_conversation?: string | null;
+  user_feedback: DealUserFeedback;
+  workspace: DealWorkspace;
+}
+
+// GET /api/deals 列表行投影（services.deal_summary）
+export interface DealSummary {
+  id: string;
+  company_id: string;
+  company_name: string | null;
+  status: DealStatus;
+  source_type?: DealSourceType | null;
+  overall_fit?: number | null;
+  portrait?: string | null;
+  is_in_library: boolean;
+  is_liked: boolean;
+  is_abandoned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// GET /api/deals/{id} 详情（services.get_deal_detail）
+export interface DealCompany {
+  id: string;
+  name: string;
+  uscc?: string | null;
+  profile?: Record<string, unknown> | null;
+}
+
+export interface DealDetail {
+  id: string;
+  company_id: string;
+  status: DealStatus;
+  data: DealProfile;
+  company: DealCompany | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 项目库/工作台用户动作（backend USER_ACTIONS）
+export type DealAction =
+  | "add_to_library"
+  | "follow"
+  | "dismiss"
+  | "abandon"
+  | "create_workspace";
