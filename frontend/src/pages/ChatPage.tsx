@@ -3,9 +3,11 @@
  * Phase 0 验收：mock Thesis 对象的六区 UI 完整渲染。
  */
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ThesisView from "../components/objects/ThesisView";
 import { mockThesis } from "../mocks/thesis";
 import { sendMessage } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 const SUGGESTED = [
   "帮我找找 AI 硬件这个赛道有什么值得关注的方向？",
@@ -17,6 +19,13 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [progress, setProgress] = useState<string | null>(null);
   const [showMock, setShowMock] = useState(true); // Phase 0：默认展示 mock Thesis
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+
+  function handleSignOut() {
+    signOut();
+    navigate("/login", { replace: true });
+  }
 
   async function handleSend(text: string) {
     if (!text.trim()) return;
@@ -43,6 +52,12 @@ export default function ChatPage() {
           <div className="rounded-md px-3 py-2 hover:bg-slate-50">关注赛道</div>
           <div className="rounded-md px-3 py-2 hover:bg-slate-50">投资偏好</div>
         </nav>
+        <button
+          onClick={handleSignOut}
+          className="mt-auto rounded-md px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+        >
+          退出登录
+        </button>
       </aside>
 
       {/* 主区 */}

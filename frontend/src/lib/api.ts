@@ -6,6 +6,24 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type { DealAction, DealDetail, DealStatus, DealSummary } from "./types";
 
+/* ----------------------------------------------------------------------------
+ * token 注入。
+ * 后端 settings.auth_dev_fallback 默认 False —— 未携带 JWT 一律 401，
+ * 故所有业务请求（含 SSE）都需带 Authorization 头。
+ * token 由 lib/auth.tsx 的 AuthProvider 在登录/启动时通过 setAuthToken 写入，
+ * 持久化与回灌同样在 auth.tsx（localStorage）。
+ * --------------------------------------------------------------------------*/
+
+let authToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+function authHeaders(): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
 export interface SseHandlers {
   onToken?: (text: string) => void;
   onProgress?: (text: string) => void;
@@ -21,7 +39,7 @@ export async function sendMessage(
 ) {
   await fetchEventSource(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ content }),
     signal,
     onmessage(ev) {
@@ -45,16 +63,7 @@ export async function sendMessage(
 
 /* ----------------------------------------------------------------------------
  * 通用 JSON 请求封装。
- * token 注入待登录页落地（README 待办「前端登录页 + token 注入」）；
- * 当前依赖后端 AUTH_DEV_FALLBACK 开发回退（多租户上下文走默认机构）。
- * 接通登录后在此读取持久化 token 注入 Authorization 头并关闭 dev fallback。
  * --------------------------------------------------------------------------*/
-
-let authToken: string | null = null;
-
-export function setAuthToken(token: string | null) {
-  authToken = token;
-}
 
 class ApiError extends Error {
   status: number;
@@ -68,9 +77,9 @@ class ApiError extends Error {
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...authHeaders(),
     ...((init?.headers as Record<string, string>) ?? {}),
   };
-  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
     let detail = res.statusText;
@@ -87,6 +96,42 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export { ApiError };
+
+/* --------------------------------- 认证 --------------------------------- */
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface RegisterPayload {
+  institution_name: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
+// POST /api/auth/login
+export async function login(payload: LoginPayload): Promise<AuthTokenResponse> {
+  return apiJson<AuthTokenResponse>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// POST /api/auth/register —— 机构引导注册（创建机构 + 首个用户）
+export async function register(payload: RegisterPayload): Promise<AuthTokenResponse> {
+  return apiJson<AuthTokenResponse>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
 
 /* ----------------------------- 项目库 / 项目工作台 ----------------------------- */
 

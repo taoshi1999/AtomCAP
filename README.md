@@ -76,7 +76,7 @@ npm run dev                                          # http://localhost:5173
 - [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
 - [ ] 用户邀请加入既有机构（多用户；注册仅做机构引导）
 - [x] preferences 写路径（`GET`/`PUT /api/preferences`；PUT 经 `InvestmentPreference` 校验后创建新 active 版本、旧版置否、写 `preference.updated` 事件；版本号由服务层分配并忽略入参；脏输入 422 不入库；经验沉淀 diff 确认流 Phase 4 复用本写路径）
-- [ ] 前端登录页 + token 注入（接通后关闭 AUTH_DEV_FALLBACK）
+- [x] 前端登录页 + token 注入（`pages/LoginPage.tsx` 登录/注册机构双模式表单，调 `/api/auth/login`、`/api/auth/register`，成功拿 JWT 经 `lib/auth.tsx` AuthProvider 存 localStorage 并 `setAuthToken` 注入；`bootstrapAuth()` 在 main.tsx 渲染前回灌 token 保证首屏请求带 Authorization；`RequireAuth` 守卫包住 `/` 与 `/workspace`，未登录跳 /login 并记来源回跳；`api.ts` 的 `apiJson` 与 SSE `sendMessage` 统一注入 Bearer 头（此前 SSE 漏带）；ChatPage 侧栏加退出登录。后端 `settings.auth_dev_fallback` 默认已为 False——登录闭环就此打通，无需再依赖 dev 回退。esbuild 逐文件 TSX transform 校验 6 文件语法通过）
 
 ## 核心约定（不可破坏）
 
