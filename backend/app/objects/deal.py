@@ -80,6 +80,26 @@ class DealAnalysis(BaseModel):
     next_steps: list[Claim] = Field(default_factory=list, description="推荐下一步")
 
 
+class DealUserFeedback(BaseModel):
+    """设计字段 11：用户对 Deal 的反馈（加入项目库 / 关注 / 放弃 / 不感兴趣）。
+
+    项目库右侧列表对已放弃项目只展示「项目名 + 时间」，原因作为内部字段保存不外显。
+    本块由项目库/项目工作台动作端点维护，与 domain_events 成对写入（约定 4）。
+    """
+
+    is_in_library: bool = Field(default=False, description="是否已加入项目库")
+    is_liked: bool = Field(default=False, description="是否关注")
+    is_disliked: bool = Field(default=False, description="是否不感兴趣")
+    is_abandoned: bool = Field(default=False, description="是否已放弃")
+
+
+class DealWorkspace(BaseModel):
+    """设计字段 12：项目工作台元信息。Deal Intake 带入的项目分析后自动创建工作台。"""
+
+    created: bool = Field(default=False, description="是否已创建项目工作台")
+    conversation_id: str | None = Field(default=None, description="承载工作台对话的会话 id")
+
+
 class DealProfile(BaseModel):
     """deals.data 的完整契约：材料抽取 + 初步分析 + 来源/状态元信息。"""
 
@@ -91,3 +111,6 @@ class DealProfile(BaseModel):
     extraction: DealExtraction
     analysis: DealAnalysis
     created_from_conversation: str | None = Field(default=None)
+    # 以下为可选元信息块，默认值保证既有 deals.data 仍校验通过（向后兼容增量）
+    user_feedback: DealUserFeedback = Field(default_factory=DealUserFeedback)
+    workspace: DealWorkspace = Field(default_factory=DealWorkspace)
