@@ -22,6 +22,11 @@ from app.objects.thesis import ThesisStatus
 from app.services.conversations import ensure_conversation, save_message, text_blocks
 from app.services.events import record_event
 from app.services.thesis_context import thesis_context_from_payload
+from app.services.user_actions import (
+    THESIS_ACTIONS,
+    record_user_action,
+    snapshot_from_thesis,
+)
 
 router = APIRouter()
 
@@ -95,6 +100,19 @@ async def trigger_action(
             "track": (row.payload or {}).get("thesis_name"),
         },
     )
+    # 约定 4 强化：关注赛道/生成项目池落结构化 UserAction，快照存赛道名供经验沉淀复盘。
+    ua_type = THESIS_ACTIONS.get(action)
+    if ua_type is not None:
+        await record_user_action(
+            db,
+            action_type=ua_type,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            target_type=row.type,
+            target_id=row.id,
+            target_name=(row.payload or {}).get("thesis_name"),
+            snapshot=snapshot_from_thesis(row.payload),
+        )
     # 生成项目池有专用 SSE 端点（见 generate_deal_pool）真正驱动 deal_sourcing 子图；
     # 简报/重新推荐待 Phase 1 入 ARQ 队列触发对应 agent run。
     return {
@@ -178,22 +196,4 @@ async def generate_deal_pool(
                 event_payload={
                     "intent": "deal_sourcing",
                     "source_thesis_id": str(deliverable_id),
-                },
-            )
-
-        # 2) 进 deal_sourcing 搜寻流：source_thesis_id + thesis_context 驱动策略，DealList 回链
-        query = f"根据《{thesis_name}》赛道判断，找一批匹配的候选项目"
-        async for ev in run_deal_sourcing(
-            institution_id=institution_id,
-            user_id=user_id,
-            allow_overseas=allow_overseas,
-            conversation_id=conversation_id,
-            query=query,
-            source_thesis_id=deliverable_id,
-            thesis_context=thesis_context,
-        ):
-            yield ev
-
-        yield {"event": "done", "data": ""}
-
-    return EventSourceResponse(event_stream())
+            

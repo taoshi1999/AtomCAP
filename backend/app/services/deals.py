@@ -26,7 +26,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Company, Deal
 from app.objects.deal import DealProfile, DealStatus
+from app.objects.experience import ActionContext
 from app.services.events import record_event
+from app.services.user_actions import (
+    DEAL_FEEDBACK_ACTIONS,
+    DEAL_TRANSITION_ACTIONS,
+    record_user_action,
+    snapshot_from_deal,
+)
 
 # ---------- 管线状态机：允许的前向流转 ----------
 
@@ -260,6 +267,20 @@ async def transition_deal_status(
             "track": (data.get("extraction") or {}).get("track"),
         },
     )
+    # 约定 4 强化：有明确偏好语义的流转（进 Pre-DD/上会/否决）落结构化 UserAction，
+    # 保存当时画像快照供经验沉淀复盘（系统初筛推进/立项通过暂无对应类型，见映射表注释）。
+    action_type = DEAL_TRANSITION_ACTIONS.get(to_status)
+    if action_type is not None:
+        await record_user_action(
+            db,
+            action_type=action_type,
+            institution_id=institution_id,
+            user_id=user_id,
+            target_type="deal",
+            target_id=deal.id,
+            snapshot=snapshot_from_deal(data),
+            extra_payload={"from_status": from_status, "to_status": to_status},
+        )
     return deal
 
 
@@ -275,27 +296,3 @@ async def apply_deal_action(
     """用户反馈动作：更新 data.user_feedback/workspace（经 DealProfile 强校验）+ 记 domain_event。"""
     if action not in USER_ACTIONS:
         raise InvalidTransition(f"未知动作: {action}")
-    deal = await _get_owned(db, institution_id=institution_id, deal_id=deal_id)
-    if deal is None:
-        raise DealNotFound(str(deal_id))
-
-    patched = apply_user_action(deal.data or {}, action, ctx)
-    # 入库前强校验：补丁只动可选块，DealProfile 校验通过才落库（绝不落脏数据）
-    deal.data = DealProfile.model_validate(patched).model_dump(mode="json")
-    await db.flush()
-
-    suffix, _ = USER_ACTIONS[action]
-    await record_event(
-        db,
-        institution_id=institution_id,
-        user_id=user_id,
-        event_type=f"deal.{suffix}",
-        subject_type="deal",
-        subject_id=deal.id,
-        payload={
-            "action": action,
-            "company_id": str(deal.company_id),
-            **({"conversation_id": str(ctx["conversation_id"])} if ctx and ctx.get("conversation_id") else {}),
-        },
-    )
-    return deal
