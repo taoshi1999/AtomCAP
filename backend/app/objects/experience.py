@@ -258,6 +258,74 @@ class PreferenceSignal(BaseModel):
     confidence: float = Field(default=0.0, ge=0, le=1)
 
 
+class SignalSourceType(StrEnum):
+    """PreferenceSignal 的来源类型。"""
+
+    MESSAGE = "message"
+    USER_ACTION = "user_action"
+
+
+class PreferenceDirection(BaseModel):
+    """一条方向性偏好（正向加权 / 反向减权），对齐设计文档 Step 2 的
+    positive_preference / negative_preference 子结构。"""
+
+    target: str = Field(description="偏好作用对象，如「下游产业」「纯整机品牌」")
+    operation: str = Field(default="increase_weight",
+                           description="increase_weight / decrease_weight / set / exclude 等")
+    dimension: str | None = Field(
+        default=None,
+        description="作用维度，如 sector/sub_sector/industry_chain_position/stage/risk",
+    )
+
+
+class SignalTargetScope(BaseModel):
+    """信号的作用范围（Message 路径偏向赛道/Thesis 上下文，UserAction 路径偏向对象特征）。
+
+    设计文档 Step 2 的 target_scope 与 Step 3 的 target_features 在此统一为一个宽松容器，
+    缺字段不臆造——抽取不到就留空。"""
+
+    related_thesis_id: str | None = None
+    related_deal_id: str | None = None
+    sector: str | None = None
+    sub_sector: str | None = None
+    industry_chain_position: str | None = None
+    stage: str | None = None
+    region: str | None = None
+    risk_level: str | None = None
+
+
+class ExtractedPreferenceSignal(BaseModel):
+    """经验沉淀管线第 1 层产出的**标准 PreferenceSignal**（设计文档 Step 2/3）。
+
+    区别于 `PreferenceSignal`（ExperienceEvent 内嵌的精简摘要）：本对象是从单条
+    Message 或 UserAction 抽取出的、带来源回链与方向/权重的完整信号，是 Step 4
+    匹配/更新 ExperienceEvent 的输入原料。
+
+    **长期偏好 vs 单次任务指令**（设计文档强调）：`durable=False` 表示「这次先帮我
+    找下游」这类临时请求，不沉淀为 Preference；`durable=True` 表示「以后这个赛道不
+    看上游」这类长期偏好，才进入 ExperienceEvent 归纳。临时请求一律 durable=False。"""
+
+    signal_type: SignalType
+    source_type: SignalSourceType
+    source_id: str | None = None
+    institution_id: str | None = None
+    user_id: str | None = None
+    target_scope: SignalTargetScope = Field(default_factory=SignalTargetScope)
+    positive_preference: PreferenceDirection | None = None
+    negative_preference: PreferenceDirection | None = None
+    polarity: Polarity = Polarity.NEUTRAL
+    weight: int = 0
+    strength: SignalStrength = SignalStrength.WEAK
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    durable: bool = Field(
+        default=True,
+        description="True=长期偏好，沉淀；False=单次任务指令/临时请求，不沉淀",
+    )
+    rationale: str | None = Field(default=None, description="自然语言判断依据（前端可读）")
+    created_at: str | None = None
+    # 管线第 1 层产物（设计 Step 2/3）：第 4 层据此匹配/更新 ExperienceEvent。
+
+
 class SuggestedUpdate(BaseModel):
     """ExperienceEvent 给出的偏好影响草案（粒度比 Advice 的 change 更粗）。"""
 
