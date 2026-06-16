@@ -353,6 +353,10 @@ class ExperienceEvent(BaseModel):
     time_window: TimeWindow = Field(default_factory=TimeWindow)
     source_records: SourceRecords = Field(default_factory=SourceRecords)
     related_objects: RelatedObjects = Field(default_factory=RelatedObjects)
+    target_scope: SignalTargetScope = Field(
+        default_factory=SignalTargetScope,
+        description="事件的维度身份（赛道/子赛道/产业链位置/风险等）——Step 4 匹配据此判定是否同一模式",
+    )
     observed_pattern: ObservedPattern = Field(default_factory=ObservedPattern)
     preference_signal: PreferenceSignal | None = None
     preference_impact: PreferenceImpact = Field(default_factory=PreferenceImpact)
