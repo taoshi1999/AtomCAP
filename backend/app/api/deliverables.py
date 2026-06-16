@@ -196,4 +196,22 @@ async def generate_deal_pool(
                 event_payload={
                     "intent": "deal_sourcing",
                     "source_thesis_id": str(deliverable_id),
-            
+                },
+            )
+
+        # 2) 进 deal_sourcing 搜寻流：source_thesis_id + thesis_context 驱动策略，DealList 回链
+        query = f"根据《{thesis_name}》赛道判断，找一批匹配的候选项目"
+        async for ev in run_deal_sourcing(
+            institution_id=institution_id,
+            user_id=user_id,
+            allow_overseas=allow_overseas,
+            conversation_id=conversation_id,
+            query=query,
+            source_thesis_id=deliverable_id,
+            thesis_context=thesis_context,
+        ):
+            yield ev
+
+        yield {"event": "done", "data": ""}
+
+    return EventSourceResponse(event_stream())

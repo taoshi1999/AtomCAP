@@ -35,7 +35,8 @@ from app.objects.experience import (
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # 每次新建并关闭事件循环——避免全套运行时前序 asyncio.run 关闭默认循环导致的隔离失败（Py3.10）
+    return asyncio.run(coro)
 
 
 def _action(action_type, *, polarity, weight, snapshot=None, **kw) -> UserAction:
