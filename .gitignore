@@ -19,3 +19,8 @@ dist/
 pytest-cache-files-*/
 # 沙箱写探针（挂载层产物，无法删除）
 .write_probe
+# 运行期日志与构建产物（挂载层噪声）
+.run-logs/
+tsconfig.tsbuildinfo
+backend/_shim_conftest.py
+AGENTS.md

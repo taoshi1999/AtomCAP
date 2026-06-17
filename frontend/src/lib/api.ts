@@ -4,7 +4,7 @@
  * token / progress / object / done
  */
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import type { DealAction, DealDetail, DealStatus, DealSummary } from "./types";
+import type { DealAction, DealDetail, DealStatus, DealSummary, Deliverable } from "./types";
 
 /* ----------------------------------------------------------------------------
  * token 注入。
@@ -28,7 +28,31 @@ export interface SseHandlers {
   onToken?: (text: string) => void;
   onProgress?: (text: string) => void;
   onObject?: (ref: { type: string; deliverable_id: string | null }) => void;
+  onError?: (text: string) => void;
   onDone?: () => void;
+}
+
+async function ensureSseResponse(response: Response) {
+  if (!response.ok) {
+    let detail = response.statusText || `HTTP ${response.status}`;
+    try {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const body = await response.json();
+        if (body && typeof body.detail === "string") detail = body.detail;
+      } else {
+        const text = await response.text();
+        if (text) detail = text;
+      }
+    } catch {
+      /* use status text */
+    }
+    throw new Error(detail);
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    throw new Error("后端没有返回有效的 SSE 响应");
+  }
 }
 
 export async function sendMessage(
@@ -42,6 +66,7 @@ export async function sendMessage(
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ content }),
     signal,
+    onopen: ensureSseResponse,
     onmessage(ev) {
       switch (ev.event) {
         case "token":
@@ -53,10 +78,55 @@ export async function sendMessage(
         case "object":
           handlers.onObject?.(JSON.parse(ev.data));
           break;
+        case "error":
+          handlers.onError?.(ev.data);
+          break;
         case "done":
           handlers.onDone?.();
           break;
       }
+    },
+    onerror(error) {
+      throw error;
+    },
+  });
+}
+
+export async function uploadMaterial(
+  conversationId: string,
+  file: File,
+  handlers: SseHandlers,
+  signal?: AbortSignal
+) {
+  const body = new FormData();
+  body.append("file", file);
+  await fetchEventSource(`/api/conversations/${conversationId}/upload`, {
+    method: "POST",
+    headers: authHeaders(),
+    body,
+    signal,
+    onopen: ensureSseResponse,
+    onmessage(ev) {
+      switch (ev.event) {
+        case "token":
+          handlers.onToken?.(ev.data);
+          break;
+        case "progress":
+          handlers.onProgress?.(ev.data);
+          break;
+        case "object":
+          handlers.onObject?.(JSON.parse(ev.data));
+          break;
+        case "error":
+          handlers.onError?.(ev.data);
+          break;
+        case "done":
+          handlers.onDone?.();
+          break;
+      }
+    },
+    onerror(error) {
+      throw error;
     },
   });
 }
@@ -97,6 +167,51 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export { ApiError };
 
+/* --------------------------------- 首页 --------------------------------- */
+
+export interface HomeConversation {
+  id: string;
+  title: string;
+  preview?: string | null;
+  updated_at: string;
+}
+
+export interface HomeDeliverable {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  updated_at: string;
+}
+
+export interface HomePreference {
+  exists: boolean;
+  version: number;
+  updated_at?: string;
+  preference: Record<string, unknown>;
+}
+
+export interface HomeData {
+  user: { id: string; name: string; email: string };
+  institution: { id: string; name: string; allow_overseas_models: boolean };
+  preference: HomePreference;
+  conversations: HomeConversation[];
+  deliverables: HomeDeliverable[];
+  deals: DealSummary[];
+  recent_conversations: HomeConversation[];
+  recent_deliverables: HomeDeliverable[];
+  recent_deals: DealSummary[];
+  stats: {
+    conversation_count: number;
+    deliverable_count: number;
+    deal_status_counts: Record<string, number>;
+  };
+}
+
+export async function getHome(): Promise<HomeData> {
+  return apiJson<HomeData>("/api/home");
+}
+
 /* --------------------------------- 认证 --------------------------------- */
 
 export interface AuthTokenResponse {
@@ -131,6 +246,41 @@ export async function register(payload: RegisterPayload): Promise<AuthTokenRespo
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/* ----------------------------- 交付结果对象 ----------------------------- */
+
+// GET /api/deliverables/{id}
+export async function getDeliverable(deliverableId: string): Promise<Deliverable> {
+  return apiJson<Deliverable>(`/api/deliverables/${deliverableId}`);
+}
+
+/* --------------------------------- 会话 --------------------------------- */
+
+export interface MessageBlock {
+  type: "text" | "object_ref" | string;
+  text?: string;
+  deliverable_id?: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "system" | string;
+  content: MessageBlock[] | { blocks?: MessageBlock[] };
+  created_at: string;
+}
+
+export interface ConversationMessagesResponse {
+  conversation: { id: string; title?: string | null; updated_at: string };
+  messages: ConversationMessage[];
+}
+
+export async function getConversationMessages(
+  conversationId: string
+): Promise<ConversationMessagesResponse> {
+  return apiJson<ConversationMessagesResponse>(
+    `/api/conversations/${conversationId}/messages`
+  );
 }
 
 /* ----------------------------- 项目库 / 项目工作台 ----------------------------- */
