@@ -158,13 +158,15 @@ async def list_deals(
     institution_id: uuid.UUID,
     status: str | None = None,
     in_library: bool | None = None,
-    limit: int = 100,
+    limit: int | None = 100,
 ) -> list[dict]:
     """项目库列表：租户过滤，可按管线状态过滤；附公司名（一次性批量取，免 N+1）。"""
     stmt = select(Deal).where(Deal.institution_id == institution_id)
     if status is not None:
         stmt = stmt.where(Deal.status == status)
-    stmt = stmt.order_by(Deal.created_at.desc()).limit(limit)
+    stmt = stmt.order_by(Deal.created_at.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit)
     deals = (await db.execute(stmt)).scalars().all()
 
     if in_library is not None:
@@ -296,3 +298,44 @@ async def apply_deal_action(
     """用户反馈动作：更新 data.user_feedback/workspace（经 DealProfile 强校验）+ 记 domain_event。"""
     if action not in USER_ACTIONS:
         raise InvalidTransition(f"未知动作: {action}")
+    deal = await _get_owned(db, institution_id=institution_id, deal_id=deal_id)
+    if deal is None:
+        raise DealNotFound(str(deal_id))
+
+    patched = apply_user_action(deal.data or {}, action, ctx)
+    # 入库前强校验：补丁只动可选块，DealProfile 校验通过才落库（绝不落脏数据）
+    deal.data = DealProfile.model_validate(patched).model_dump(mode="json")
+    await db.flush()
+
+    suffix, _ = USER_ACTIONS[action]
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type=f"deal.{suffix}",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={
+            "action": action,
+            "company_id": str(deal.company_id),
+            **({"conversation_id": str(ctx["conversation_id"])} if ctx and ctx.get("conversation_id") else {}),
+        },
+    )
+    # 约定 4 强化：用户反馈动作落结构化 UserAction（快照取动作后的 data，含 user_feedback）。
+    action_type = DEAL_FEEDBACK_ACTIONS.get(action)
+    if action_type is not None:
+        conv_id = ctx.get("conversation_id") if ctx else None
+        await record_user_action(
+            db,
+            action_type=action_type,
+            institution_id=institution_id,
+            user_id=user_id,
+            target_type="deal",
+            target_id=deal.id,
+            snapshot=snapshot_from_deal(deal.data),
+            context=ActionContext(
+                source_page="project_workspace",
+                source_conversation_id=str(conv_id) if conv_id else None,
+            ),
+        )
+    return deal

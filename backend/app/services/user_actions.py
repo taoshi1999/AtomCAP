@@ -71,6 +71,8 @@ ACTION_LABELS: dict[UserActionType, str] = {
     UserActionType.PREPARE_IC: "准备上会",
     UserActionType.FOLLOW_THESIS: "关注赛道",
     UserActionType.GENERATE_PROJECT_POOL: "生成项目池",
+    UserActionType.ACCEPT_PREFERENCE_ADVICE: "采纳偏好建议",
+    UserActionType.REJECT_PREFERENCE_ADVICE: "拒绝偏好建议",
 }
 
 

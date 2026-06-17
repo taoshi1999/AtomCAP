@@ -17,6 +17,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.router import Intent, classify_intent
@@ -29,6 +30,7 @@ from app.services.document_extract import (
 )
 from app.db import SessionLocal
 from app.llm.client import ModelTier, complete_stream
+from app.models.models import Conversation, Message
 from app.services.conversations import (
     ensure_conversation,
     load_history,
@@ -39,11 +41,55 @@ from app.services.conversations import (
 
 router = APIRouter()
 
-LLM_UNAVAILABLE_MSG = "模型网关暂时不可用，请稍后重试。"
+LLM_UNAVAILABLE_MSG = "模型服务暂时不可用，请检查 DEEPSEEK_API_KEY / LITELLM 配置后重试。"
 
 
 class SendMessageRequest(BaseModel):
     content: str
+
+
+@router.get("/{conversation_id}/messages")
+async def get_messages(
+    conversation_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """读取当前用户的一条会话历史，用于首页「最近」打开真实上下文。"""
+    async with SessionLocal() as db:
+        conversation = await db.scalar(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.institution_id == user.institution_id,
+                Conversation.user_id == user.user_id,
+            )
+        )
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        messages = (
+            await db.execute(
+                select(Message)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    Message.institution_id == user.institution_id,
+                )
+                .order_by(Message.created_at.asc(), Message.id.asc())
+            )
+        ).scalars().all()
+        return {
+            "conversation": {
+                "id": str(conversation.id),
+                "title": conversation.title,
+                "updated_at": conversation.updated_at.isoformat(),
+            },
+            "messages": [
+                {
+                    "id": str(message.id),
+                    "role": message.role,
+                    "content": message.content,
+                    "created_at": message.created_at.isoformat(),
+                }
+                for message in messages
+            ],
+        }
 
 
 @router.post("/{conversation_id}/messages")
