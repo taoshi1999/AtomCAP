@@ -2,17 +2,50 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = _BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(_PROJECT_ROOT / ".env", _BACKEND_DIR / ".env"),
+        extra="ignore",
+    )
 
     database_url: str = "postgresql+asyncpg://atomcap:atomcap_dev@localhost:5432/atomcap"
     redis_url: str = "redis://localhost:6379/0"
 
+    # LLM provider routing. "auto" prefers direct DeepSeek/OpenAI keys when
+    # present, and falls back to the local LiteLLM gateway for existing setups.
+    llm_provider: str = "auto"
+    llm_request_timeout_seconds: float = 60.0
+    llm_connect_timeout_seconds: float = 10.0
+    llm_http_proxy: str = ""
+
     litellm_base_url: str = "http://localhost:4000"
     litellm_master_key: str = "sk-atomcap-dev"
+    litellm_fast_model: str = "fast"
+    litellm_standard_model: str = "standard"
+    litellm_premium_model: str = "premium"
+    litellm_embed_model: str = "embed"
+
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_fast_model: str = "deepseek-v4-flash"
+    deepseek_standard_model: str = "deepseek-v4-flash"
+    deepseek_premium_model: str = "deepseek-v4-pro"
+    deepseek_embed_model: str = ""
+
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_fast_model: str = "gpt-4.1-mini"
+    openai_standard_model: str = "gpt-4.1"
+    openai_premium_model: str = "gpt-4.1"
+    openai_embed_model: str = "text-embedding-3-large"
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

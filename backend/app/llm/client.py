@@ -12,8 +12,9 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import TypeVar
+from typing import Any, TypeVar
 
+import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -29,7 +30,8 @@ class ModelTier(StrEnum):
     EMBED = "embed"
 
 
-_client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_master_key)
+_client: Any | None = None
+_client_signature: tuple[str, str, str, float, float, str] | None = None
 
 
 def resolve_tier(tier: ModelTier, *, allow_overseas: bool) -> ModelTier:
@@ -39,6 +41,109 @@ def resolve_tier(tier: ModelTier, *, allow_overseas: bool) -> ModelTier:
     return tier
 
 
+def resolve_provider() -> str:
+    """Return the concrete LLM provider selected from settings.
+
+    auto:
+    - DEEPSEEK_API_KEY present -> direct DeepSeek OpenAI-compatible API
+    - OPENAI_API_KEY present -> direct OpenAI-compatible API
+    - otherwise -> existing LiteLLM gateway
+    """
+    provider = (settings.llm_provider or "auto").strip().lower()
+    if provider != "auto":
+        return provider
+    if settings.deepseek_api_key:
+        return "deepseek"
+    if settings.openai_api_key:
+        return "openai"
+    return "litellm"
+
+
+def _provider_connection(provider: str) -> tuple[str, str]:
+    if provider == "deepseek":
+        return settings.deepseek_base_url, settings.deepseek_api_key
+    if provider == "openai":
+        return settings.openai_base_url, settings.openai_api_key
+    if provider == "litellm":
+        return settings.litellm_base_url, settings.litellm_master_key
+    raise ValueError(f"Unsupported LLM_PROVIDER: {settings.llm_provider!r}")
+
+
+def resolve_model(tier: ModelTier, *, allow_overseas: bool = False) -> str:
+    """Map a logical tier to the provider-specific model name."""
+    resolved = resolve_tier(tier, allow_overseas=allow_overseas)
+    provider = resolve_provider()
+    if provider == "deepseek":
+        mapping = {
+            ModelTier.FAST: settings.deepseek_fast_model,
+            ModelTier.STANDARD: settings.deepseek_standard_model,
+            ModelTier.PREMIUM: settings.deepseek_premium_model,
+            ModelTier.EMBED: settings.deepseek_embed_model,
+        }
+    elif provider == "openai":
+        mapping = {
+            ModelTier.FAST: settings.openai_fast_model,
+            ModelTier.STANDARD: settings.openai_standard_model,
+            ModelTier.PREMIUM: settings.openai_premium_model,
+            ModelTier.EMBED: settings.openai_embed_model,
+        }
+    else:
+        mapping = {
+            ModelTier.FAST: settings.litellm_fast_model,
+            ModelTier.STANDARD: settings.litellm_standard_model,
+            ModelTier.PREMIUM: settings.litellm_premium_model,
+            ModelTier.EMBED: settings.litellm_embed_model,
+        }
+    model = mapping[resolved]
+    if not model:
+        raise ValueError(f"{provider} provider has no model configured for tier {resolved.value!r}")
+    return model
+
+
+def _get_client() -> Any:
+    """Build the OpenAI-compatible client lazily.
+
+    Tests monkeypatch ``_client`` with a fake object; when no signature is set we
+    respect that fake instead of rebuilding it.
+    """
+    global _client, _client_signature
+
+    provider = resolve_provider()
+    base_url, api_key = _provider_connection(provider)
+    signature = (
+        provider,
+        base_url,
+        api_key,
+        settings.llm_request_timeout_seconds,
+        settings.llm_connect_timeout_seconds,
+        settings.llm_http_proxy,
+    )
+    if _client is not None and (_client_signature == signature or _client_signature is None):
+        return _client
+
+    if provider in {"deepseek", "openai"} and not api_key:
+        raise ValueError(f"{provider} API key is not configured")
+
+    timeout = httpx.Timeout(
+        timeout=settings.llm_request_timeout_seconds,
+        connect=settings.llm_connect_timeout_seconds,
+    )
+    client_kwargs: dict[str, Any] = {
+        "base_url": base_url,
+        "api_key": api_key,
+        "timeout": timeout,
+    }
+    if settings.llm_http_proxy:
+        client_kwargs["http_client"] = httpx.AsyncClient(
+            proxy=settings.llm_http_proxy,
+            timeout=timeout,
+        )
+
+    _client = AsyncOpenAI(**client_kwargs)
+    _client_signature = signature
+    return _client
+
+
 async def complete(
     tier: ModelTier,
     messages: list[dict],
@@ -46,8 +151,9 @@ async def complete(
     allow_overseas: bool = False,
     temperature: float = 0.3,
 ) -> str:
-    resp = await _client.chat.completions.create(
-        model=resolve_tier(tier, allow_overseas=allow_overseas).value,
+    client = _get_client()
+    resp = await client.chat.completions.create(
+        model=resolve_model(tier, allow_overseas=allow_overseas),
         messages=messages,
         temperature=temperature,
     )
@@ -65,8 +171,9 @@ async def complete_stream(
 
     与 complete() 同一套档位路由与合规降级；调用方负责拼接全文落库。
     """
-    stream = await _client.chat.completions.create(
-        model=resolve_tier(tier, allow_overseas=allow_overseas).value,
+    client = _get_client()
+    stream = await client.chat.completions.create(
+        model=resolve_model(tier, allow_overseas=allow_overseas),
         messages=messages,
         temperature=temperature,
         stream=True,
@@ -103,8 +210,9 @@ async def complete_structured(
 
     last_err: Exception | None = None
     for _ in range(1 + max_repair_attempts):
-        resp = await _client.chat.completions.create(
-            model=resolve_tier(tier, allow_overseas=allow_overseas).value,
+        client = _get_client()
+        resp = await client.chat.completions.create(
+            model=resolve_model(tier, allow_overseas=allow_overseas),
             messages=msgs,
             temperature=0,
             response_format={"type": "json_object"},
@@ -122,5 +230,9 @@ async def complete_structured(
 
 
 async def embed(texts: list[str]) -> list[list[float]]:
-    resp = await _client.embeddings.create(model=ModelTier.EMBED.value, input=texts)
+    client = _get_client()
+    resp = await client.embeddings.create(
+        model=resolve_model(ModelTier.EMBED, allow_overseas=False),
+        input=texts,
+    )
     return [d.embedding for d in resp.data]
