@@ -69,35 +69,92 @@ def _provider_connection(provider: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported LLM_PROVIDER: {settings.llm_provider!r}")
 
 
-def resolve_model(tier: ModelTier, *, allow_overseas: bool = False) -> str:
-    """Map a logical tier to the provider-specific model name."""
-    resolved = resolve_tier(tier, allow_overseas=allow_overseas)
-    provider = resolve_provider()
+def _provider_model_map(provider: str) -> dict[ModelTier, str]:
+    """档位 -> 具体模型名的 provider 级映射（不做合规降级，供路由与模型自检共用）。"""
     if provider == "deepseek":
-        mapping = {
+        return {
             ModelTier.FAST: settings.deepseek_fast_model,
             ModelTier.STANDARD: settings.deepseek_standard_model,
             ModelTier.PREMIUM: settings.deepseek_premium_model,
             ModelTier.EMBED: settings.deepseek_embed_model,
         }
-    elif provider == "openai":
-        mapping = {
+    if provider == "openai":
+        return {
             ModelTier.FAST: settings.openai_fast_model,
             ModelTier.STANDARD: settings.openai_standard_model,
             ModelTier.PREMIUM: settings.openai_premium_model,
             ModelTier.EMBED: settings.openai_embed_model,
         }
-    else:
-        mapping = {
-            ModelTier.FAST: settings.litellm_fast_model,
-            ModelTier.STANDARD: settings.litellm_standard_model,
-            ModelTier.PREMIUM: settings.litellm_premium_model,
-            ModelTier.EMBED: settings.litellm_embed_model,
-        }
-    model = mapping[resolved]
+    return {
+        ModelTier.FAST: settings.litellm_fast_model,
+        ModelTier.STANDARD: settings.litellm_standard_model,
+        ModelTier.PREMIUM: settings.litellm_premium_model,
+        ModelTier.EMBED: settings.litellm_embed_model,
+    }
+
+
+def resolve_model(tier: ModelTier, *, allow_overseas: bool = False) -> str:
+    """Map a logical tier to the provider-specific model name."""
+    resolved = resolve_tier(tier, allow_overseas=allow_overseas)
+    provider = resolve_provider()
+    model = _provider_model_map(provider)[resolved]
     if not model:
         raise ValueError(f"{provider} provider has no model configured for tier {resolved.value!r}")
     return model
+
+
+_TIER_LABELS: dict[ModelTier, str] = {
+    ModelTier.FAST: "快速",
+    ModelTier.STANDARD: "标准",
+    ModelTier.PREMIUM: "高质量",
+}
+
+
+def coerce_tier(value: str | None, *, default: ModelTier = ModelTier.STANDARD) -> ModelTier:
+    """把前端传入的档位字符串收敛为合法的对话档位，空/非法/embed 一律回退默认。
+
+    业务代码只认 fast/standard/premium 档位别名（核心约定）：用户切换模型即切换档位，
+    具体模型名由 provider 配置映射，绝不让任意模型名穿透到业务层。
+    """
+    if not value:
+        return default
+    try:
+        tier = ModelTier(value.strip().lower())
+    except ValueError:
+        return default
+    if tier is ModelTier.EMBED:  # 对话不能用嵌入档
+        return default
+    return tier
+
+
+def available_models(*, allow_overseas: bool = False) -> dict[str, Any]:
+    """自动检测当前配置的 Provider 及各对话档位对应的具体模型，供前端展示与切换。
+
+    premium 档可能路由到海外模型——机构未开启海外模型时标记 available=False，
+    前端禁用该选项（与 resolve_tier 的合规降级一致，核心约定 5）。
+    """
+    provider = resolve_provider()
+    model_map = _provider_model_map(provider)
+    options: list[dict[str, Any]] = []
+    for tier in (ModelTier.FAST, ModelTier.STANDARD, ModelTier.PREMIUM):
+        model = model_map.get(tier)
+        if not model:
+            continue
+        requires_overseas = tier is ModelTier.PREMIUM
+        options.append(
+            {
+                "tier": tier.value,
+                "model": model,
+                "label": _TIER_LABELS[tier],
+                "requires_overseas": requires_overseas,
+                "available": (not requires_overseas) or allow_overseas,
+            }
+        )
+    return {
+        "provider": provider,
+        "default_tier": ModelTier.STANDARD.value,
+        "options": options,
+    }
 
 
 def _get_client() -> Any:

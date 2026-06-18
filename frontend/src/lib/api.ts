@@ -55,16 +55,35 @@ async function ensureSseResponse(response: Response) {
   }
 }
 
+export interface ModelOption {
+  tier: string;
+  model: string;
+  label: string;
+  requires_overseas: boolean;
+  available: boolean;
+}
+
+export interface ModelsInfo {
+  provider: string;
+  default_tier: string;
+  options: ModelOption[];
+}
+
+export async function getModels(): Promise<ModelsInfo> {
+  return apiJson<ModelsInfo>("/api/models");
+}
+
 export async function sendMessage(
   conversationId: string,
   content: string,
   handlers: SseHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  modelTier?: string
 ) {
   await fetchEventSource(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, model_tier: modelTier }),
     signal,
     onopen: ensureSseResponse,
     onmessage(ev) {

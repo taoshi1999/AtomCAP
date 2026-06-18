@@ -31,7 +31,7 @@ from app.services.document_extract import (
     extract_text,
 )
 from app.db import SessionLocal
-from app.llm.client import ModelTier, complete_stream
+from app.llm.client import coerce_tier, complete_stream
 from app.models.models import Conversation, Message
 from app.services.conversations import (
     ensure_conversation,
@@ -48,6 +48,8 @@ LLM_UNAVAILABLE_MSG = "模型服务暂时不可用，请检查 DEEPSEEK_API_KEY 
 
 class SendMessageRequest(BaseModel):
     content: str
+    # 用户在对话框选择的模型档位（fast/standard/premium），空/非法回退标准
+    model_tier: str | None = None
 
 
 async def classify_intent_bounded(content: str):
@@ -190,13 +192,14 @@ async def send_message(
         else:
             # 3b) 通用对话：llm.complete_stream() 流式，token 逐段下发。
             #     先发进度事件，让前端确认通用 Agent 已接管（与分类阶段区分开）。
+            tier = coerce_tier(body.model_tier)
             yield {"event": "progress", "data": "正在生成回答"}
             llm_messages = to_llm_messages(history, body.content)
             parts: list[str] = []
             failed = False
             try:
                 async for delta in complete_stream(
-                    ModelTier.STANDARD,
+                    tier,
                     llm_messages,
                     allow_overseas=user.allow_overseas_models,
                 ):
@@ -226,7 +229,7 @@ async def send_message(
                         blocks=text_blocks(answer),
                         event_payload={
                             "intent": intent.intent.value if intent else "chat",
-                            "tier": ModelTier.STANDARD.value,
+                            "tier": tier.value,
                             "truncated": failed,
                         },
                     )

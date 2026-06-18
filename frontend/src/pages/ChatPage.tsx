@@ -41,6 +41,7 @@ import {
   getConversationMessages,
   getDeliverable,
   getHome,
+  getModels,
   sendMessage,
   updatePreference,
   uploadMaterial,
@@ -48,6 +49,7 @@ import {
   type HomeData,
   type HomeDeliverable,
   type MessageBlock,
+  type ModelOption,
   type SseHandlers,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -176,6 +178,25 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [progress, setProgress] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [modelTier, setModelTier] = useState<string>("standard");
+  useEffect(() => {
+    let active = true;
+    getModels()
+      .then((info) => {
+        if (!active) return;
+        setModelOptions(info.options);
+        setModelTier((current) =>
+          info.options.some((option) => option.tier === current) ? current : info.default_tier
+        );
+      })
+      .catch(() => {
+        /* 模型自检失败不阻塞对话，沿用后端默认档位 */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [trackDialogOpen, setTrackDialogOpen] = useState(false);
   const [preferenceDialogOpen, setPreferenceDialogOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -574,7 +595,7 @@ export default function ChatPage() {
     const content = text.trim();
     if (!content || isSending) return;
     await runAssistantFlow(content, (handlers) =>
-      sendMessage(conversationId, content, handlers)
+      sendMessage(conversationId, content, handlers, undefined, modelTier)
     );
   }
 
@@ -765,6 +786,9 @@ export default function ChatPage() {
               progress={progress}
               isSending={isSending}
               suggested={suggested}
+              models={modelOptions}
+              modelTier={modelTier}
+              onModelChange={setModelTier}
               onChange={setInput}
               onKeyDown={handleComposerKeyDown}
               onUploadClick={() => fileInputRef.current?.click()}
@@ -788,6 +812,9 @@ export default function ChatPage() {
                 isSending={isSending}
                 suggested={suggested}
                 compact
+                models={modelOptions}
+                modelTier={modelTier}
+                onModelChange={setModelTier}
                 onChange={setInput}
                 onKeyDown={handleComposerKeyDown}
                 onUploadClick={() => fileInputRef.current?.click()}
@@ -1277,6 +1304,9 @@ function Composer({
   isSending,
   suggested,
   compact,
+  models,
+  modelTier,
+  onModelChange,
   onChange,
   onKeyDown,
   onUploadClick,
@@ -1288,6 +1318,9 @@ function Composer({
   isSending: boolean;
   suggested: string[];
   compact?: boolean;
+  models?: ModelOption[];
+  modelTier?: string;
+  onModelChange?: (tier: string) => void;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onUploadClick: () => void;
@@ -1334,6 +1367,20 @@ function Composer({
             <Sparkles className="h-5 w-5 text-indigo-600" />
             <span>智能体</span>
           </div>
+          {models && models.length > 0 && onModelChange && (
+            <select
+              value={modelTier}
+              onChange={(event) => onModelChange(event.target.value)}
+              title="选择对话模型"
+              className="h-9 max-w-[12rem] truncate rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-700 outline-none hover:border-indigo-300"
+            >
+              {models.map((option) => (
+                <option key={option.tier} value={option.tier} disabled={!option.available}>
+                  {option.label}（{option.model}）{option.available ? "" : " · 需开启海外模型"}
+                </option>
+              ))}
+            </select>
+          )}
           {progress && (
             <span className="hidden truncate text-sm font-medium text-indigo-600 sm:block">
               {progress}
