@@ -182,10 +182,21 @@ def test_review_preference_advice_accepts_and_records(monkeypatch):
         actions.append(kwargs)
         return SimpleNamespace(id=uuid.uuid4())
 
+    prefs = []
+
+    async def fake_get_active_row(db, *, institution_id):
+        return None
+
+    async def fake_set_active(db, *, institution_id, payload):
+        prefs.append(payload)
+        return SimpleNamespace(id=uuid.uuid4(), version=3)
+
     monkeypatch.setattr(svc, "_get_advice_row", fake_get_row)
     monkeypatch.setattr(svc, "_source_event_rows", fake_event_rows)
     monkeypatch.setattr(svc, "record_event", fake_record_event)
     monkeypatch.setattr(svc, "record_user_action", fake_record_user_action)
+    monkeypatch.setattr(svc.preferences_service, "get_active_row", fake_get_active_row)
+    monkeypatch.setattr(svc.preferences_service, "set_active_preference", fake_set_active)
 
     db = _FakeDb()
     result = _run(
@@ -203,6 +214,96 @@ def test_review_preference_advice_accepts_and_records(monkeypatch):
     assert advice_row.review_status == ReviewStatus.ACCEPTED.value
     assert advice_row.payload["review"]["reviewed_by"] == str(user_id)
     assert event_row.status == ExperienceStatus.ACCEPTED.value
-    assert events[0]["event_type"] == svc.ACCEPTED_EVENT
+    assert any(e["event_type"] == svc.ACCEPTED_EVENT for e in events)
     assert actions[0]["action_type"].value == "accept_preference_advice"
     assert db.flushed
+
+    # 路线第 8 步：接受后版本化 Preference
+    assert result["applied"] is True
+    assert result["new_preference_version"] == "3"
+    assert advice_row.applied is True
+    assert advice_row.payload["application"]["applied"] is True
+    assert advice_row.payload["application"]["new_preference_version"] == "3"
+    assert any(e["event_type"] == svc.PREFERENCE_UPDATED_EVENT for e in events)
+    # 冷启动空偏好 + decrease_weight 应新建子赛道权重项 0.5-0.1=0.4
+    assert prefs, "接受后应创建新偏好版本"
+    subsector = prefs[0]["learned_preference"]["subsector_weights"]
+    item = next(it for it in subsector if it["name"] == "AI眼镜整机")
+    assert abs(item["weight"] - 0.4) < 1e-9
+    assert abs(item["confidence"] - 0.86) < 1e-9
+
+
+def test_review_accept_no_actionable_change_skips_versioning(monkeypatch):
+    """只有占位 review change（无 suggested_updates）时，接受不应造噪声版本。"""
+    institution_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    event = _event(status=ExperienceStatus.ADVICE_GENERATED, source_count=3)
+    # 清空 preference_impact → _suggested_changes 退回占位 review change
+    event = event.model_copy(
+        update={
+            "preference_impact": PreferenceImpact(),
+            "lifecycle": event.lifecycle.model_copy(update={"advice_generated": True}),
+        }
+    )
+    event_row = _event_row(event, institution_id=institution_id)
+    event_row.status = ExperienceStatus.ADVICE_GENERATED.value
+    event_row.advice_generated = True
+    advice = svc.build_preference_advice(event, institution_id=institution_id)
+    assert advice.suggested_changes[0].operation == "review"
+    advice_row = PreferenceAdviceRow(
+        id=uuid.UUID(advice.advice_id),
+        institution_id=institution_id,
+        advice_type=advice.advice_type.value,
+        priority=advice.priority.value,
+        review_status=ReviewStatus.PENDING_REVIEW.value,
+        confidence=advice.confidence,
+        applied=False,
+        payload=advice.model_dump(mode="json"),
+    )
+
+    async def fake_get_row(db, *, institution_id, advice_id):
+        return advice_row
+
+    async def fake_event_rows(db, *, institution_id, advice):
+        return [event_row]
+
+    events = []
+    set_calls = []
+
+    async def fake_record_event(db, **kwargs):
+        events.append(kwargs)
+        return SimpleNamespace(id=uuid.uuid4())
+
+    async def fake_record_user_action(db, **kwargs):
+        return SimpleNamespace(id=uuid.uuid4())
+
+    async def fake_get_active_row(db, *, institution_id):
+        return None
+
+    async def fake_set_active(db, *, institution_id, payload):
+        set_calls.append(payload)
+        return SimpleNamespace(id=uuid.uuid4(), version=9)
+
+    monkeypatch.setattr(svc, "_get_advice_row", fake_get_row)
+    monkeypatch.setattr(svc, "_source_event_rows", fake_event_rows)
+    monkeypatch.setattr(svc, "record_event", fake_record_event)
+    monkeypatch.setattr(svc, "record_user_action", fake_record_user_action)
+    monkeypatch.setattr(svc.preferences_service, "get_active_row", fake_get_active_row)
+    monkeypatch.setattr(svc.preferences_service, "set_active_preference", fake_set_active)
+
+    db = _FakeDb()
+    result = _run(
+        svc.review_preference_advice(
+            db,
+            institution_id=institution_id,
+            user_id=user_id,
+            advice_id=advice_row.id,
+            decision=ReviewDecision.ACCEPT,
+        )
+    )
+
+    assert result["applied"] is True
+    assert result["new_preference_version"] is None
+    assert advice_row.applied is True
+    assert set_calls == []  # 未创建任何新偏好版本
+    assert not any(e["event_type"] == svc.PREFERENCE_UPDATED_EVENT for e in events)

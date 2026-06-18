@@ -22,6 +22,7 @@ from app.agents.experience.match import (
 )
 from app.models.models import ExperienceEventRow, PreferenceAdviceRow
 from app.objects.experience import (
+    AdviceApplication,
     AdvicePriority,
     AdviceType,
     ExpectedEffect,
@@ -35,6 +36,8 @@ from app.objects.experience import (
     SuggestedChange,
 )
 from app.services import preferences as preferences_service
+from app.objects.preference import InvestmentPreference
+from app.agents.experience.apply import apply_changes_to_preference
 from app.services.events import record_event
 from app.services.user_actions import record_user_action
 from app.objects.experience import UserActionType
@@ -42,6 +45,7 @@ from app.objects.experience import UserActionType
 GENERATED_EVENT = "preference_advice.generated"
 ACCEPTED_EVENT = "preference_advice.accepted"
 REJECTED_EVENT = "preference_advice.rejected"
+PREFERENCE_UPDATED_EVENT = "preference.updated"
 
 
 @dataclass
@@ -393,6 +397,74 @@ async def _source_event_rows(
     )
 
 
+async def apply_accepted_advice(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID,
+    advice: PreferenceAdvice,
+    now: str | None = None,
+) -> AdviceApplication:
+    """把一条已接受的 Advice 应用到机构偏好并版本化（经验沉淀路线第 8 步）。
+
+    读当前 active 偏好为基底（无则空偏好，可冷启动 learned_preference）→ 应用
+    suggested_changes → 经 set_active_preference 创建新 active 版本（旧版置否）→ 写
+    preference.updated 事件 → 返回 AdviceApplication 标记 applied 与新版本号。
+
+    **即便强信号也只在人工 accept 后才走到这里**；若没有任何可执行改动则不创建
+    噪声版本，仅标记 applied（new_preference_version=None）。调用方提供事务边界。
+    """
+    now = now or _now_iso()
+    pref_row = await preferences_service.get_active_row(db, institution_id=institution_id)
+    if pref_row is not None:
+        try:
+            base = InvestmentPreference.model_validate(pref_row.payload or {})
+        except Exception:
+            base = InvestmentPreference()
+        base_version: int | None = pref_row.version
+    else:
+        base = InvestmentPreference()
+        base_version = None
+
+    result = apply_changes_to_preference(
+        base, advice.suggested_changes, confidence=advice.confidence
+    )
+    if not result.changed:
+        return AdviceApplication(applied=True, applied_at=now, new_preference_version=None)
+
+    new_pref = result.preference.model_copy(
+        update={
+            "source_advice_ids": [advice.advice_id] if advice.advice_id else [],
+            "source_experience_event_ids": list(advice.source_experience_event_ids),
+            "change_summary": advice.title,
+            "reviewed_by": str(user_id),
+        }
+    )
+    new_row = await preferences_service.set_active_preference(
+        db, institution_id=institution_id, payload=new_pref.model_dump(mode="json")
+    )
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type=PREFERENCE_UPDATED_EVENT,
+        subject_type="preference",
+        subject_id=new_row.id,
+        payload={
+            "version": new_row.version,
+            "base_preference_version": base_version,
+            "source_advice_id": advice.advice_id,
+            "source_experience_event_ids": advice.source_experience_event_ids,
+            "applied_changes": result.applied_summaries(),
+        },
+    )
+    return AdviceApplication(
+        applied=True,
+        applied_at=now,
+        new_preference_version=str(new_row.version),
+    )
+
+
 async def review_preference_advice(
     db: AsyncSession,
     *,
@@ -425,6 +497,17 @@ async def review_preference_advice(
             ),
         },
     )
+    application = advice.application
+    if decision == ReviewDecision.ACCEPT:
+        application = await apply_accepted_advice(
+            db,
+            institution_id=institution_id,
+            user_id=user_id,
+            advice=advice,
+            now=now,
+        )
+        advice = advice.model_copy(update={"application": application})
+        row.applied = bool(application.applied)
     row.review_status = review_status.value
     row.payload = advice.model_dump(mode="json")
 
@@ -473,4 +556,6 @@ async def review_preference_advice(
         "id": str(row.id),
         "review_status": row.review_status,
         "updated_experience_event_ids": updated_events,
+        "applied": bool(application.applied),
+        "new_preference_version": application.new_preference_version,
     }
