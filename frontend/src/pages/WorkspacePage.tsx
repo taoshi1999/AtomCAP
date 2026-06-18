@@ -9,16 +9,19 @@
  *   POST /transition（管线流转）、POST /actions/{action}（用户反馈）。
  * token 注入待登录页，开发期依赖后端 AUTH_DEV_FALLBACK。
  */
-import { useCallback, useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Plus } from "lucide-react";
 import {
   ApiError,
+  createDeal,
   getDealDetail,
   listDeals,
   transitionDeal,
   triggerDealAction,
 } from "../lib/api";
+import PageAssistant from "../components/PageAssistant";
 import type {
   Claim,
   DealAction,
@@ -98,6 +101,159 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h3 className="mb-2 text-sm font-semibold text-slate-900">{title}</h3>
       {children}
     </section>
+  );
+}
+
+function DialogShell({
+  title,
+  error,
+  onClose,
+  children,
+}: {
+  title: string;
+  error: string | null;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 px-4">
+      <div className="w-full max-w-xl rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-black text-slate-950">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+          >
+            ×
+          </button>
+        </div>
+        {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+  rows,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  rows?: number;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold text-slate-500">{label}</span>
+      {rows ? (
+        <textarea
+          value={value}
+          required={required}
+          rows={rows}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="block w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-blue-300"
+        />
+      ) : (
+        <input
+          value={value}
+          required={required}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-300"
+        />
+      )}
+    </label>
+  );
+}
+
+function CreateDealDialog({
+  draft,
+  error,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  draft: {
+    company_name: string;
+    one_line_intro: string;
+    track: string;
+    sub_direction: string;
+    funding_stage: string;
+    source_note: string;
+  };
+  error: string | null;
+  busy: boolean;
+  onChange: (next: typeof draft) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <DialogShell title="新建项目" error={error} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field
+          label="公司/项目名称"
+          value={draft.company_name}
+          required
+          placeholder="例如：光羽科技"
+          onChange={(value) => onChange({ ...draft, company_name: value })}
+        />
+        <Field
+          label="一句话介绍"
+          value={draft.one_line_intro}
+          placeholder="这个项目是做什么的"
+          onChange={(value) => onChange({ ...draft, one_line_intro: value })}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="所属赛道"
+            value={draft.track}
+            placeholder="AI 硬件"
+            onChange={(value) => onChange({ ...draft, track: value })}
+          />
+          <Field
+            label="子方向"
+            value={draft.sub_direction}
+            placeholder="光学模组"
+            onChange={(value) => onChange({ ...draft, sub_direction: value })}
+          />
+        </div>
+        <Field
+          label="融资阶段"
+          value={draft.funding_stage}
+          placeholder="Pre-A / A / B+"
+          onChange={(value) => onChange({ ...draft, funding_stage: value })}
+        />
+        <Field
+          label="补充材料"
+          value={draft.source_note}
+          rows={3}
+          placeholder="来源、联系人、初步判断或待验证信息"
+          onChange={(value) => onChange({ ...draft, source_note: value })}
+        />
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+            取消
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !draft.company_name.trim()}
+            className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            创建
+          </button>
+        </div>
+      </form>
+    </DialogShell>
   );
 }
 
@@ -327,6 +483,27 @@ export default function WorkspacePage() {
   const [detail, setDetail] = useState<DealDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createDraft, setCreateDraft] = useState({
+    company_name: "",
+    one_line_intro: "",
+    track: "",
+    sub_direction: "",
+    funding_stage: "",
+    source_note: "",
+  });
+
+  const assistantContext = useMemo(() => {
+    if (detail) {
+      return [
+        `当前项目：${detail.company?.name ?? detail.data.extraction.company_name}`,
+        `状态：${STATUS_META[detail.status]?.label ?? detail.status}`,
+        `画像：${detail.data.analysis.portrait}`,
+      ].join("；");
+    }
+    return `当前项目库共 ${deals.length} 个项目，筛选器：${FILTERS.find((item) => item.key === filter)?.label ?? filter}`;
+  }, [deals.length, detail, filter]);
 
   const refreshList = useCallback(async () => {
     const f = FILTERS.find((x) => x.key === filter);
@@ -396,6 +573,39 @@ export default function WorkspacePage() {
     }
   }
 
+  async function handleCreateDeal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const companyName = createDraft.company_name.trim();
+    if (!companyName) return;
+    setBusy(true);
+    try {
+      setCreateError(null);
+      const created = await createDeal({
+        company_name: companyName,
+        one_line_intro: createDraft.one_line_intro.trim() || null,
+        track: createDraft.track.trim() || null,
+        sub_direction: createDraft.sub_direction.trim() || null,
+        funding_stage: createDraft.funding_stage.trim() || null,
+        source_note: createDraft.source_note.trim() || null,
+      });
+      setCreateOpen(false);
+      setCreateDraft({
+        company_name: "",
+        one_line_intro: "",
+        track: "",
+        sub_direction: "",
+        funding_stage: "",
+        source_note: "",
+      });
+      await refreshList();
+      navigate(`/workspace/${created.id}`);
+    } catch (error) {
+      setCreateError(error instanceof ApiError ? error.message : "创建项目失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="flex h-screen bg-slate-50">
       {/* 左：项目库 */}
@@ -405,6 +615,17 @@ export default function WorkspacePage() {
             ← 返回
           </a>
           <span className="text-base font-bold text-slate-900">项目库</span>
+          <button
+            type="button"
+            title="新建项目"
+            onClick={() => {
+              setCreateError(null);
+              setCreateOpen(true);
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
         <div className="flex flex-wrap gap-1 border-b border-slate-200 px-3 py-2">
           {FILTERS.map((f) => (
@@ -456,27 +677,46 @@ export default function WorkspacePage() {
       </aside>
 
       {/* 右：详情 */}
-      <main className="flex-1 overflow-y-auto p-6">
-        {!dealId && (
-          <div className="flex h-full items-center justify-center text-slate-400">
-            从左侧选择一个项目查看工作台详情
-          </div>
-        )}
-        {dealId && detailError && (
-          <div className="text-sm text-rose-500">{detailError}</div>
-        )}
-        {dealId && !detail && !detailError && (
-          <div className="text-sm text-slate-400">加载中…</div>
-        )}
-        {dealId && detail && (
-          <DealDetailPanel
-            detail={detail}
-            busy={busy}
-            onTransition={handleTransition}
-            onAction={handleAction}
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <section className="min-h-0 flex-1 overflow-y-auto p-6">
+          {!dealId && (
+            <div className="flex h-full items-center justify-center text-slate-400">
+              从左侧选择一个项目查看工作台详情
+            </div>
+          )}
+          {dealId && detailError && (
+            <div className="text-sm text-rose-500">{detailError}</div>
+          )}
+          {dealId && !detail && !detailError && (
+            <div className="text-sm text-slate-400">加载中…</div>
+          )}
+          {dealId && detail && (
+            <DealDetailPanel
+              detail={detail}
+              busy={busy}
+              onTransition={handleTransition}
+              onAction={handleAction}
+            />
+          )}
+        </section>
+        <div className="shrink-0 border-t border-slate-200 bg-white p-4">
+          <PageAssistant
+            contextLabel="项目库"
+            contextSummary={assistantContext}
+            placeholder="基于当前项目库提出需求..."
           />
-        )}
+        </div>
       </main>
+      {createOpen && (
+        <CreateDealDialog
+          draft={createDraft}
+          error={createError}
+          busy={busy}
+          onChange={setCreateDraft}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={handleCreateDeal}
+        />
+      )}
     </div>
   );
 }

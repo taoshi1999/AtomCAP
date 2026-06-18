@@ -16,18 +16,138 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
-from app.objects.deal import DealStatus
+from app.models.models import Company, Deal
+from app.objects.base import Claim
+from app.objects.deal import (
+    DealAnalysis,
+    DealExtraction,
+    DealProfile,
+    DealStatus,
+    DealUserFeedback,
+    DealWorkspace,
+)
+from app.objects.deal_list import DealSourceType
 from app.services.deals import (
     USER_ACTIONS,
     DealNotFound,
     InvalidTransition,
+    deal_summary,
     apply_deal_action,
     get_deal_detail,
     list_deals,
     transition_deal_status,
 )
+from app.services.events import record_event
 
 router = APIRouter()
+
+
+class CreateDealBody(BaseModel):
+    company_name: str = Field(min_length=1, max_length=255, description="公司/项目名称")
+    one_line_intro: str | None = Field(default=None, max_length=1000, description="一句话介绍")
+    track: str | None = Field(default=None, max_length=100, description="所属赛道")
+    sub_direction: str | None = Field(default=None, max_length=100, description="子方向")
+    funding_stage: str | None = Field(default=None, max_length=100, description="融资阶段")
+    source_note: str | None = Field(default=None, max_length=2000, description="补充材料或来源说明")
+
+
+def _manual_deal_profile(body: CreateDealBody) -> DealProfile:
+    """把手动录入表单组装成 DealProfile 草稿（纯函数，便于离线校验与复用）。
+
+    手动建档是 Deal Intake Agent 之外的人工录入口：先落一个 screening 草稿、
+    自动加入项目库并建工作台，后续用户可在页面对话框要求系统补分析/查证据/推进管线。
+    """
+    name = body.company_name.strip()
+    intro = body.one_line_intro or body.source_note or f"{name} 是用户手动创建的项目。"
+    extraction = DealExtraction(
+        company_name=name,
+        one_line_intro=body.one_line_intro,
+        track=body.track,
+        sub_direction=body.sub_direction,
+        funding_stage=body.funding_stage,
+    )
+    analysis = DealAnalysis(
+        portrait=intro,
+        track_judgement=body.track,
+        overall_fit=50,
+        highlights=[
+            Claim(text="用户手动创建项目，需进一步补充材料与外部验证。", inferred=True)
+        ],
+        info_gaps=[
+            "融资信息",
+            "核心团队",
+            "收入与客户",
+            "竞争格局",
+        ],
+        open_questions=[
+            "该项目是否符合当前机构投资偏好？",
+            "是否已有可验证的客户、收入或融资信号？",
+        ],
+        next_steps=[
+            Claim(text="补充 BP、官网或访谈纪要后进行项目初步分析。", inferred=True)
+        ],
+    )
+    return DealProfile(
+        source_type=DealSourceType.USER_INPUT,
+        status=DealStatus.SCREENING,
+        extraction=extraction,
+        analysis=analysis,
+        user_feedback=DealUserFeedback(is_in_library=True),
+        workspace=DealWorkspace(created=True),
+    )
+
+
+@router.post("")
+async def create_deal(
+    body: CreateDealBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """手动创建项目：创建 Company + Deal 草稿，并进入项目库。
+
+    这不是替代 Deal Intake Agent，而是给用户一个明确的人工录入口；后续可在
+    页面底部对话框继续要求系统补分析、查证据或推进管线。
+    """
+    name = body.company_name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="公司/项目名称不能为空")
+
+    company = Company(
+        institution_id=user.institution_id,
+        name=name,
+        profile={
+            "source": "manual",
+            "one_line_intro": body.one_line_intro,
+            "track": body.track,
+        },
+    )
+    db.add(company)
+    await db.flush()
+
+    profile = _manual_deal_profile(body)
+    deal = Deal(
+        institution_id=user.institution_id,
+        company_id=company.id,
+        status=DealStatus.SCREENING.value,
+        data=profile.model_dump(mode="json"),
+    )
+    db.add(deal)
+    await db.flush()
+
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="deal.created",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={
+            "source": "manual",
+            "company_id": str(company.id),
+            "track": body.track,
+        },
+    )
+    return deal_summary(deal, company)
 
 
 @router.get("")

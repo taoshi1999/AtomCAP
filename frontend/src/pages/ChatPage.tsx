@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type FormEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -34,11 +35,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DeliverableView } from "../components/objects/registry";
+import PageAssistant from "../components/PageAssistant";
 import {
+  createManualThesis,
   getConversationMessages,
   getDeliverable,
   getHome,
   sendMessage,
+  updatePreference,
   uploadMaterial,
   type ConversationMessage,
   type HomeData,
@@ -136,6 +140,13 @@ function displayList(items: string[], empty = "未设置") {
   return items.length > 0 ? items.slice(0, 3).join(" / ") : empty;
 }
 
+function parseListInput(value: string) {
+  return value
+    .split(/[,，、/\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -165,6 +176,26 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [progress, setProgress] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [trackDialogOpen, setTrackDialogOpen] = useState(false);
+  const [preferenceDialogOpen, setPreferenceDialogOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [trackDraft, setTrackDraft] = useState({
+    thesis_name: "",
+    one_line_view: "",
+    opportunity_level: "中",
+    risk_level: "中",
+    advice: "",
+    sub_directions: "",
+  });
+  const [preferenceDraft, setPreferenceDraft] = useState({
+    name: "默认投资策略",
+    sectors: "",
+    stages: "",
+    regions: "",
+    risk_appetite: "",
+    check_size: "",
+    notes: "",
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { signOut } = useAuth();
   const navigate = useNavigate();
@@ -240,6 +271,98 @@ export default function ChatPage() {
 
   const userName = home?.user.name || "你好";
   const userSubtitle = home?.user.email || home?.institution.name || "";
+  const trackContextSummary = useMemo(() => {
+    const theses = (home?.deliverables ?? []).filter((item) => item.type === "thesis");
+    if (theses.length === 0) return "赛道库暂无赛道。";
+    return theses
+      .slice(0, 6)
+      .map((item) => `${item.title}（${item.status}）`)
+      .join("；");
+  }, [home]);
+  const preferenceContextSummary = useMemo(() => {
+    const sectors = displayList(preferenceList(home, "sectors"), "未设置赛道");
+    const stages = displayList(preferenceList(home, "stages"), "未设置阶段");
+    const regions = displayList(preferenceList(home, "regions"), "未设置地域");
+    return `赛道：${sectors}；阶段：${stages}；地域：${regions}`;
+  }, [home]);
+
+  function openPreferenceEditor() {
+    const preference = home?.preference.preference ?? {};
+    setPreferenceDraft({
+      name: typeof preference.name === "string" ? preference.name : "默认投资策略",
+      sectors: preferenceList(home, "sectors").join("，"),
+      stages: preferenceList(home, "stages").join("，"),
+      regions: preferenceList(home, "regions").join("，"),
+      risk_appetite:
+        typeof preference.risk_appetite === "string" ? preference.risk_appetite : "",
+      check_size: typeof preference.check_size === "string" ? preference.check_size : "",
+      notes: typeof preference.notes === "string" ? preference.notes : "",
+    });
+    setActionError(null);
+    setPreferenceDialogOpen(true);
+  }
+
+  async function handleCreateThesis(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const thesisName = trackDraft.thesis_name.trim();
+    if (!thesisName) return;
+    try {
+      setActionError(null);
+      await createManualThesis({
+        thesis_name: thesisName,
+        one_line_view: trackDraft.one_line_view.trim() || null,
+        opportunity_level: trackDraft.opportunity_level,
+        risk_level: trackDraft.risk_level,
+        advice: trackDraft.advice.trim() || null,
+        sub_directions: parseListInput(trackDraft.sub_directions),
+      });
+      setTrackDialogOpen(false);
+      setTrackDraft({
+        thesis_name: "",
+        one_line_view: "",
+        opportunity_level: "中",
+        risk_level: "中",
+        advice: "",
+        sub_directions: "",
+      });
+      await refreshHome();
+      setMode("tracks");
+    } catch (error) {
+      setActionError(compactError(error));
+    }
+  }
+
+  async function handleSavePreference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const sectors = parseListInput(preferenceDraft.sectors);
+    const stages = parseListInput(preferenceDraft.stages);
+    const regions = parseListInput(preferenceDraft.regions);
+    try {
+      setActionError(null);
+      await updatePreference({
+        version: Math.max(1, home?.preference.version ?? 1),
+        name: preferenceDraft.name.trim() || "默认投资策略",
+        status: "active",
+        declared_strategy: {
+          focus_sectors: sectors,
+          focus_stages: stages,
+          focus_regions: regions,
+          description: preferenceDraft.notes.trim() || null,
+        },
+        track_preferences: sectors,
+        stages,
+        geographies: regions,
+        risk_appetite: preferenceDraft.risk_appetite.trim() || null,
+        check_size: preferenceDraft.check_size.trim() || null,
+        notes: preferenceDraft.notes.trim() || null,
+      });
+      setPreferenceDialogOpen(false);
+      await refreshHome();
+      setMode("preference");
+    } catch (error) {
+      setActionError(compactError(error));
+    }
+  }
 
   function handleNewConversation() {
     setConversationId(makeId());
@@ -570,14 +693,57 @@ export default function ChatPage() {
         </header>
 
         {mode === "tracks" ? (
-          <DataPanel title="赛道库" subtitle="来自数据库中的赛道前瞻交付物">
+          <DataPanel
+            title="赛道库"
+            subtitle="来自数据库中的赛道前瞻交付物"
+            actions={
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setTrackDialogOpen(true);
+                }}
+                className="flex h-10 items-center gap-2 rounded-lg bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                <Plus className="h-4 w-4" />
+                新建赛道
+              </button>
+            }
+            footer={
+              <PageAssistant
+                contextLabel="赛道库"
+                contextSummary={trackContextSummary}
+                placeholder="基于当前赛道库提出需求..."
+              />
+            }
+          >
             <TrackList
               items={(home?.deliverables ?? []).filter((item) => item.type === "thesis")}
               onOpen={(id) => void openDeliverable(id)}
             />
           </DataPanel>
         ) : mode === "preference" ? (
-          <DataPanel title="投资偏好" subtitle="当前机构生效偏好">
+          <DataPanel
+            title="投资偏好"
+            subtitle="当前机构生效偏好"
+            actions={
+              <button
+                type="button"
+                onClick={openPreferenceEditor}
+                className="flex h-10 items-center gap-2 rounded-lg bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                <Plus className="h-4 w-4" />
+                创建策略
+              </button>
+            }
+            footer={
+              <PageAssistant
+                contextLabel="投资偏好"
+                contextSummary={preferenceContextSummary}
+                placeholder="基于当前策略提出需求..."
+              />
+            }
+          >
             <PreferenceDetail home={home} loading={isHomeLoading} />
           </DataPanel>
         ) : messages.length === 0 ? (
@@ -632,6 +798,24 @@ export default function ChatPage() {
           </>
         )}
       </main>
+      {trackDialogOpen && (
+        <CreateTrackDialog
+          draft={trackDraft}
+          error={actionError}
+          onChange={setTrackDraft}
+          onClose={() => setTrackDialogOpen(false)}
+          onSubmit={handleCreateThesis}
+        />
+      )}
+      {preferenceDialogOpen && (
+        <PreferenceDialog
+          draft={preferenceDraft}
+          error={actionError}
+          onChange={setPreferenceDraft}
+          onClose={() => setPreferenceDialogOpen(false)}
+          onSubmit={handleSavePreference}
+        />
+      )}
     </div>
   );
 }
@@ -667,6 +851,234 @@ function NavButton({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {meta && !primary && <span className="text-xs text-slate-400">{meta}</span>}
     </button>
+  );
+}
+
+function DialogShell({
+  title,
+  error,
+  onClose,
+  children,
+}: {
+  title: string;
+  error: string | null;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 px-4">
+      <div className="w-full max-w-xl rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-black text-slate-950">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+          >
+            ×
+          </button>
+        </div>
+        {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+  rows,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  rows?: number;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold text-slate-500">{label}</span>
+      {rows ? (
+        <textarea
+          value={value}
+          required={required}
+          rows={rows}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="block w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-300"
+        />
+      ) : (
+        <input
+          value={value}
+          required={required}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-indigo-300"
+        />
+      )}
+    </label>
+  );
+}
+
+function CreateTrackDialog({
+  draft,
+  error,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  draft: {
+    thesis_name: string;
+    one_line_view: string;
+    opportunity_level: string;
+    risk_level: string;
+    advice: string;
+    sub_directions: string;
+  };
+  error: string | null;
+  onChange: (next: typeof draft) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <DialogShell title="新建赛道" error={error} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field
+          label="赛道名称"
+          value={draft.thesis_name}
+          required
+          placeholder="例如：端侧 AI 芯片"
+          onChange={(value) => onChange({ ...draft, thesis_name: value })}
+        />
+        <Field
+          label="一句话判断"
+          value={draft.one_line_view}
+          placeholder="这个赛道为什么值得被纳入观察"
+          onChange={(value) => onChange({ ...draft, one_line_view: value })}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="机会等级"
+            value={draft.opportunity_level}
+            onChange={(value) => onChange({ ...draft, opportunity_level: value })}
+          />
+          <Field
+            label="风险等级"
+            value={draft.risk_level}
+            onChange={(value) => onChange({ ...draft, risk_level: value })}
+          />
+        </div>
+        <Field
+          label="子方向"
+          value={draft.sub_directions}
+          rows={2}
+          placeholder="用逗号或换行分隔"
+          onChange={(value) => onChange({ ...draft, sub_directions: value })}
+        />
+        <Field
+          label="建议"
+          value={draft.advice}
+          rows={2}
+          placeholder="下一步如何跟进"
+          onChange={(value) => onChange({ ...draft, advice: value })}
+        />
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+            取消
+          </button>
+          <button type="submit" className="h-10 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
+            创建
+          </button>
+        </div>
+      </form>
+    </DialogShell>
+  );
+}
+
+function PreferenceDialog({
+  draft,
+  error,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  draft: {
+    name: string;
+    sectors: string;
+    stages: string;
+    regions: string;
+    risk_appetite: string;
+    check_size: string;
+    notes: string;
+  };
+  error: string | null;
+  onChange: (next: typeof draft) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <DialogShell title="创建策略" error={error} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field
+          label="策略名称"
+          value={draft.name}
+          required
+          onChange={(value) => onChange({ ...draft, name: value })}
+        />
+        <Field
+          label="偏好赛道"
+          value={draft.sectors}
+          placeholder="用逗号或换行分隔"
+          onChange={(value) => onChange({ ...draft, sectors: value })}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="偏好阶段"
+            value={draft.stages}
+            placeholder="Pre-A，A，B+"
+            onChange={(value) => onChange({ ...draft, stages: value })}
+          />
+          <Field
+            label="地域偏好"
+            value={draft.regions}
+            placeholder="中国，全球"
+            onChange={(value) => onChange({ ...draft, regions: value })}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="风险偏好"
+            value={draft.risk_appetite}
+            onChange={(value) => onChange({ ...draft, risk_appetite: value })}
+          />
+          <Field
+            label="单笔规模"
+            value={draft.check_size}
+            placeholder="例如：500万-3000万人民币"
+            onChange={(value) => onChange({ ...draft, check_size: value })}
+          />
+        </div>
+        <Field
+          label="策略说明"
+          value={draft.notes}
+          rows={3}
+          onChange={(value) => onChange({ ...draft, notes: value })}
+        />
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+            取消
+          </button>
+          <button type="submit" className="h-10 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
+            保存
+          </button>
+        </div>
+      </form>
+    </DialogShell>
   );
 }
 
@@ -754,22 +1166,30 @@ function PreferenceLine({ label, value }: { label: string; value: string }) {
 function DataPanel({
   title,
   subtitle,
+  actions,
+  footer,
   children,
 }: {
   title: string;
   subtitle: string;
+  actions?: ReactNode;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="min-h-0 flex-1 overflow-hidden px-5 pb-6 lg:px-8">
       <div className="mx-auto flex h-full max-w-5xl flex-col">
-        <div className="shrink-0 pb-4 pt-2">
-          <h1 className="text-2xl font-black text-slate-950">{title}</h1>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        <div className="flex shrink-0 items-start justify-between gap-3 pb-4 pt-2">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-black text-slate-950">{title}</h1>
+            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+          </div>
+          {actions && <div className="shrink-0">{actions}</div>}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           {children}
         </div>
+        {footer && <div className="mt-3 shrink-0">{footer}</div>}
       </div>
     </section>
   );

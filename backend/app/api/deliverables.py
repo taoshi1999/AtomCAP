@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -18,8 +19,16 @@ from app.api.deps import CurrentUser, get_current_user
 from app.db import SessionLocal, get_db
 from app.models.models import Deliverable
 from app.objects import DeliverableType
-from app.objects.thesis import ThesisStatus
+from app.objects.base import Claim
+from app.objects.thesis import (
+    FitScoreBreakdown,
+    SubDirection,
+    Thesis,
+    ThesisStatus,
+    ValueChain,
+)
 from app.services.conversations import ensure_conversation, save_message, text_blocks
+from app.services.deliverables import save_deliverable
 from app.services.events import record_event
 from app.services.thesis_context import thesis_context_from_payload
 from app.services.user_actions import (
@@ -37,6 +46,98 @@ ACTION_EVENT_SUFFIX = {
     "generate_briefing": "briefing_requested",
     "re_recommend": "re_recommend_requested",
 }
+
+
+class CreateThesisBody(BaseModel):
+    thesis_name: str = Field(min_length=1, max_length=120, description="赛道名称")
+    one_line_view: str | None = Field(default=None, max_length=500, description="一句话判断")
+    opportunity_level: str = Field(default="中", max_length=20)
+    risk_level: str = Field(default="中", max_length=20)
+    advice: str | None = Field(default=None, max_length=500)
+    sub_directions: list[str] = Field(default_factory=list, description="子方向名称，少于 3 个会自动补足")
+
+
+def _manual_fit(rationale: str) -> FitScoreBreakdown:
+    return FitScoreBreakdown(
+        track_preference=50,
+        stage_match=50,
+        moat_match=50,
+        geo_match=50,
+        risk_appetite_match=50,
+        history_similarity=50,
+        exclusion_penalty=0,
+        total=50,
+        rationale=rationale,
+    )
+
+
+def _manual_thesis_payload(body: CreateThesisBody) -> Thesis:
+    thesis_name = body.thesis_name.strip()
+    names = [name.strip() for name in body.sub_directions if name.strip()]
+    while len(names) < 3:
+        names.append(f"{thesis_name} 子方向 {len(names) + 1}")
+
+    sub_directions = [
+        SubDirection(
+            name=name,
+            detail="用户手动创建的子方向，等待进一步研究与证据补充。",
+            investment_reasons=[
+                Claim(text="该方向由用户手动加入赛道库，需补充市场信号与证据链。", inferred=True)
+            ],
+            suitable_stage="待确认",
+            fit_score=_manual_fit("手动创建草稿，暂无完整机构匹配度评分。"),
+        )
+        for name in names[:7]
+    ]
+    return Thesis(
+        thesis_name=thesis_name,
+        one_line_view=body.one_line_view or f"{thesis_name} 是用户手动创建的赛道草稿。",
+        opportunity_level=body.opportunity_level,
+        risk_level=body.risk_level,
+        advice=body.advice or "建议通过赛道前瞻 Agent 补充信号、证据链与机构匹配度。",
+        sub_directions=sub_directions,
+        investment_reason=[
+            Claim(text="用户手动创建赛道，系统尚未完成外部信号验证。", inferred=True)
+        ],
+        institution_fit_score=_manual_fit("手动创建草稿，需进一步结合机构偏好评分。"),
+        value_chain=ValueChain(),
+        key_risks=[
+            Claim(text="缺少公开信号、代表公司与竞争格局验证。", inferred=True)
+        ],
+        status=ThesisStatus.DRAFT,
+    )
+
+
+@router.post("/manual-thesis")
+async def create_manual_thesis(
+    body: CreateThesisBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """手动创建赛道 Thesis 草稿，进入赛道库。"""
+    payload = _manual_thesis_payload(body)
+    row = await save_deliverable(
+        db,
+        institution_id=user.institution_id,
+        dtype=DeliverableType.THESIS,
+        payload=payload.model_dump(mode="json"),
+    )
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="thesis.created",
+        subject_type=DeliverableType.THESIS.value,
+        subject_id=row.id,
+        payload={"source": "manual", "track": payload.thesis_name},
+    )
+    return {
+        "id": str(row.id),
+        "type": row.type,
+        "title": payload.thesis_name,
+        "status": row.status,
+        "updated_at": row.updated_at.isoformat(),
+    }
 
 
 async def _get_owned(

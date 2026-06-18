@@ -212,6 +212,27 @@ export async function getHome(): Promise<HomeData> {
   return apiJson<HomeData>("/api/home");
 }
 
+/* -------------------------------- 投资偏好 -------------------------------- */
+
+export async function getPreference(): Promise<HomePreference> {
+  return apiJson<HomePreference>("/api/preferences");
+}
+
+export interface PreferenceUpdateResponse {
+  version: number;
+  preference: Record<string, unknown>;
+  event_recorded: boolean;
+}
+
+export async function updatePreference(
+  preference: Record<string, unknown>
+): Promise<PreferenceUpdateResponse> {
+  return apiJson<PreferenceUpdateResponse>("/api/preferences", {
+    method: "PUT",
+    body: JSON.stringify(preference),
+  });
+}
+
 /* --------------------------------- 认证 --------------------------------- */
 
 export interface AuthTokenResponse {
@@ -253,6 +274,22 @@ export async function register(payload: RegisterPayload): Promise<AuthTokenRespo
 // GET /api/deliverables/{id}
 export async function getDeliverable(deliverableId: string): Promise<Deliverable> {
   return apiJson<Deliverable>(`/api/deliverables/${deliverableId}`);
+}
+
+export interface CreateThesisPayload {
+  thesis_name: string;
+  one_line_view?: string | null;
+  opportunity_level?: string;
+  risk_level?: string;
+  advice?: string | null;
+  sub_directions?: string[];
+}
+
+export async function createManualThesis(payload: CreateThesisPayload): Promise<HomeDeliverable> {
+  return apiJson<HomeDeliverable>("/api/deliverables/manual-thesis", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 /* --------------------------------- 会话 --------------------------------- */
@@ -309,6 +346,22 @@ export async function listDeals(params: DealListParams = {}): Promise<DealListRe
 // GET /api/deals/{id}
 export async function getDealDetail(dealId: string): Promise<DealDetail> {
   return apiJson<DealDetail>(`/api/deals/${dealId}`);
+}
+
+export interface CreateDealPayload {
+  company_name: string;
+  one_line_intro?: string | null;
+  track?: string | null;
+  sub_direction?: string | null;
+  funding_stage?: string | null;
+  source_note?: string | null;
+}
+
+export async function createDeal(payload: CreateDealPayload): Promise<DealSummary> {
+  return apiJson<DealSummary>("/api/deals", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export interface TransitionResponse {
