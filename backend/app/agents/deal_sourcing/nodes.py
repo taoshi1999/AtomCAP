@@ -37,6 +37,11 @@ from app.agents.deal_sourcing.state import DealSourcingState
 from app.connectors.registry import active_connectors, cached_gather_signals, lookup_company
 from app.llm.client import ModelTier, complete_structured
 from app.objects.deal_list import DealSourceType, RecommendationTier
+from app.agents.experience.influence import (
+    assess_preference_fit,
+    extract_preference_blocks,
+    screen_risk_boundary,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -429,9 +434,71 @@ async def score_candidates(state: DealSourcingState) -> dict:
                     "initial_risks": [],
                 }
             )
+    # 路线第 9 步：learned_preference 反哺——候选 fit_score 有界微调 + risk_boundary 初筛旗标
+    enriched = apply_learned_preference_to_candidates(
+        enriched, state.get("preference_input") or {}, state.get("thesis_context") or {}
+    )
     # 按初筛总分降序（排序键），强推荐在前
     enriched.sort(key=lambda c: c.get("initial_score", 0), reverse=True)
     return {"candidates": enriched, "progress": "正在计算机构匹配度并排序…"}
+
+
+def _system_claim(text: str) -> dict:
+    """系统推断 Claim（无证据→inferred=True，约定 2）；候选 initial_risks/reasons 用 dict 形态。"""
+    return {"text": text, "evidence_ids": [], "inferred": True}
+
+
+def _thesis_sector(thesis_context: dict) -> str | None:
+    for key in ("track", "thesis_name", "name"):
+        v = thesis_context.get(key)
+        if isinstance(v, str) and v.strip():
+            return v
+    return None
+
+
+def apply_learned_preference_to_candidates(
+    candidates: list[dict], preference: dict, thesis_context: dict
+) -> list[dict]:
+    """路线第 9 步反哺：learned_preference 微调候选 initial_score + 重排分层；risk_boundary 初筛。
+
+    纯函数、确定性：空 learned_preference 且空 anti_preference 且空 risk_boundary → 原样返回
+    （零调整），严格非回归。调整与命中以 inferred Claim 落进 recommendation_reasons / initial_risks
+    （约定 2 可解释）；分层据调整后分数用 _tier_from_score 重算。
+    """
+    learned, anti, risk_boundary = extract_preference_blocks(preference)
+    if not learned and not anti and not risk_boundary:
+        return candidates
+    sector = _thesis_sector(thesis_context or {})
+    out: list[dict] = []
+    for raw in candidates:
+        c = dict(raw)
+        base_risk_texts = [
+            r.get("text") for r in (c.get("initial_risks") or []) if isinstance(r, dict)
+        ]
+        infl = assess_preference_fit(
+            learned, sector=sector, sub_sector=c.get("sub_direction"), anti_preference=anti
+        )
+        if infl.changed:
+            new_score = infl.adjust(c.get("initial_score", 50.0))
+            c["initial_score"] = new_score
+            c["recommendation_tier"] = _tier_from_score(new_score).value
+            c["preference_influence"] = infl.as_dict()
+            reason = infl.reason_text()
+            if reason:
+                c["recommendation_reasons"] = list(c.get("recommendation_reasons") or []) + [
+                    _system_claim(reason)
+                ]
+            risk = infl.risk_text()
+            if risk:
+                c["initial_risks"] = list(c.get("initial_risks") or []) + [_system_claim(risk)]
+        flags = screen_risk_boundary(risk_boundary, base_risk_texts)
+        if flags:
+            c["initial_risks"] = list(c.get("initial_risks") or []) + [
+                _system_claim(f.note) for f in flags
+            ]
+            c["risk_boundary_flags"] = [f.as_dict() for f in flags]
+        out.append(c)
+    return out
 
 
 # ---------- Step 10：组装 DealList ----------

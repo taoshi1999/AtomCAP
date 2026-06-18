@@ -34,6 +34,10 @@ from app.connectors.registry import active_connectors, cached_gather_signals
 from app.llm.client import ModelTier, complete_structured
 from app.objects.preference import InvestmentPreference
 from app.objects.thesis import Thesis, ValueChain
+from app.agents.experience.influence import (
+    assess_preference_fit,
+    extract_preference_blocks,
+)
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -289,6 +293,38 @@ async def gen_sub_directions(state: ThesisScoutState) -> dict:
     }
 
 
+def apply_learned_preference_to_sub_directions(
+    sub_directions: list[dict], preference: dict, track_definition: dict
+) -> list[dict]:
+    """路线第 9 步反哺：按 learned_preference 权重表对子赛道 fit_score.total 做有界微调并稳定重排。
+
+    纯函数、确定性：空 learned_preference 且空 anti_preference → 原样返回（零调整、顺序不变），
+    严格非回归。每个子赛道按 sub_sector=name、sector=赛道名、stage=suitable_stage 匹配；命中即
+    调整 total 并把命中明细写入 ``preference_influence``（前端可解释「为何排序变化」）。
+    """
+    learned, anti, _ = extract_preference_blocks(preference)
+    if not learned and not anti:
+        return sub_directions
+    sector = track_definition.get("name")
+    adjusted: list[dict] = []
+    for d in sub_directions:
+        infl = assess_preference_fit(
+            learned,
+            sector=sector,
+            sub_sector=d.get("name"),
+            stage=d.get("suitable_stage"),
+            anti_preference=anti,
+        )
+        if not infl.changed:
+            adjusted.append(d)
+            continue
+        fs = dict(d.get("fit_score") or {})
+        fs["total"] = infl.adjust(fs.get("total", 50))
+        adjusted.append({**d, "fit_score": fs, "preference_influence": infl.as_dict()})
+    adjusted.sort(key=lambda x: (x.get("fit_score") or {}).get("total", 0), reverse=True)
+    return adjusted
+
+
 FIT_SCORE_SYSTEM = """你是一级市场机构的投资策略分析师，按 rubric 给赛道与机构的匹配度打分（0–100）：
 - track_preference：赛道与机构偏好赛道的重合度（偏好为空给 50 并在 rationale 说明）
 - stage_match：子赛道适合阶段与机构投资阶段的匹配
@@ -330,6 +366,10 @@ async def fit_score(state: ThesisScoutState) -> dict:
     merged = [
         {**d, "fit_score": fit_by_name.get(d.get("name"), institution_fit)} for d in drafts
     ]
+    # 路线第 9 步：learned_preference 反哺——按机构学习偏好对子赛道做有界匹配度微调与稳定重排
+    merged = apply_learned_preference_to_sub_directions(
+        merged, state.get("preference") or {}, state.get("track_definition") or {}
+    )
     return {
         "fit": institution_fit,
         "sub_directions": merged,

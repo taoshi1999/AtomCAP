@@ -33,6 +33,12 @@ from app.connectors.registry import (
 from app.llm.client import ModelTier, complete_structured
 from app.objects.deal import DealProfile, DealStatus
 from app.objects.deal_list import DealSourceType
+from app.objects.base import Claim
+from app.agents.experience.influence import (
+    assess_preference_fit,
+    extract_preference_blocks,
+    screen_risk_boundary,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -193,6 +199,46 @@ def align_entity(state: DealIntakeState) -> dict:
     return {"matched_company_id": None, "progress": "正在做实体对齐…"}
 
 
+def _apply_learned_preference_to_analysis(
+    analysis: DealAnalysis, extraction: dict, preference: dict
+) -> None:
+    """路线第 9 步反哺：原地把 learned_preference 微调进 overall_fit/fit_score.total，
+    并按 risk_boundary 对已识别风险做初筛，命中补 inferred Claim 进 initial_risks。
+
+    纯函数语义（仅改传入 analysis）；空 learned_preference 且空 risk_boundary → 不动（非回归）。
+    维度取自材料抽取：sector=track、sub_sector=sub_direction、stage=funding_stage。
+    """
+    learned, anti, risk_boundary = extract_preference_blocks(preference)
+    if not learned and not anti and not risk_boundary:
+        return
+    # 先留存 LLM 原始风险文本（含估值线索）供边界初筛，避免反哺自述被二次命中
+    base_risk_texts = [c.text for c in analysis.initial_risks]
+    valuation = extraction.get("valuation")
+    if valuation:
+        base_risk_texts.append(f"估值：{valuation}")
+
+    infl = assess_preference_fit(
+        learned,
+        sector=extraction.get("track"),
+        sub_sector=extraction.get("sub_direction"),
+        stage=extraction.get("funding_stage"),
+        anti_preference=anti,
+    )
+    if infl.changed:
+        analysis.overall_fit = infl.adjust(analysis.overall_fit)
+        if analysis.fit_score is not None:
+            analysis.fit_score.total = infl.adjust(analysis.fit_score.total)
+        reason = infl.reason_text()
+        if reason:
+            analysis.highlights.append(Claim(text=reason, inferred=True))
+        risk = infl.risk_text()
+        if risk:
+            analysis.initial_risks.append(Claim(text=risk, inferred=True))
+
+    for flag in screen_risk_boundary(risk_boundary, base_risk_texts):
+        analysis.initial_risks.append(Claim(text=flag.note, inferred=True))
+
+
 # ---------- Step 8：项目初步分析 ----------
 
 ANALYSIS_SYSTEM = """你是一级市场机构的投资分析师。基于材料抽取与外部补全信息，对这个项目做初步分析
@@ -226,6 +272,11 @@ async def assemble_deal(state: DealIntakeState) -> dict:
             "已命中公司": state.get("matched_company_id"),
         },
         DealAnalysis,
+    )
+
+    # 路线第 9 步：learned_preference 反哺 + risk_boundary 初筛（原地修改 analysis）
+    _apply_learned_preference_to_analysis(
+        analysis, extraction, state.get("preference_input") or {}
     )
 
     source_type = state.get("source_type") or DealSourceType.USER_INPUT.value
