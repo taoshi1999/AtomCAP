@@ -33,6 +33,25 @@ def text_blocks(text: str) -> list[dict[str, Any]]:
     return [{"type": "text", "text": text}]
 
 
+def usage_block(usage: dict[str, Any]) -> dict[str, Any]:
+    """token 用量块（每条消息 token 数）——非文本块，不进 LLM 上下文、不计入历史正文。"""
+    return {"type": "usage", "usage": usage}
+
+
+def assistant_blocks(
+    text: str, *, usage: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """assistant 消息块：正文文本块 + 可选 token 用量块。
+
+    用量以独立块持久化（迁移无关，直接追加进 JSONB content）；blocks_to_text / to_llm_messages
+    只认 text / object_ref 块，故用量块对 LLM 上下文与历史正文完全透明，前端单独读取展示。
+    """
+    blocks: list[dict[str, Any]] = text_blocks(text)
+    if usage:
+        blocks.append(usage_block(usage))
+    return blocks
+
+
 def blocks_to_text(blocks: list[dict[str, Any]] | dict[str, Any]) -> str:
     """把块数组拍平成纯文本（喂给 LLM 的历史）。object_ref 以占位符表示。"""
     if isinstance(blocks, dict):  # 兼容历史脏数据

@@ -1,8 +1,10 @@
 """对话 API —— SSE 流式。
 
 事件协议（前端据此渲染）：
-- token:    通用对话的增量文本
-- progress: 专用 Agent 长任务的步骤进度（如“正在收集市场信号…”）
+- token:     通用对话的增量正文
+- reasoning: 通用对话的思考过程增量（DeepSeek reasoner 等，供前端折叠展示）
+- usage:     本轮 token 用量（{prompt_tokens, completion_tokens, total_tokens}），每条消息 token 数
+- progress:  专用 Agent 长任务的步骤进度（如“正在收集市场信号…”）
 - object:   交付结果对象就绪，payload 为 {type, deliverable_id}，前端经渲染注册表展示
 - error:    本轮出错（如 LLM 网关不可用），data 为用户可读信息
 - done:     本轮结束
@@ -14,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -31,9 +34,10 @@ from app.services.document_extract import (
     extract_text,
 )
 from app.db import SessionLocal
-from app.llm.client import coerce_tier, complete_stream
+from app.llm.client import coerce_tier, stream_chat
 from app.models.models import Conversation, Message
 from app.services.conversations import (
+    assistant_blocks,
     ensure_conversation,
     load_history,
     save_message,
@@ -190,27 +194,39 @@ async def send_message(
             ):
                 yield ev
         else:
-            # 3b) 通用对话：llm.complete_stream() 流式，token 逐段下发。
+            # 3b) 通用对话：llm.stream_chat() 结构化流式。
+            #     正文走 token 事件；思考过程（reasoning_content）走 reasoning 事件供前端折叠
+            #     展示；末块 token 用量走 usage 事件并落库，用于统计每条消息 token 数。
             #     先发进度事件，让前端确认通用 Agent 已接管（与分类阶段区分开）。
             tier = coerce_tier(body.model_tier)
             yield {"event": "progress", "data": "正在生成回答"}
             llm_messages = to_llm_messages(history, body.content)
             parts: list[str] = []
+            usage: dict | None = None
             failed = False
             try:
-                async for delta in complete_stream(
+                async for chunk in stream_chat(
                     tier,
                     llm_messages,
                     allow_overseas=user.allow_overseas_models,
                 ):
-                    parts.append(delta)
-                    yield {"event": "token", "data": delta}
+                    if chunk.reasoning:
+                        yield {"event": "reasoning", "data": chunk.reasoning}
+                    if chunk.text:
+                        parts.append(chunk.text)
+                        yield {"event": "token", "data": chunk.text}
+                    if chunk.usage:
+                        usage = chunk.usage
             except Exception as exc:  # noqa: BLE001
                 # 把真实错误透出给前端（连接超时 / 401 / 模型不存在 / 余额不足等），
                 # 便于用户直接定位环境问题，而不是停在静默的“正在理解你的问题”。
                 failed = True
                 detail = f"{type(exc).__name__}: {exc}".strip()
                 yield {"event": "error", "data": f"{LLM_UNAVAILABLE_MSG}（{detail[:300]}）"}
+
+            # token 用量末事件：让前端在气泡下方显示本条消息的 token 数
+            if usage:
+                yield {"event": "usage", "data": json.dumps(usage, ensure_ascii=False)}
 
             # 4) assistant 消息落库 + 记账（部分成功也落，保住已生成内容）
             answer = "".join(parts)
@@ -226,11 +242,12 @@ async def send_message(
                         user_id=user.user_id,
                         conversation_id=conversation_id,
                         role="assistant",
-                        blocks=text_blocks(answer),
+                        blocks=assistant_blocks(answer, usage=usage),
                         event_payload={
                             "intent": intent.intent.value if intent else "chat",
                             "tier": tier.value,
                             "truncated": failed,
+                            "usage": usage,
                         },
                     )
 

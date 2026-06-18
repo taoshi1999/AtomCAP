@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, TypeVar
 
@@ -217,16 +218,58 @@ async def complete(
     return resp.choices[0].message.content or ""
 
 
-async def complete_stream(
+@dataclass
+class StreamChunk:
+    """流式补全的一段增量。
+
+    reasoning 与 text 互斥地携带一段增量文本；usage 仅在末块出现一次。
+    - reasoning：DeepSeek reasoner 等模型的思考过程（delta.reasoning_content），先于正文
+      产出，供前端折叠展示「思考过程」；普通模型无此字段，自然只产 text。
+    - usage：stream_options.include_usage 让网关在末尾补一个仅含 usage 的块（choices 为空），
+      用于统计每条消息 token 数；不支持的网关不发该块，安全降级为无用量。
+    """
+
+    text: str = ""
+    reasoning: str = ""
+    usage: dict[str, int] | None = None
+
+
+def _delta_reasoning(delta: Any) -> str | None:
+    """从流式 delta 取推理增量（reasoning_content），兼容 SDK 直接属性与 model_extra。"""
+    value = getattr(delta, "reasoning_content", None)
+    if value is None:
+        extra = getattr(delta, "model_extra", None)
+        if isinstance(extra, dict):
+            value = extra.get("reasoning_content")
+    return value if isinstance(value, str) and value else None
+
+
+def _chunk_usage(chunk: Any) -> dict[str, int] | None:
+    """从末块取 token 用量（prompt/completion/total），缺字段防御取值，全空返回 None。"""
+    usage = getattr(chunk, "usage", None)
+    if usage is None:
+        return None
+    out: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = getattr(usage, key, None)
+        if value is None and isinstance(usage, dict):
+            value = usage.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[key] = int(value)
+    return out or None
+
+
+async def stream_chat(
     tier: ModelTier,
     messages: list[dict],
     *,
     allow_overseas: bool = False,
     temperature: float = 0.3,
-) -> AsyncIterator[str]:
-    """流式补全：逐段产出增量文本（SSE token 事件的数据源）。
+) -> AsyncIterator[StreamChunk]:
+    """结构化流式补全：分别透出推理增量、正文增量与末块 token 用量。
 
-    与 complete() 同一套档位路由与合规降级；调用方负责拼接全文落库。
+    与 complete() 同一套档位路由与合规降级（核心约定 3、5）。调用方据 StreamChunk 字段分流：
+    reasoning→「思考过程」折叠卡、text→正文 token、usage→每条消息 token 数。
     """
     client = _get_client()
     stream = await client.chat.completions.create(
@@ -234,13 +277,40 @@ async def complete_stream(
         messages=messages,
         temperature=temperature,
         stream=True,
+        stream_options={"include_usage": True},
     )
     async for chunk in stream:
+        usage = _chunk_usage(chunk)
+        if usage is not None:
+            yield StreamChunk(usage=usage)
         if not chunk.choices:
             continue
-        delta = chunk.choices[0].delta.content
-        if delta:
-            yield delta
+        delta = chunk.choices[0].delta
+        reasoning = _delta_reasoning(delta)
+        if reasoning:
+            yield StreamChunk(reasoning=reasoning)
+        content = getattr(delta, "content", None)
+        if content:
+            yield StreamChunk(text=content)
+
+
+async def complete_stream(
+    tier: ModelTier,
+    messages: list[dict],
+    *,
+    allow_overseas: bool = False,
+    temperature: float = 0.3,
+) -> AsyncIterator[str]:
+    """流式补全：逐段产出增量正文（向后兼容的纯文本视图，内部复用 stream_chat）。
+
+    与 complete() 同一套档位路由与合规降级；调用方负责拼接全文落库。
+    仅产出正文 token；推理过程与 token 用量请改用 stream_chat。
+    """
+    async for chunk in stream_chat(
+        tier, messages, allow_overseas=allow_overseas, temperature=temperature
+    ):
+        if chunk.text:
+            yield chunk.text
 
 
 async def complete_structured(

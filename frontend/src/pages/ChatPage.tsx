@@ -19,6 +19,9 @@ import {
   ArrowUp,
   Atom,
   Bot,
+  Brain,
+  ChevronDown,
+  ChevronRight,
   FileText,
   FolderKanban,
   GraduationCap,
@@ -51,6 +54,7 @@ import {
   type MessageBlock,
   type ModelOption,
   type SseHandlers,
+  type TokenUsage,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Deliverable } from "../lib/types";
@@ -62,6 +66,8 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   deliverables: Deliverable[];
+  reasoning?: string;
+  usage?: TokenUsage;
   pending?: boolean;
   error?: boolean;
 };
@@ -111,6 +117,13 @@ function blocksToText(blocks: MessageBlock[]) {
     .filter((block) => block.type === "text")
     .map((block) => block.text ?? "")
     .join("");
+}
+
+function usageFromBlocks(blocks: MessageBlock[]): TokenUsage | undefined {
+  const block = blocks.find((b) => b.type === "usage") as
+    | (MessageBlock & { usage?: TokenUsage })
+    | undefined;
+  return block?.usage;
 }
 
 function getStringList(value: unknown): string[] {
@@ -442,6 +455,7 @@ export default function ChatPage() {
               role: message.role === "user" ? "user" : "assistant",
               content: blocksToText(blocks),
               deliverables: await fetchMessageDeliverables(blocks),
+              usage: usageFromBlocks(blocks),
             };
           })
       );
@@ -533,6 +547,12 @@ export default function ChatPage() {
             pending: false,
           }));
         },
+        onReasoning: (delta) => {
+          updateAssistant(assistantId, (message) => ({
+            ...message,
+            reasoning: (message.reasoning ?? "") + delta,
+          }));
+        },
         onObject: (ref) => {
           if (!ref.deliverable_id) return;
           void getDeliverable(ref.deliverable_id)
@@ -555,6 +575,12 @@ export default function ChatPage() {
                 error: true,
               }));
             });
+        },
+        onUsage: (usage) => {
+          updateAssistant(assistantId, (message) => ({
+            ...message,
+            usage,
+          }));
         },
         onError: (message) => {
           setProgress(null);
@@ -1402,8 +1428,48 @@ function Composer({
   );
 }
 
+function formatTokens(usage: TokenUsage): string {
+  const parts: string[] = [];
+  if (typeof usage.prompt_tokens === "number") parts.push(`输入 ${usage.prompt_tokens}`);
+  if (typeof usage.completion_tokens === "number") parts.push(`输出 ${usage.completion_tokens}`);
+  const total =
+    typeof usage.total_tokens === "number"
+      ? usage.total_tokens
+      : (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0) || undefined;
+  if (typeof total === "number") parts.push(`共 ${total} tokens`);
+  return parts.join(" · ");
+}
+
+function ReasoningCard({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/80">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 transition hover:text-slate-700"
+      >
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+        <Brain className="h-3.5 w-3.5" />
+        <span>思考过程{streaming ? "（生成中…）" : ""}</span>
+      </button>
+      {open && (
+        <div className="whitespace-pre-wrap border-t border-slate-200 px-3 py-2 text-xs leading-5 text-slate-500">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const showReasoning = !isUser && !!message.reasoning;
+  const showUsage = !isUser && !!message.usage && !message.pending;
   return (
     <article className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
@@ -1412,6 +1478,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         </div>
       )}
       <div className={`min-w-0 ${isUser ? "max-w-[72%]" : "max-w-full flex-1"}`}>
+        {showReasoning && (
+          <ReasoningCard text={message.reasoning ?? ""} streaming={!!message.pending} />
+        )}
         {message.content && (
           <div
             className={`rounded-lg px-4 py-3 text-sm leading-6 shadow-sm ${
@@ -1426,6 +1495,11 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               <Loader2 className="mr-2 inline h-4 w-4 animate-spin align-[-2px]" />
             )}
             {message.content}
+          </div>
+        )}
+        {showUsage && message.usage && (
+          <div className="mt-1 px-1 text-[11px] text-slate-400">
+            {formatTokens(message.usage)}
           </div>
         )}
         {message.deliverables.length > 0 && (

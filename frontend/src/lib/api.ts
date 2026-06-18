@@ -1,7 +1,7 @@
 /**
  * API 客户端 + SSE 订阅。
  * 事件协议与 backend/app/api/conversations.py 对应：
- * token / progress / object / done
+ * token / reasoning / progress / object / usage / error / done
  */
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type { DealAction, DealDetail, DealStatus, DealSummary, Deliverable } from "./types";
@@ -24,10 +24,18 @@ function authHeaders(): Record<string, string> {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
+export interface TokenUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 export interface SseHandlers {
   onToken?: (text: string) => void;
+  onReasoning?: (text: string) => void;
   onProgress?: (text: string) => void;
   onObject?: (ref: { type: string; deliverable_id: string | null }) => void;
+  onUsage?: (usage: TokenUsage) => void;
   onError?: (text: string) => void;
   onDone?: () => void;
 }
@@ -91,11 +99,17 @@ export async function sendMessage(
         case "token":
           handlers.onToken?.(ev.data);
           break;
+        case "reasoning":
+          handlers.onReasoning?.(ev.data);
+          break;
         case "progress":
           handlers.onProgress?.(ev.data);
           break;
         case "object":
           handlers.onObject?.(JSON.parse(ev.data));
+          break;
+        case "usage":
+          handlers.onUsage?.(JSON.parse(ev.data));
           break;
         case "error":
           handlers.onError?.(ev.data);
@@ -130,11 +144,17 @@ export async function uploadMaterial(
         case "token":
           handlers.onToken?.(ev.data);
           break;
+        case "reasoning":
+          handlers.onReasoning?.(ev.data);
+          break;
         case "progress":
           handlers.onProgress?.(ev.data);
           break;
         case "object":
           handlers.onObject?.(JSON.parse(ev.data));
+          break;
+        case "usage":
+          handlers.onUsage?.(JSON.parse(ev.data));
           break;
         case "error":
           handlers.onError?.(ev.data);
