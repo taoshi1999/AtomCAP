@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -23,6 +24,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.agents.router import Intent, classify_intent
 from app.agents.runner import run_deal_intake, run_deal_sourcing, run_thesis_scout
 from app.api.deps import CurrentUser, get_current_user
+from app.config import settings
 from app.services.document_extract import (
     DependencyMissingError,
     DocumentError,
@@ -46,6 +48,23 @@ LLM_UNAVAILABLE_MSG = "模型服务暂时不可用，请检查 DEEPSEEK_API_KEY 
 
 class SendMessageRequest(BaseModel):
     content: str
+
+
+async def classify_intent_bounded(content: str):
+    """限时意图分类——通用 Agent 主图第一步的兜底封装。
+
+    分类是一次额外的结构化 LLM 调用（complete_structured 最多两次串行调用、
+    每次按请求超时阻塞）。一旦网关慢或不可达，未限时就会让整条 SSE 流静默卡在
+    “正在理解你的问题”，通用对话 Agent 永远不被触发。这里用 wait_for 设上限，
+    超时或任何异常都返回 None，由调用方降级为通用对话。
+    """
+    try:
+        return await asyncio.wait_for(
+            classify_intent(content),
+            timeout=settings.intent_classify_timeout_seconds,
+        )
+    except Exception:
+        return None
 
 
 @router.get("/{conversation_id}/messages")
@@ -126,11 +145,11 @@ async def send_message(
                 blocks=text_blocks(body.content),
             )
 
-        # 2) 意图路由（LLM 结构化分类；网关未就绪时降级为 chat）
-        try:
-            intent = await classify_intent(body.content)
-        except Exception:
-            intent = None
+        # 2) 意图路由（LLM 结构化分类；网关未就绪/超时一律降级为通用对话）。
+        #    立即下发一个进度事件：既让前端确认后端已接管、也促使 SSE 通道立刻
+        #    开始 flush（排除中间层缓冲）。分类限时见 classify_intent_bounded。
+        yield {"event": "progress", "data": "正在理解你的问题"}
+        intent = await classify_intent_bounded(body.content)
 
         if intent and intent.intent is Intent.THESIS_SCOUT and intent.confidence >= 0.7:
             # 3a) 专用 Agent：run 生命周期 + 子图执行 + deliverable 入库 +
@@ -169,7 +188,9 @@ async def send_message(
             ):
                 yield ev
         else:
-            # 3b) 通用对话：llm.complete_stream() 流式，token 逐段下发
+            # 3b) 通用对话：llm.complete_stream() 流式，token 逐段下发。
+            #     先发进度事件，让前端确认通用 Agent 已接管（与分类阶段区分开）。
+            yield {"event": "progress", "data": "正在生成回答"}
             llm_messages = to_llm_messages(history, body.content)
             parts: list[str] = []
             failed = False
@@ -181,12 +202,19 @@ async def send_message(
                 ):
                     parts.append(delta)
                     yield {"event": "token", "data": delta}
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                # 把真实错误透出给前端（连接超时 / 401 / 模型不存在 / 余额不足等），
+                # 便于用户直接定位环境问题，而不是停在静默的“正在理解你的问题”。
                 failed = True
-                yield {"event": "error", "data": LLM_UNAVAILABLE_MSG}
+                detail = f"{type(exc).__name__}: {exc}".strip()
+                yield {"event": "error", "data": f"{LLM_UNAVAILABLE_MSG}（{detail[:300]}）"}
 
             # 4) assistant 消息落库 + 记账（部分成功也落，保住已生成内容）
             answer = "".join(parts)
+            if not answer and not failed:
+                # 模型返回了空内容：给用户一个明确提示，避免气泡停在进度文案；
+                # 空响应不落库以保持历史干净。
+                yield {"event": "token", "data": "（模型未返回内容，请重试或换一种问法）"}
             if answer:
                 async with SessionLocal() as db, db.begin():
                     await save_message(

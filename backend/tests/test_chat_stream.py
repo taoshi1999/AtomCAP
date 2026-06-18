@@ -165,3 +165,44 @@ def test_to_llm_messages_order_and_filter():
         {"role": "assistant", "content": "第一答"},
         {"role": "user", "content": "第二问"},
     ]
+
+
+# ---------- 意图分类限时兜底（通用对话不被分类阶段卡死） ----------
+
+import app.api.conversations as conv_api  # noqa: E402
+from app.api.conversations import classify_intent_bounded  # noqa: E402
+
+
+def test_classify_bounded_returns_result(monkeypatch):
+    """分类正常返回时原样透传（不影响专用 Agent 路由）。"""
+    sentinel = object()
+
+    async def _fake(content):
+        return sentinel
+
+    monkeypatch.setattr(conv_api, "classify_intent", _fake)
+    monkeypatch.setattr(conv_api.settings, "intent_classify_timeout_seconds", 5.0)
+    assert asyncio.run(classify_intent_bounded("你好")) is sentinel
+
+
+def test_classify_bounded_times_out_to_none(monkeypatch):
+    """分类挂起时必须限时降级为 None（→ 通用对话），不能阻塞整条 SSE 流。"""
+
+    async def _hang(content):
+        await asyncio.sleep(10)
+        return "unreachable"
+
+    monkeypatch.setattr(conv_api, "classify_intent", _hang)
+    monkeypatch.setattr(conv_api.settings, "intent_classify_timeout_seconds", 0.05)
+    assert asyncio.run(classify_intent_bounded("你是什么模型?")) is None
+
+
+def test_classify_bounded_swallows_errors(monkeypatch):
+    """分类抛错（网关 401/模型不存在等）也降级为 None，由通用对话兜底。"""
+
+    async def _boom(content):
+        raise RuntimeError("gateway down")
+
+    monkeypatch.setattr(conv_api, "classify_intent", _boom)
+    monkeypatch.setattr(conv_api.settings, "intent_classify_timeout_seconds", 5.0)
+    assert asyncio.run(classify_intent_bounded("你好")) is None

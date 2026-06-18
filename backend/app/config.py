@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     llm_request_timeout_seconds: float = 60.0
     llm_connect_timeout_seconds: float = 10.0
     llm_http_proxy: str = ""
+    # 意图分类（通用 Agent 主图的第一步）最长等待秒数。分类是一次额外的
+    # 结构化 LLM 调用，超过此时长一律降级为通用对话，避免整条 SSE 流卡死在
+    # “正在理解你的问题”阶段（complete_structured 最多两次串行调用 × 请求超时）。
+    intent_classify_timeout_seconds: float = 10.0
 
     litellm_base_url: str = "http://localhost:4000"
     litellm_master_key: str = "sk-atomcap-dev"

@@ -96,6 +96,7 @@ npm run dev                                          # http://localhost:5173
 
 ## 近期增量（2026-06-18）
 
+- [x] **修复通用对话发消息无响应**（`api/conversations.py`：`send_message` 的 SSE 流先做一次意图分类，而分类是额外的结构化 LLM 调用——`complete_structured` 最多两次串行调用、每次按请求超时阻塞。网关慢/不可达时整条流会静默卡在「正在理解你的问题」，通用对话 Agent 永远不被触发。本轮新增 `classify_intent_bounded`：用 `asyncio.wait_for(intent_classify_timeout_seconds, 默认 10s)` 限时，超时或异常一律降级为通用对话，保证通用 Agent 必被触发；进入通用对话前下发 `正在生成回答` 进度事件、LLM 失败时把真实错误透传给前端（不再静默）、空响应给明确提示。`config.py` 新增 `intent_classify_timeout_seconds`。新增 3 个单测覆盖限时/异常/正常透传）
 - [x] **首页聚合 API**（`api/home.py`：`GET /api/home` 以 CurrentUser.institution_id 做租户过滤，一次性聚合首屏所需的用户/机构、当前偏好、会话列表（按最近消息时间排序、带预览）、交付物、项目库与项目状态分布统计；深度详情仍由各领域端点按需读取）
 - [x] **LLM 直连 Provider 路由**（`config.py` + `llm/client.py`：`LLM_PROVIDER=auto` 时优先 DeepSeek，其次 OpenAI，都无 key 回退 LiteLLM 网关；`resolve_provider`/`resolve_model` 按 provider 映射档位模型名，客户端按连接签名懒构建并支持单测 monkeypatch、可配请求/连接超时与 HTTP 代理。`conftest.py` 强制测试走 litellm 档位别名并清空所有外部 key 保证离线隔离）
 - [x] **会话历史回放端点**（`api/conversations.py`：`GET /api/conversations/{id}/messages` 读取当前用户某会话完整消息，供首页「最近」打开真实上下文）
