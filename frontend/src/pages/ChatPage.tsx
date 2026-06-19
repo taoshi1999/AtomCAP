@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -40,10 +39,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DeliverableView } from "../components/objects/registry";
-import PageAssistant from "../components/PageAssistant";
+import TrackManager from "../components/TrackManager";
 import PreferenceManager from "../components/PreferenceManager";
 import {
-  createManualThesis,
   getConversationMessages,
   getDeliverable,
   getHome,
@@ -52,7 +50,6 @@ import {
   type ConversationMessage,
   type HomeConversation,
   type HomeData,
-  type HomeDeliverable,
   type MessageBlock,
   type ModelOption,
   type TokenUsage,
@@ -146,12 +143,6 @@ function displayList(items: string[], empty = "未设置") {
   return items.length > 0 ? items.slice(0, 3).join(" / ") : empty;
 }
 
-function parseListInput(value: string) {
-  return value
-    .split(/[,，、/\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
 
 function formatDate(value?: string | null) {
   if (!value) return "";
@@ -239,16 +230,6 @@ export default function ChatPage() {
       active = false;
     };
   }, []);
-  const [trackDialogOpen, setTrackDialogOpen] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [trackDraft, setTrackDraft] = useState({
-    thesis_name: "",
-    one_line_view: "",
-    opportunity_level: "中",
-    risk_level: "中",
-    advice: "",
-    sub_directions: "",
-  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { signOut } = useAuth();
   const navigate = useNavigate();
@@ -364,45 +345,6 @@ export default function ChatPage() {
 
   const userName = home?.user.name || "你好";
   const userSubtitle = home?.user.email || home?.institution.name || "";
-  const trackContextSummary = useMemo(() => {
-    const theses = (home?.deliverables ?? []).filter((item) => item.type === "thesis");
-    if (theses.length === 0) return "赛道库暂无赛道。";
-    return theses
-      .slice(0, 6)
-      .map((item) => `${item.title}（${item.status}）`)
-      .join("；");
-  }, [home]);
-
-  async function handleCreateThesis(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const thesisName = trackDraft.thesis_name.trim();
-    if (!thesisName) return;
-    try {
-      setActionError(null);
-      await createManualThesis({
-        thesis_name: thesisName,
-        one_line_view: trackDraft.one_line_view.trim() || null,
-        opportunity_level: trackDraft.opportunity_level,
-        risk_level: trackDraft.risk_level,
-        advice: trackDraft.advice.trim() || null,
-        sub_directions: parseListInput(trackDraft.sub_directions),
-      });
-      setTrackDialogOpen(false);
-      setTrackDraft({
-        thesis_name: "",
-        one_line_view: "",
-        opportunity_level: "中",
-        risk_level: "中",
-        advice: "",
-        sub_directions: "",
-      });
-      await refreshHome();
-      setMode("tracks");
-    } catch (error) {
-      setActionError(compactError(error));
-    }
-  }
-
   function handleNewConversation() {
     startNewConversation();
     setInput("");
@@ -624,35 +566,12 @@ export default function ChatPage() {
         </header>
 
         {mode === "tracks" ? (
-          <DataPanel
-            title="赛道库"
-            subtitle="来自数据库中的赛道前瞻交付物"
-            actions={
-              <button
-                type="button"
-                onClick={() => {
-                  setActionError(null);
-                  setTrackDialogOpen(true);
-                }}
-                className="flex h-10 items-center gap-2 rounded-lg bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700"
-              >
-                <Plus className="h-4 w-4" />
-                新建赛道
-              </button>
-            }
-            footer={
-              <PageAssistant
-                contextLabel="赛道库"
-                contextSummary={trackContextSummary}
-                placeholder="基于当前赛道库提出需求..."
-              />
-            }
-          >
-            <TrackList
-              items={(home?.deliverables ?? []).filter((item) => item.type === "thesis")}
-              onOpen={(id) => void openDeliverable(id)}
-            />
-          </DataPanel>
+          <TrackManager
+            theses={(home?.deliverables ?? []).filter((item) => item.type === "thesis")}
+            loading={isHomeLoading}
+            onOpenTrack={(id) => void openDeliverable(id)}
+            onChanged={() => void refreshHome()}
+          />
         ) : mode === "preference" ? (
           <PreferenceManager />
         ) : messages.length === 0 ? (
@@ -713,15 +632,6 @@ export default function ChatPage() {
           </>
         )}
       </main>
-      {trackDialogOpen && (
-        <CreateTrackDialog
-          draft={trackDraft}
-          error={actionError}
-          onChange={setTrackDraft}
-          onClose={() => setTrackDialogOpen(false)}
-          onSubmit={handleCreateThesis}
-        />
-      )}
       {historyDialogOpen && (
         <ConversationHistoryDialog
           query={historyQuery}
@@ -773,36 +683,6 @@ function NavButton({
   );
 }
 
-function DialogShell({
-  title,
-  error,
-  onClose,
-  children,
-}: {
-  title: string;
-  error: string | null;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 px-4">
-      <div className="w-full max-w-xl rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-black text-slate-950">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-          >
-            ×
-          </button>
-        </div>
-        {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
-        {children}
-      </div>
-    </div>
-  );
-}
 
 function ConversationHistoryDialog({
   query,
@@ -918,120 +798,7 @@ function ConversationHistoryDialog({
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  required,
-  rows,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  required?: boolean;
-  rows?: number;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-slate-500">{label}</span>
-      {rows ? (
-        <textarea
-          value={value}
-          required={required}
-          rows={rows}
-          placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-          className="block w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-300"
-        />
-      ) : (
-        <input
-          value={value}
-          required={required}
-          placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-          className="block h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-indigo-300"
-        />
-      )}
-    </label>
-  );
-}
 
-function CreateTrackDialog({
-  draft,
-  error,
-  onChange,
-  onClose,
-  onSubmit,
-}: {
-  draft: {
-    thesis_name: string;
-    one_line_view: string;
-    opportunity_level: string;
-    risk_level: string;
-    advice: string;
-    sub_directions: string;
-  };
-  error: string | null;
-  onChange: (next: typeof draft) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <DialogShell title="新建赛道" error={error} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-3">
-        <Field
-          label="赛道名称"
-          value={draft.thesis_name}
-          required
-          placeholder="例如：端侧 AI 芯片"
-          onChange={(value) => onChange({ ...draft, thesis_name: value })}
-        />
-        <Field
-          label="一句话判断"
-          value={draft.one_line_view}
-          placeholder="这个赛道为什么值得被纳入观察"
-          onChange={(value) => onChange({ ...draft, one_line_view: value })}
-        />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="机会等级"
-            value={draft.opportunity_level}
-            onChange={(value) => onChange({ ...draft, opportunity_level: value })}
-          />
-          <Field
-            label="风险等级"
-            value={draft.risk_level}
-            onChange={(value) => onChange({ ...draft, risk_level: value })}
-          />
-        </div>
-        <Field
-          label="子方向"
-          value={draft.sub_directions}
-          rows={2}
-          placeholder="用逗号或换行分隔"
-          onChange={(value) => onChange({ ...draft, sub_directions: value })}
-        />
-        <Field
-          label="建议"
-          value={draft.advice}
-          rows={2}
-          placeholder="下一步如何跟进"
-          onChange={(value) => onChange({ ...draft, advice: value })}
-        />
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-semibold text-slate-600 hover:bg-slate-100">
-            取消
-          </button>
-          <button type="submit" className="h-10 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
-            创建
-          </button>
-        </div>
-      </form>
-    </DialogShell>
-  );
-}
 
 function SidebarHint({ children, tone }: { children: ReactNode; tone?: "error" }) {
   return (
@@ -1125,75 +892,8 @@ function PreferenceLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DataPanel({
-  title,
-  subtitle,
-  actions,
-  footer,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  actions?: ReactNode;
-  footer?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="min-h-0 flex-1 overflow-hidden px-5 pb-6 lg:px-8">
-      <div className="mx-auto flex h-full max-w-5xl flex-col">
-        <div className="flex shrink-0 items-start justify-between gap-3 pb-4 pt-2">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-black text-slate-950">{title}</h1>
-            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-          </div>
-          {actions && <div className="shrink-0">{actions}</div>}
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          {children}
-        </div>
-        {footer && <div className="mt-3 shrink-0">{footer}</div>}
-      </div>
-    </section>
-  );
-}
 
-function TrackList({
-  items,
-  onOpen,
-}: {
-  items: HomeDeliverable[];
-  onOpen: (id: string) => void;
-}) {
-  if (items.length === 0) {
-    return <EmptyState title="数据库暂无赛道前瞻" />;
-  }
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {items.map((item) => (
-        <button
-          type="button"
-          key={item.id}
-          onClick={() => onOpen(item.id)}
-          className="rounded-lg border border-slate-200 p-4 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
-        >
-          <div className="text-base font-bold text-slate-900">{item.title}</div>
-          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-            <span>{item.status}</span>
-            <span>{formatDate(item.updated_at)}</span>
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
 
-function EmptyState({ title }: { title: string }) {
-  return (
-    <div className="flex h-full min-h-40 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm font-semibold text-slate-400">
-      {title}
-    </div>
-  );
-}
 
 function Composer({
   value,

@@ -30,6 +30,7 @@ from app.objects.thesis import (
 from app.services.conversations import ensure_conversation, save_message, text_blocks
 from app.services.deliverables import save_deliverable
 from app.services.events import record_event
+from app.services import track_assistant
 from app.services.thesis_context import thesis_context_from_payload
 from app.services.user_actions import (
     THESIS_ACTIONS,
@@ -137,6 +138,75 @@ async def create_manual_thesis(
         "title": payload.thesis_name,
         "status": row.status,
         "updated_at": row.updated_at.isoformat(),
+    }
+
+
+class TrackAssistantRequest(BaseModel):
+    instruction: str
+
+
+@router.post("/tracks/assistant")
+async def track_assistant_endpoint(
+    body: TrackAssistantRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """赛道库会话栏指令助手：解析自然语言 → 自动创建 / 筛选赛道，或提示无关请求。
+
+    - create：解析出赛道草稿并复用手动建赛道逻辑落库（写 thesis.created，source=assistant），
+      返回新赛道摘要，前端在右侧栏刷新出现；
+    - filter：返回筛选关键词，前端据此在右侧栏过滤已有赛道；
+    - unrelated：返回提示，引导用户输入与赛道相关的请求。
+    """
+    result = await track_assistant.interpret_instruction(
+        body.instruction, allow_overseas=user.allow_overseas_models
+    )
+    if result.action == track_assistant.ACTION_CREATE and result.thesis is not None:
+        draft = result.thesis
+        payload = _manual_thesis_payload(
+            CreateThesisBody(
+                thesis_name=draft.thesis_name,
+                one_line_view=draft.one_line_view,
+                opportunity_level=draft.opportunity_level,
+                risk_level=draft.risk_level,
+                sub_directions=draft.sub_directions,
+            )
+        )
+        row = await save_deliverable(
+            db,
+            institution_id=user.institution_id,
+            dtype=DeliverableType.THESIS,
+            payload=payload.model_dump(mode="json"),
+        )
+        await record_event(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            event_type="thesis.created",
+            subject_type=DeliverableType.THESIS.value,
+            subject_id=row.id,
+            payload={"source": "assistant", "track": payload.thesis_name},
+        )
+        return {
+            "action": "create",
+            "message": result.message,
+            "deliverable": {
+                "id": str(row.id),
+                "type": row.type,
+                "title": payload.thesis_name,
+                "status": row.status,
+                "updated_at": row.updated_at.isoformat(),
+            },
+        }
+    if result.action == track_assistant.ACTION_FILTER:
+        return {
+            "action": "filter",
+            "message": result.message,
+            "filter_keywords": result.filter_keywords,
+        }
+    return {
+        "action": "unrelated",
+        "message": result.message or track_assistant.UNRELATED_MESSAGE,
     }
 
 

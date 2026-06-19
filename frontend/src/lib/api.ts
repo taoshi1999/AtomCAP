@@ -386,6 +386,21 @@ export async function preferenceAssistant(
   });
 }
 
+export interface TrackAssistantResponse {
+  action: "create" | "filter" | "unrelated" | string;
+  message: string;
+  deliverable?: HomeDeliverable;
+  filter_keywords?: string[];
+}
+
+// POST /api/deliverables/tracks/assistant —— 赛道库会话栏自然语言指令（创建/筛选/无关）
+export async function trackAssistant(instruction: string): Promise<TrackAssistantResponse> {
+  return apiJson<TrackAssistantResponse>("/api/deliverables/tracks/assistant", {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
+}
+
 /* --------------------------------- 认证 --------------------------------- */
 
 export interface AuthTokenResponse {
