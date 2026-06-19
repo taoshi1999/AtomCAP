@@ -88,11 +88,9 @@ export default function PageAssistant({
     if (!content || isSending) return;
 
     const assistantId = makeId();
-    const contextualContent = [
-      `当前页面：${contextLabel}`,
-      `页面上下文：${contextSummary}`,
-      `用户需求：${content}`,
-    ].join("\n");
+    // 页面上下文与用户正文分离：context 只进 LLM 输入，持久化的用户消息正文仍是干净问题，
+    // 故该会话以用户真实问题为标题进入会话历史。
+    const pageContext = [`当前页面：${contextLabel}`, `页面上下文：${contextSummary}`].join("\n");
 
     setInput("");
     setIsSending(true);
@@ -168,7 +166,7 @@ export default function PageAssistant({
     };
 
     try {
-      await sendMessage(conversationId, contextualContent, handlers);
+      await sendMessage(conversationId, content, handlers, undefined, undefined, pageContext);
     } catch (error) {
       setProgress(null);
       setMessages((current) =>

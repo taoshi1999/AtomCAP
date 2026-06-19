@@ -80,6 +80,19 @@ def to_llm_messages(history: list[Message], new_user_content: str) -> list[dict[
     return msgs
 
 
+def compose_user_content(content: str, context: str | None) -> str:
+    """把页面上下文（可选）与用户正文拼成喂给 LLM 的内容。
+
+    上下文只进 LLM 输入，**不写入持久化的用户消息正文与会话标题**——保证会话历史里
+    记录的是用户真实问题，而不是「当前页面：…」之类的上下文前缀（页面级助手如
+    PageAssistant 即借此让其会话以干净标题进入历史）。
+    """
+    ctx = (context or "").strip()
+    if not ctx:
+        return content
+    return f"{ctx}\n\n用户需求：{content}"
+
+
 async def ensure_conversation(
     db: AsyncSession,
     *,

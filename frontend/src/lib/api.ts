@@ -87,12 +87,14 @@ export async function sendMessage(
   content: string,
   handlers: SseHandlers,
   signal?: AbortSignal,
-  modelTier?: string
+  modelTier?: string,
+  context?: string
 ) {
   await fetchEventSource(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ content, model_tier: modelTier }),
+    // context 为页面级助手注入的页面上下文：只进 LLM 输入，后端不写入持久化消息正文
+    body: JSON.stringify({ content, model_tier: modelTier, context }),
     signal,
     openWhenHidden: true,
     onopen: ensureSseResponse,

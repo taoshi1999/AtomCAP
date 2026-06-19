@@ -38,6 +38,7 @@ from app.llm.client import coerce_tier, stream_chat
 from app.models.models import Conversation, Message
 from app.services.conversations import (
     assistant_blocks,
+    compose_user_content,
     ensure_conversation,
     list_conversation_summaries,
     load_history,
@@ -55,6 +56,8 @@ class SendMessageRequest(BaseModel):
     content: str
     # 用户在对话框选择的模型档位（fast/standard/premium），空/非法回退标准
     model_tier: str | None = None
+    # 页面级助手注入的页面上下文：只进 LLM 输入，不写入持久化消息正文/标题
+    context: str | None = None
 
 
 async def classify_intent_bounded(content: str):
@@ -235,7 +238,9 @@ async def send_message(
             #     先发进度事件，让前端确认通用 Agent 已接管（与分类阶段区分开）。
             tier = coerce_tier(body.model_tier)
             yield {"event": "progress", "data": "正在生成回答"}
-            llm_messages = to_llm_messages(history, body.content)
+            llm_messages = to_llm_messages(
+                history, compose_user_content(body.content, body.context)
+            )
             parts: list[str] = []
             usage: dict | None = None
             failed = False

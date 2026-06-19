@@ -18,6 +18,7 @@ from app.models.models import Message
 from app.services.conversations import (
     CHAT_SYSTEM_PROMPT,
     blocks_to_text,
+    compose_user_content,
     text_blocks,
     to_llm_messages,
 )
@@ -165,6 +166,17 @@ def test_to_llm_messages_order_and_filter():
         {"role": "assistant", "content": "第一答"},
         {"role": "user", "content": "第二问"},
     ]
+
+
+def test_compose_user_content_keeps_clean_content():
+    """页面上下文只进 LLM 输入，不污染会持久化的用户正文（会话历史保持干净）。"""
+    # 无上下文：原样返回（历史标题/预览即用户真实问题）
+    assert compose_user_content("找半导体项目", None) == "找半导体项目"
+    assert compose_user_content("找半导体项目", "   ") == "找半导体项目"
+    # 有上下文：上下文前置、正文以「用户需求：」结尾，供 LLM 理解页面语境
+    out = compose_user_content("找半导体项目", "当前页面：投资偏好")
+    assert out.startswith("当前页面：投资偏好")
+    assert out.endswith("用户需求：找半导体项目")
 
 
 # ---------- 意图分类限时兜底（通用对话不被分类阶段卡死） ----------

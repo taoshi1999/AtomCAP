@@ -149,37 +149,49 @@ function Sidebar({ home }: { home: HomeData | null }) {
 /** 右下角常驻浮窗：关闭时是一个启动按钮，打开时是带标题/关闭键的对话面板（中间偏下）。 */
 function PreferenceChatDock({ contextSummary }: { contextSummary: string }) {
   const [open, setOpen] = useState(false);
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-700"
-      >
-        <MessageSquare className="h-5 w-5" /> AI 助手
-      </button>
-    );
-  }
-
   return (
-    <div className="fixed bottom-6 left-1/2 z-40 w-[min(92vw,520px)] -translate-x-1/2 rounded-xl border border-indigo-200 bg-white shadow-2xl">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <Sparkles className="h-4 w-4 text-indigo-600" /> 投资偏好 · AI 助手
-        </div>
-        <button type="button" onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600" title="关闭">
-          <X className="h-5 w-5" />
+    <>
+      {/* 关闭时：右下角启动按钮 */}
+      {!open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-700"
+        >
+          <MessageSquare className="h-5 w-5" /> AI 助手
         </button>
+      )}
+      {/* 打开时：出现在页面正中间的对话框，可关闭。
+          始终挂载（用 hidden 切换）以保持会话 id 连续——开关不丢上下文，会话照常入历史。 */}
+      <div
+        className={
+          open
+            ? "fixed left-1/2 top-1/2 z-40 flex max-h-[80vh] w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-indigo-200 bg-white shadow-2xl"
+            : "hidden"
+        }
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Sparkles className="h-4 w-4 text-indigo-600" /> 投资偏好 · AI 助手
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="text-slate-400 hover:text-slate-600"
+            title="关闭"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-3">
+          <PageAssistant
+            contextLabel="投资偏好"
+            contextSummary={contextSummary}
+            placeholder="用自然语言描述你的投资偏好需求…"
+          />
+        </div>
       </div>
-      <div className="p-3">
-        <PageAssistant
-          contextLabel="投资偏好"
-          contextSummary={contextSummary}
-          placeholder="用自然语言描述你的投资偏好需求…"
-        />
-      </div>
-    </div>
+    </>
   );
 }
 
