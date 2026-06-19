@@ -1,16 +1,17 @@
 """LLM 调用层 —— 档位路由 + 结构化输出。
 
 核心约定：业务代码只引用 ModelTier（fast/standard/premium），
-具体模型在 litellm/config.yaml 配置，切换模型零代码改动。
+具体模型由当前 provider 的环境配置决定，切换模型零代码改动。
 
-premium 档可能路由到海外模型：调用前必须检查机构级开关
-（Institution.allow_overseas_models），不满足时降级 standard。
+模型可用性按 provider API token 与具体模型配置检测；allow_overseas 仅作为
+历史兼容参数保留，避免把数据源/合规开关误用于 LLM 模型禁用。
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, TypeVar
@@ -33,12 +34,18 @@ class ModelTier(StrEnum):
 
 _client: Any | None = None
 _client_signature: tuple[str, str, str, float, float, str] | None = None
+_usage_collector: ContextVar[list[dict[str, int]] | None] = ContextVar(
+    "llm_usage_collector", default=None
+)
 
 
 def resolve_tier(tier: ModelTier, *, allow_overseas: bool) -> ModelTier:
-    """合规降级：机构未开启海外模型时，premium 自动降为 standard。"""
-    if tier is ModelTier.PREMIUM and not allow_overseas:
-        return ModelTier.STANDARD
+    """返回用户选择的模型档位。
+
+    ``allow_overseas`` 早期用于把 premium 降级为 standard；现在 LLM 可用性由
+    provider API token 与模型配置决定，因此不再在这里降级。参数保留是为了不
+    破坏既有调用签名，检索/数据源是否出境仍由各自链路的 allow_overseas 控制。
+    """
     return tier
 
 
@@ -131,29 +138,38 @@ def coerce_tier(value: str | None, *, default: ModelTier = ModelTier.STANDARD) -
 def available_models(*, allow_overseas: bool = False) -> dict[str, Any]:
     """自动检测当前配置的 Provider 及各对话档位对应的具体模型，供前端展示与切换。
 
-    premium 档可能路由到海外模型——机构未开启海外模型时标记 available=False，
-    前端禁用该选项（与 resolve_tier 的合规降级一致，核心约定 5）。
+    可用性只看当前 provider 是否具备调用凭证/连接配置，具体模型名为空则跳过。
+    多个档位映射到同一个模型时只返回一次，优先保留 standard，避免前端出现两个
+    完全相同的模型名称。
     """
     provider = resolve_provider()
     model_map = _provider_model_map(provider)
+    _, api_key = _provider_connection(provider)
+    provider_available = provider == "litellm" or bool(api_key.strip())
     options: list[dict[str, Any]] = []
-    for tier in (ModelTier.FAST, ModelTier.STANDARD, ModelTier.PREMIUM):
-        model = model_map.get(tier)
-        if not model:
+    seen_models: set[str] = set()
+    for tier in (ModelTier.STANDARD, ModelTier.FAST, ModelTier.PREMIUM):
+        model = (model_map.get(tier) or "").strip()
+        if not model or model in seen_models:
             continue
-        requires_overseas = tier is ModelTier.PREMIUM
+        seen_models.add(model)
         options.append(
             {
                 "tier": tier.value,
                 "model": model,
                 "label": _TIER_LABELS[tier],
-                "requires_overseas": requires_overseas,
-                "available": (not requires_overseas) or allow_overseas,
+                "requires_overseas": False,
+                "available": provider_available,
             }
         )
+    default_tier = (
+        ModelTier.STANDARD.value
+        if any(option["tier"] == ModelTier.STANDARD.value for option in options)
+        else (options[0]["tier"] if options else ModelTier.STANDARD.value)
+    )
     return {
         "provider": provider,
-        "default_tier": ModelTier.STANDARD.value,
+        "default_tier": default_tier,
         "options": options,
     }
 
@@ -215,6 +231,7 @@ async def complete(
         messages=messages,
         temperature=temperature,
     )
+    _record_response_usage(resp)
     return resp.choices[0].message.content or ""
 
 
@@ -257,6 +274,27 @@ def _chunk_usage(chunk: Any) -> dict[str, int] | None:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             out[key] = int(value)
     return out or None
+
+
+def begin_usage_collection() -> tuple[Token[list[dict[str, int]] | None], list[dict[str, int]]]:
+    """Collect token usage from non-streaming LLM calls in the current async context."""
+    usage_events: list[dict[str, int]] = []
+    token = _usage_collector.set(usage_events)
+    return token, usage_events
+
+
+def end_usage_collection(token: Token[list[dict[str, int]] | None]) -> None:
+    """Restore the previous token usage collector."""
+    _usage_collector.reset(token)
+
+
+def _record_response_usage(response: Any) -> None:
+    collector = _usage_collector.get()
+    if collector is None:
+        return
+    usage = _chunk_usage(response)
+    if usage:
+        collector.append(usage)
 
 
 async def stream_chat(
@@ -344,6 +382,7 @@ async def complete_structured(
             temperature=0,
             response_format={"type": "json_object"},
         )
+        _record_response_usage(resp)
         raw = resp.choices[0].message.content or "{}"
         try:
             return schema.model_validate_json(raw)

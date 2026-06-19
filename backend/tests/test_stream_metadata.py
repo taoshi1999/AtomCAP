@@ -131,11 +131,11 @@ def test_stream_chat_without_usage_chunk_degrades(monkeypatch):
     assert [c.usage for c in chunks if c.usage] == []
 
 
-def test_stream_chat_overseas_downgrade(monkeypatch):
-    """核心约定 5：未开海外模型时 premium 流式调用降级 standard。"""
+def test_stream_chat_premium_uses_configured_model(monkeypatch):
+    """premium 流式调用使用配置模型，不再由 allow_overseas 降级。"""
     fake = _install(monkeypatch, [_delta(content="ok")])
     _run_stream(ModelTier.PREMIUM, [{"role": "user", "content": "hi"}], allow_overseas=False)
-    assert fake.calls[0]["model"] == "standard"
+    assert fake.calls[0]["model"] == "premium"
 
 
 def test_complete_stream_backward_compatible(monkeypatch):

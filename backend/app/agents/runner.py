@@ -12,11 +12,12 @@ from app.agents.deal_sourcing.graph import deal_sourcing_graph
 from app.agents.thesis_scout.graph import thesis_scout_graph
 from app.db import SessionLocal
 from app.evidence import service as evidence_service
+from app.llm.client import begin_usage_collection, end_usage_collection
 from app.objects import DeliverableType
 from app.services import business as business_service
 from app.services import preferences as preferences_service
 from app.services.agent_runs import finish_run, start_run
-from app.services.conversations import save_message
+from app.services.conversations import save_message, usage_block
 from app.services.deliverables import save_deliverable
 from app.services.events import recent_history, record_event
 
@@ -28,6 +29,104 @@ EMPTY_DEAL_LIST_ERROR = "子图执行完成但未产出 DealList 对象"
 
 DEAL_INTAKE_FAILED_MSG = "项目分析执行失败，请稍后重试。"
 EMPTY_DEAL_PROFILE_ERROR = "子图执行完成但未产出 DealProfile 对象"
+
+
+def _merge_usage(total: dict[str, int], usage: dict[str, int]) -> None:
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = usage.get(key)
+        if isinstance(value, int):
+            total[key] = total.get(key, 0) + value
+
+
+def _usage_payload(total: dict[str, int]) -> dict[str, int | bool]:
+    return {**total, "estimated": False}
+
+
+def _drain_usage_events(
+    usage_events: list[dict[str, int]],
+    cursor: int,
+    usage_total: dict[str, int],
+) -> tuple[int, dict[str, str] | None]:
+    if cursor >= len(usage_events):
+        return cursor, None
+    for usage in usage_events[cursor:]:
+        _merge_usage(usage_total, usage)
+    return len(usage_events), {
+        "event": "usage",
+        "data": json.dumps(_usage_payload(usage_total), ensure_ascii=False),
+    }
+
+
+def _count(value: Any) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
+def _agent_reasoning(agent: str, progress: str, state: dict[str, Any]) -> str:
+    """High-level agent reasoning trace for the UI; avoids exposing hidden chain-of-thought."""
+    details: list[str] = [progress]
+    if agent == "thesis_scout":
+        track = (state.get("track_definition") or {}).get("track_name")
+        if track:
+            details.append(f"已锁定赛道：{track}")
+        evidence_count = _count(state.get("evidence_sources"))
+        if evidence_count:
+            details.append(f"已收集 {evidence_count} 条外部信号")
+        sub_count = _count(state.get("sub_directions"))
+        if sub_count:
+            details.append(f"已生成 {sub_count} 个子方向")
+        if state.get("thesis"):
+            details.append("正在将判断、证据和机构匹配度组装成交付对象")
+    elif agent == "deal_sourcing":
+        strategy = state.get("search_strategy") or {}
+        themes = strategy.get("themes") or []
+        if themes:
+            details.append(f"搜索主题：{' / '.join(map(str, themes[:3]))}")
+        evidence_count = _count(state.get("evidence_sources"))
+        if evidence_count:
+            details.append(f"已收集 {evidence_count} 条公开信号")
+        candidates = _count(state.get("candidates"))
+        if candidates:
+            details.append(f"正在评估 {candidates} 个候选项目")
+        if state.get("deal_list"):
+            details.append("正在把候选项目整理成项目池交付物")
+    elif agent == "deal_intake":
+        extraction = (state.get("deal_profile") or {}).get("extraction") or state.get("extraction") or {}
+        company = extraction.get("company_name")
+        if company:
+            details.append(f"已识别公司：{company}")
+        evidence_count = _count(state.get("evidence_sources"))
+        if evidence_count:
+            details.append(f"已补全 {evidence_count} 条外部信号")
+        if state.get("matched_company_id"):
+            details.append("已匹配到项目库中的既有公司")
+        if state.get("deal_profile"):
+            details.append("正在形成项目初步分析并写入项目工作台")
+    return "；".join(details) + "\n"
+
+
+def _usage_blocks(usage_total: dict[str, int]) -> list[dict[str, Any]]:
+    return [usage_block(_usage_payload(usage_total))] if usage_total else []
+
+
+def _agent_step_events(
+    *,
+    agent: str,
+    progress: str | None,
+    state: dict[str, Any],
+    trail: list[str],
+    usage_events: list[dict[str, int]],
+    usage_cursor: int,
+    usage_total: dict[str, int],
+) -> tuple[int, list[dict[str, str]]]:
+    events: list[dict[str, str]] = []
+    if progress and (not trail or trail[-1] != progress):
+        trail.append(progress)
+        events.append({"event": "progress", "data": progress})
+        events.append({"event": "reasoning", "data": _agent_reasoning(agent, progress, state)})
+    usage_cursor, usage_event = _drain_usage_events(usage_events, usage_cursor, usage_total)
+    if usage_event:
+        events.append(usage_event)
+    return usage_cursor, events
 
 
 async def run_thesis_scout(
@@ -54,6 +153,9 @@ async def run_thesis_scout(
 
     trail: list[str] = []
     final_state: dict[str, Any] = {}
+    usage_token, usage_events = begin_usage_collection()
+    usage_cursor = 0
+    usage_total: dict[str, int] = {}
     try:
         async for chunk in thesis_scout_graph.astream(
             {
@@ -67,10 +169,23 @@ async def run_thesis_scout(
             stream_mode="values",
         ):
             final_state = chunk
-            progress = chunk.get("progress")
-            if progress and (not trail or trail[-1] != progress):
-                trail.append(progress)
-                yield {"event": "progress", "data": progress}
+            usage_cursor, events = _agent_step_events(
+                agent="thesis_scout",
+                progress=chunk.get("progress"),
+                state=chunk,
+                trail=trail,
+                usage_events=usage_events,
+                usage_cursor=usage_cursor,
+                usage_total=usage_total,
+            )
+            for event in events:
+                yield event
+
+        usage_cursor, usage_event = _drain_usage_events(
+            usage_events, usage_cursor, usage_total
+        )
+        if usage_event:
+            yield usage_event
 
         thesis_payload = final_state.get("thesis")
         if not thesis_payload:
@@ -124,11 +239,13 @@ async def run_thesis_scout(
                 blocks=[
                     {"type": "text", "text": f"赛道前瞻分析完成：{one_line}"},
                     {"type": "object_ref", "deliverable_id": str(deliverable.id)},
+                    *_usage_blocks(usage_total),
                 ],
                 event_payload={
                     "intent": "thesis_scout",
                     "agent_run_id": str(run_id),
                     "deliverable_id": str(deliverable.id),
+                    "usage": _usage_payload(usage_total) if usage_total else None,
                 },
             )
             await finish_run(
@@ -138,7 +255,7 @@ async def run_thesis_scout(
                 run_id=run_id,
                 agent="thesis_scout",
                 status="succeeded",
-                steps={"trail": trail},
+                steps={"trail": trail, "usage": _usage_payload(usage_total) if usage_total else None},
                 deliverable_id=deliverable.id,
             )
 
@@ -153,6 +270,11 @@ async def run_thesis_scout(
             ),
         }
     except Exception as e:  # noqa: BLE001
+        usage_cursor, usage_event = _drain_usage_events(
+            usage_events, usage_cursor, usage_total
+        )
+        if usage_event:
+            yield usage_event
         async with SessionLocal() as db, db.begin():
             await finish_run(
                 db,
@@ -161,10 +283,12 @@ async def run_thesis_scout(
                 run_id=run_id,
                 agent="thesis_scout",
                 status="failed",
-                steps={"trail": trail},
+                steps={"trail": trail, "usage": _usage_payload(usage_total) if usage_total else None},
                 error=str(e)[:2000],
             )
         yield {"event": "error", "data": AGENT_FAILED_MSG}
+    finally:
+        end_usage_collection(usage_token)
 
 
 async def run_deal_sourcing(
@@ -193,6 +317,9 @@ async def run_deal_sourcing(
 
     trail: list[str] = []
     final_state: dict[str, Any] = {}
+    usage_token, usage_events = begin_usage_collection()
+    usage_cursor = 0
+    usage_total: dict[str, int] = {}
     try:
         async for chunk in deal_sourcing_graph.astream(
             {
@@ -208,10 +335,23 @@ async def run_deal_sourcing(
             stream_mode="values",
         ):
             final_state = chunk
-            progress = chunk.get("progress")
-            if progress and (not trail or trail[-1] != progress):
-                trail.append(progress)
-                yield {"event": "progress", "data": progress}
+            usage_cursor, events = _agent_step_events(
+                agent="deal_sourcing",
+                progress=chunk.get("progress"),
+                state=chunk,
+                trail=trail,
+                usage_events=usage_events,
+                usage_cursor=usage_cursor,
+                usage_total=usage_total,
+            )
+            for event in events:
+                yield event
+
+        usage_cursor, usage_event = _drain_usage_events(
+            usage_events, usage_cursor, usage_total
+        )
+        if usage_event:
+            yield usage_event
 
         deal_payload = final_state.get("deal_list")
         if not deal_payload:
@@ -267,11 +407,13 @@ async def run_deal_sourcing(
                 blocks=[
                     {"type": "text", "text": f"项目获取完成：{summary}"},
                     {"type": "object_ref", "deliverable_id": str(deliverable.id)},
+                    *_usage_blocks(usage_total),
                 ],
                 event_payload={
                     "intent": "deal_sourcing",
                     "agent_run_id": str(run_id),
                     "deliverable_id": str(deliverable.id),
+                    "usage": _usage_payload(usage_total) if usage_total else None,
                 },
             )
             await finish_run(
@@ -281,7 +423,7 @@ async def run_deal_sourcing(
                 run_id=run_id,
                 agent="deal_sourcing",
                 status="succeeded",
-                steps={"trail": trail},
+                steps={"trail": trail, "usage": _usage_payload(usage_total) if usage_total else None},
                 deliverable_id=deliverable.id,
             )
 
@@ -296,6 +438,11 @@ async def run_deal_sourcing(
             ),
         }
     except Exception as e:  # noqa: BLE001
+        usage_cursor, usage_event = _drain_usage_events(
+            usage_events, usage_cursor, usage_total
+        )
+        if usage_event:
+            yield usage_event
         async with SessionLocal() as db, db.begin():
             await finish_run(
                 db,
@@ -304,10 +451,12 @@ async def run_deal_sourcing(
                 run_id=run_id,
                 agent="deal_sourcing",
                 status="failed",
-                steps={"trail": trail},
+                steps={"trail": trail, "usage": _usage_payload(usage_total) if usage_total else None},
                 error=str(e)[:2000],
             )
         yield {"event": "error", "data": DEAL_SOURCING_FAILED_MSG}
+    finally:
+        end_usage_collection(usage_token)
 
 
 
@@ -348,6 +497,9 @@ async def run_deal_intake(
 
     trail: list[str] = []
     final_state: dict[str, Any] = {}
+    usage_token, usage_events = begin_usage_collection()
+    usage_cursor = 0
+    usage_total: dict[str, int] = {}
     try:
         async for chunk in deal_intake_graph.astream(
             {
@@ -363,10 +515,23 @@ async def run_deal_intake(
             stream_mode="values",
         ):
             final_state = chunk
-            progress = chunk.get("progress")
-            if progress and (not trail or trail[-1] != progress):
-                trail.append(progress)
-                yield {"event": "progress", "data": progress}
+            usage_cursor, events = _agent_step_events(
+                agent="deal_intake",
+                progress=chunk.get("progress"),
+                state=chunk,
+                trail=trail,
+                usage_events=usage_events,
+                usage_cursor=usage_cursor,
+                usage_total=usage_total,
+            )
+            for event in events:
+                yield event
+
+        usage_cursor, usage_event = _drain_usage_events(
+            usage_events, usage_cursor, usage_total
+        )
+        if usage_event:
+            yield usage_event
 
         profile_payload = final_state.get("deal_profile")
         if not profile_payload:
@@ -429,11 +594,13 @@ async def run_deal_intake(
                 blocks=[
                     {"type": "text", "text": f"项目分析完成：{portrait}（已进入项目工作台）"},
                     {"type": "deal_ref", "deal_id": str(deal.id), "company_id": str(company.id)},
+                    *_usage_blocks(usage_total),
                 ],
                 event_payload={
                     "intent": "deal_intake",
                     "agent_run_id": str(run_id),
                     "deal_id": str(deal.id),
+                    "usage": _usage_payload(usage_total) if usage_total else None,
                 },
             )
             await finish_run(
@@ -443,7 +610,7 @@ async def run_deal_intake(
                 run_id=run_id,
                 agent="deal_intake",
                 status="succeeded",
-                steps={"trail": trail},
+                steps={"trail": trail, "usage": _usage_payload(usage_total) if usage_total else None},
             )
 
         yield {
@@ -454,6 +621,11 @@ async def run_deal_intake(
             ),
         }
     except Exception as e:  # noqa: BLE001
+        usage_cursor, usage_event = _drain_usage_events(
+            usage_events, usage_cursor, usage_total
+        )
+        if usage_event:
+            yield usage_event
         async with SessionLocal() as db, db.begin():
             await finish_run(
                 db,
@@ -462,7 +634,9 @@ async def run_deal_intake(
                 run_id=run_id,
                 agent="deal_intake",
                 status="failed",
-                steps={"trail": trail},
+                steps={"trail": trail, "usage": _usage_payload(usage_total) if usage_total else None},
                 error=str(e)[:2000],
             )
         yield {"event": "error", "data": DEAL_INTAKE_FAILED_MSG}
+    finally:
+        end_usage_collection(usage_token)

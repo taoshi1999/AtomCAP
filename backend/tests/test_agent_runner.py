@@ -87,9 +87,15 @@ class _FakeSession:
 class _FakeGraph:
     """逐 chunk 产出 state（values 模式语义：全量 state），可注入异常。"""
 
-    def __init__(self, chunks, exc: Exception | None = None):
+    def __init__(
+        self,
+        chunks,
+        exc: Exception | None = None,
+        usage_events: list[dict[str, int]] | None = None,
+    ):
         self.chunks = chunks
         self.exc = exc
+        self.usage_events = usage_events
         self.initial_state: dict | None = None
 
     async def astream(self, state, *, stream_mode):
@@ -97,6 +103,10 @@ class _FakeGraph:
         self.initial_state = state
         merged: dict = dict(state)
         for c in self.chunks:
+            if self.usage_events is not None:
+                self.usage_events.append(
+                    {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+                )
             merged = {**merged, **c}
             yield merged
         if self.exc is not None:
@@ -200,6 +210,9 @@ def test_success_full_pipeline(monkeypatch):
     # SSE：progress 去重 + object 推真实 deliverable_id
     progresses = [e["data"] for e in events if e["event"] == "progress"]
     assert progresses == ["正在拆解赛道定义…", "正在收集市场信号…", "Thesis 已生成"]
+    reasonings = [e["data"] for e in events if e["event"] == "reasoning"]
+    assert reasonings
+    assert "正在拆解赛道定义" in reasonings[0]
     [obj_ev] = [e for e in events if e["event"] == "object"]
     obj = json.loads(obj_ev["data"])
 
@@ -236,6 +249,40 @@ def test_success_full_pipeline(monkeypatch):
     assert params["error"] is None
 
 
+def test_usage_events_are_streamed_and_persisted(monkeypatch):
+    usage_events: list[dict[str, int]] = []
+    graph = _FakeGraph(
+        [
+            {"progress": "正在拆解赛道定义…"},
+            {"progress": "Thesis 已生成", "thesis": thesis_payload()},
+        ],
+        usage_events=usage_events,
+    )
+    monkeypatch.setattr(runner, "begin_usage_collection", lambda: (object(), usage_events))
+    monkeypatch.setattr(runner, "end_usage_collection", lambda token: None)
+
+    events, store = _run(monkeypatch, graph)
+
+    usage_payloads = [json.loads(e["data"]) for e in events if e["event"] == "usage"]
+    assert usage_payloads == [
+        {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "estimated": False},
+        {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30, "estimated": False},
+    ]
+    [m] = store.of(Message)
+    usage_blocks = [block for block in m.content if block.get("type") == "usage"]
+    assert usage_blocks == [
+        {
+            "type": "usage",
+            "usage": {
+                "prompt_tokens": 20,
+                "completion_tokens": 10,
+                "total_tokens": 30,
+                "estimated": False,
+            },
+        }
+    ]
+
+
 def test_schema_violation_marks_run_failed(monkeypatch):
     """入库前强校验（核心约定 1）：payload 不合法 → 不落 deliverable，run 标记 failed。"""
     bad = thesis_payload()
@@ -258,6 +305,7 @@ def test_graph_exception_finishes_run_failed(monkeypatch):
 
     assert events == [
         {"event": "progress", "data": "正在拆解赛道定义…"},
+        {"event": "reasoning", "data": "正在拆解赛道定义…\n"},
         {"event": "error", "data": AGENT_FAILED_MSG},
     ]
     assert store.of(Deliverable) == [] and store.of(Message) == []

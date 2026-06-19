@@ -1,12 +1,15 @@
 import { useState, type KeyboardEvent } from "react";
-import { ArrowUp, Bot, Loader2, Sparkles } from "lucide-react";
-import { sendMessage, type SseHandlers } from "../lib/api";
+import { ArrowUp, Bot, Brain, ChevronDown, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { sendMessage, type SseHandlers, type TokenUsage } from "../lib/api";
 
 type PageAssistantMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;
+  usage?: TokenUsage;
   pending?: boolean;
+  streaming?: boolean;
   error?: boolean;
 };
 
@@ -28,6 +31,41 @@ function updateMessage(
   updater: (message: PageAssistantMessage) => PageAssistantMessage
 ) {
   return messages.map((message) => (message.id === id ? updater(message) : message));
+}
+
+function formatTokens(usage: TokenUsage): string {
+  const parts: string[] = [];
+  if (usage.estimated) parts.push("预估");
+  if (typeof usage.prompt_tokens === "number") parts.push(`输入 ${usage.prompt_tokens}`);
+  if (typeof usage.completion_tokens === "number") parts.push(`输出 ${usage.completion_tokens}`);
+  const total =
+    typeof usage.total_tokens === "number"
+      ? usage.total_tokens
+      : (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0) || undefined;
+  if (typeof total === "number") parts.push(`共 ${total} tokens`);
+  return parts.join(" · ");
+}
+
+function AssistantReasoning({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-1 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <Brain className="h-3.5 w-3.5" />
+        <span>思考过程{streaming ? "（生成中…）" : ""}</span>
+      </button>
+      {open && (
+        <div className="whitespace-pre-wrap border-t border-slate-200 px-2.5 py-2 text-xs leading-5 text-slate-500">
+          {text}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PageAssistant({
@@ -62,7 +100,7 @@ export default function PageAssistant({
     setMessages((current) => [
       ...current,
       { id: makeId(), role: "user", content },
-      { id: assistantId, role: "assistant", content: "", pending: true },
+      { id: assistantId, role: "assistant", content: "", pending: true, streaming: true },
     ]);
 
     const handlers: SseHandlers = {
@@ -83,6 +121,24 @@ export default function PageAssistant({
             ...message,
             content: `${message.pending ? "" : message.content}${token}`,
             pending: false,
+            streaming: true,
+          }))
+        );
+      },
+      onReasoning(delta) {
+        setMessages((current) =>
+          updateMessage(current, assistantId, (message) => ({
+            ...message,
+            reasoning: (message.reasoning ?? "") + delta,
+            streaming: true,
+          }))
+        );
+      },
+      onUsage(usage) {
+        setMessages((current) =>
+          updateMessage(current, assistantId, (message) => ({
+            ...message,
+            usage,
           }))
         );
       },
@@ -93,6 +149,7 @@ export default function PageAssistant({
             ...item,
             content: message,
             pending: false,
+            streaming: false,
             error: true,
           }))
         );
@@ -104,6 +161,7 @@ export default function PageAssistant({
             ...message,
             content: message.content || "已完成。",
             pending: false,
+            streaming: false,
           }))
         );
       },
@@ -118,6 +176,7 @@ export default function PageAssistant({
           ...message,
           content: compactError(error),
           pending: false,
+          streaming: false,
           error: true,
         }))
       );
@@ -141,22 +200,32 @@ export default function PageAssistant({
             const isUser = message.role === "user";
             return (
               <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[86%] rounded-lg px-3 py-2 text-sm leading-6 ${
-                    isUser
-                      ? "bg-indigo-600 text-white"
-                      : message.error
-                        ? "border border-red-200 bg-red-50 text-red-700"
-                        : "border border-slate-200 bg-slate-50 text-slate-800"
-                  }`}
-                >
-                  {!isUser && (
-                    <Bot className="mr-1.5 inline h-4 w-4 align-[-2px] text-indigo-600" />
+                <div className="max-w-[86%]">
+                  {!isUser && message.reasoning && (
+                    <AssistantReasoning text={message.reasoning} streaming={!!message.streaming} />
                   )}
-                  {message.pending && (
-                    <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin align-[-2px]" />
+                  <div
+                    className={`rounded-lg px-3 py-2 text-sm leading-6 ${
+                      isUser
+                        ? "bg-indigo-600 text-white"
+                        : message.error
+                          ? "border border-red-200 bg-red-50 text-red-700"
+                          : "border border-slate-200 bg-slate-50 text-slate-800"
+                    }`}
+                  >
+                    {!isUser && (
+                      <Bot className="mr-1.5 inline h-4 w-4 align-[-2px] text-indigo-600" />
+                    )}
+                    {message.pending && (
+                      <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin align-[-2px]" />
+                    )}
+                    {message.content}
+                  </div>
+                  {!isUser && message.usage && (
+                    <div className="mt-1 px-1 text-[11px] text-slate-400">
+                      {formatTokens(message.usage)}
+                    </div>
                   )}
-                  {message.content}
                 </div>
               </div>
             );

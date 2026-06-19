@@ -76,8 +76,8 @@ def test_complete_stream_yields_deltas(monkeypatch):
     assert fake.calls[0]["model"] == "standard"
 
 
-def test_complete_stream_overseas_downgrade(monkeypatch):
-    """核心约定 5：未开海外模型时 premium 流式调用降级 standard。"""
+def test_complete_stream_premium_uses_configured_model(monkeypatch):
+    """premium 是否可用由 provider token/config 决定，不再因 allow_overseas 降级。"""
     monkeypatch.setattr(llm_client.settings, "llm_provider", "litellm")
     fake = _FakeClient([_chunk("ok")])
     monkeypatch.setattr(llm_client, "_client", fake)
@@ -91,7 +91,7 @@ def test_complete_stream_overseas_downgrade(monkeypatch):
         ]
 
     asyncio.run(run())
-    assert fake.calls[0]["model"] == "standard"
+    assert fake.calls[0]["model"] == "premium"
 
     async def run_allowed():
         return [
@@ -113,7 +113,7 @@ def test_auto_provider_prefers_deepseek_models(monkeypatch):
     assert resolve_provider() == "deepseek"
     assert resolve_model(ModelTier.FAST) == "deepseek-v4-flash"
     assert resolve_model(ModelTier.STANDARD) == "deepseek-v4-flash"
-    assert resolve_model(ModelTier.PREMIUM, allow_overseas=False) == "deepseek-v4-flash"
+    assert resolve_model(ModelTier.PREMIUM, allow_overseas=False) == "deepseek-v4-pro"
     assert resolve_model(ModelTier.PREMIUM, allow_overseas=True) == "deepseek-v4-pro"
 
 

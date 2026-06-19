@@ -172,6 +172,16 @@ function dealStatusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function visibleModelOptions(options: ModelOption[]) {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const model = option.model.trim();
+    if (!option.available || !model || seen.has(model)) return false;
+    seen.add(model);
+    return true;
+  });
+}
+
 export default function ChatPage() {
   const [home, setHome] = useState<HomeData | null>(null);
   const [homeError, setHomeError] = useState<string | null>(null);
@@ -208,9 +218,14 @@ export default function ChatPage() {
     getModels()
       .then((info) => {
         if (!active) return;
-        setModelOptions(info.options);
+        const options = visibleModelOptions(info.options);
+        setModelOptions(options);
         setModelTier((current) =>
-          info.options.some((option) => option.tier === current) ? current : info.default_tier
+          options.some((option) => option.tier === current)
+            ? current
+            : options.find((option) => option.tier === info.default_tier)?.tier ??
+              options[0]?.tier ??
+              info.default_tier
         );
       })
       .catch(() => {
@@ -603,24 +618,14 @@ export default function ChatPage() {
         <section className="mt-5 min-h-0 flex-1 border-t border-slate-200 pt-4">
           <div className="mb-2 flex items-center justify-between px-1">
             <div className="text-sm font-semibold text-slate-500">最近</div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                title="历史会话"
-                onClick={openHistoryDialog}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
-              >
-                <History className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                title="刷新"
-                onClick={() => void refreshHome()}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              title="历史会话"
+              onClick={openHistoryDialog}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+            >
+              <History className="h-4 w-4" />
+            </button>
           </div>
           <div className="space-y-1 overflow-hidden">
             {isHomeLoading && <SidebarHint>正在读取数据库...</SidebarHint>}
@@ -676,16 +681,6 @@ export default function ChatPage() {
             <Plus className="h-5 w-5" />
             新对话
           </button>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              title="刷新首页数据"
-              onClick={() => void refreshHome()}
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"
-            >
-              <RefreshCcw className="h-5 w-5" />
-            </button>
-          </div>
         </header>
 
         {mode === "tracks" ? (
@@ -1485,7 +1480,7 @@ function Composer({
             >
               {models.map((option) => (
                 <option key={option.tier} value={option.tier} disabled={!option.available}>
-                  {option.model}{option.available ? "" : " · 需开启海外模型"}
+                  {option.model}
                 </option>
               ))}
             </select>

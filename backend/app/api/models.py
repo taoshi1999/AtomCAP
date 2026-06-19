@@ -13,7 +13,7 @@ router = APIRouter()
 async def list_models(user: CurrentUser = Depends(get_current_user)) -> dict:
     """返回当前 Provider 与各对话档位对应的具体模型。
 
-    premium（可能路由海外模型）受机构 allow_overseas_models 约束：未开启时
-    该选项 available=False，前端禁用，后端档位路由也会自动降级到 standard。
+    模型可用性由 provider API token 与具体模型配置决定；allow_overseas_models
+    继续传入是为了兼容底层签名，但不再用于禁用 premium 模型。
     """
     return available_models(allow_overseas=user.allow_overseas_models)
