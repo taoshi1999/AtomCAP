@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { DeliverableView } from "../components/objects/registry";
 import PageAssistant from "../components/PageAssistant";
+import PreferenceManager from "../components/PreferenceManager";
 import {
   createManualThesis,
   getConversationMessages,
@@ -48,7 +49,6 @@ import {
   getHome,
   getModels,
   listConversations,
-  updatePreference,
   type ConversationMessage,
   type HomeConversation,
   type HomeData,
@@ -240,7 +240,6 @@ export default function ChatPage() {
     };
   }, []);
   const [trackDialogOpen, setTrackDialogOpen] = useState(false);
-  const [preferenceDialogOpen, setPreferenceDialogOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [trackDraft, setTrackDraft] = useState({
     thesis_name: "",
@@ -249,15 +248,6 @@ export default function ChatPage() {
     risk_level: "中",
     advice: "",
     sub_directions: "",
-  });
-  const [preferenceDraft, setPreferenceDraft] = useState({
-    name: "默认投资策略",
-    sectors: "",
-    stages: "",
-    regions: "",
-    risk_appetite: "",
-    check_size: "",
-    notes: "",
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { signOut } = useAuth();
@@ -382,28 +372,6 @@ export default function ChatPage() {
       .map((item) => `${item.title}（${item.status}）`)
       .join("；");
   }, [home]);
-  const preferenceContextSummary = useMemo(() => {
-    const sectors = displayList(preferenceList(home, "sectors"), "未设置赛道");
-    const stages = displayList(preferenceList(home, "stages"), "未设置阶段");
-    const regions = displayList(preferenceList(home, "regions"), "未设置地域");
-    return `赛道：${sectors}；阶段：${stages}；地域：${regions}`;
-  }, [home]);
-
-  function openPreferenceEditor() {
-    const preference = home?.preference.preference ?? {};
-    setPreferenceDraft({
-      name: typeof preference.name === "string" ? preference.name : "默认投资策略",
-      sectors: preferenceList(home, "sectors").join("，"),
-      stages: preferenceList(home, "stages").join("，"),
-      regions: preferenceList(home, "regions").join("，"),
-      risk_appetite:
-        typeof preference.risk_appetite === "string" ? preference.risk_appetite : "",
-      check_size: typeof preference.check_size === "string" ? preference.check_size : "",
-      notes: typeof preference.notes === "string" ? preference.notes : "",
-    });
-    setActionError(null);
-    setPreferenceDialogOpen(true);
-  }
 
   async function handleCreateThesis(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -430,38 +398,6 @@ export default function ChatPage() {
       });
       await refreshHome();
       setMode("tracks");
-    } catch (error) {
-      setActionError(compactError(error));
-    }
-  }
-
-  async function handleSavePreference(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const sectors = parseListInput(preferenceDraft.sectors);
-    const stages = parseListInput(preferenceDraft.stages);
-    const regions = parseListInput(preferenceDraft.regions);
-    try {
-      setActionError(null);
-      await updatePreference({
-        version: Math.max(1, home?.preference.version ?? 1),
-        name: preferenceDraft.name.trim() || "默认投资策略",
-        status: "active",
-        declared_strategy: {
-          focus_sectors: sectors,
-          focus_stages: stages,
-          focus_regions: regions,
-          description: preferenceDraft.notes.trim() || null,
-        },
-        track_preferences: sectors,
-        stages,
-        geographies: regions,
-        risk_appetite: preferenceDraft.risk_appetite.trim() || null,
-        check_size: preferenceDraft.check_size.trim() || null,
-        notes: preferenceDraft.notes.trim() || null,
-      });
-      setPreferenceDialogOpen(false);
-      await refreshHome();
-      setMode("preference");
     } catch (error) {
       setActionError(compactError(error));
     }
@@ -616,7 +552,7 @@ export default function ChatPage() {
           <NavButton icon={Plus} label="新对话" active={mode === "chat" && messages.length === 0} primary onClick={handleNewConversation} />
           <NavButton icon={FolderKanban} label="项目库" meta={String(home?.deals.length ?? 0)} onClick={() => navigate("/workspace")} />
           <NavButton icon={Library} label="赛道库" meta={String(home?.deliverables.filter((item) => item.type === "thesis").length ?? 0)} active={mode === "tracks"} onClick={() => setMode("tracks")} />
-          <NavButton icon={Target} label="投资偏好" onClick={() => navigate("/preferences")} />
+          <NavButton icon={Target} label="投资偏好" active={mode === "preference"} onClick={() => setMode("preference")} />
         </nav>
 
         <section className="mt-5 min-h-0 flex-1 border-t border-slate-200 pt-4">
@@ -718,29 +654,7 @@ export default function ChatPage() {
             />
           </DataPanel>
         ) : mode === "preference" ? (
-          <DataPanel
-            title="投资偏好"
-            subtitle="当前机构生效偏好"
-            actions={
-              <button
-                type="button"
-                onClick={openPreferenceEditor}
-                className="flex h-10 items-center gap-2 rounded-lg bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700"
-              >
-                <Plus className="h-4 w-4" />
-                创建策略
-              </button>
-            }
-            footer={
-              <PageAssistant
-                contextLabel="投资偏好"
-                contextSummary={preferenceContextSummary}
-                placeholder="基于当前策略提出需求..."
-              />
-            }
-          >
-            <PreferenceDetail home={home} loading={isHomeLoading} />
-          </DataPanel>
+          <PreferenceManager />
         ) : messages.length === 0 ? (
           <section className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-5 pb-5 lg:px-8">
             <div className="flex min-h-0 flex-1 items-center justify-center pb-10">
@@ -806,15 +720,6 @@ export default function ChatPage() {
           onChange={setTrackDraft}
           onClose={() => setTrackDialogOpen(false)}
           onSubmit={handleCreateThesis}
-        />
-      )}
-      {preferenceDialogOpen && (
-        <PreferenceDialog
-          draft={preferenceDraft}
-          error={actionError}
-          onChange={setPreferenceDraft}
-          onClose={() => setPreferenceDialogOpen(false)}
-          onSubmit={handleSavePreference}
         />
       )}
       {historyDialogOpen && (
@@ -1128,88 +1033,6 @@ function CreateTrackDialog({
   );
 }
 
-function PreferenceDialog({
-  draft,
-  error,
-  onChange,
-  onClose,
-  onSubmit,
-}: {
-  draft: {
-    name: string;
-    sectors: string;
-    stages: string;
-    regions: string;
-    risk_appetite: string;
-    check_size: string;
-    notes: string;
-  };
-  error: string | null;
-  onChange: (next: typeof draft) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <DialogShell title="创建策略" error={error} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-3">
-        <Field
-          label="策略名称"
-          value={draft.name}
-          required
-          onChange={(value) => onChange({ ...draft, name: value })}
-        />
-        <Field
-          label="偏好赛道"
-          value={draft.sectors}
-          placeholder="用逗号或换行分隔"
-          onChange={(value) => onChange({ ...draft, sectors: value })}
-        />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="偏好阶段"
-            value={draft.stages}
-            placeholder="Pre-A，A，B+"
-            onChange={(value) => onChange({ ...draft, stages: value })}
-          />
-          <Field
-            label="地域偏好"
-            value={draft.regions}
-            placeholder="中国，全球"
-            onChange={(value) => onChange({ ...draft, regions: value })}
-          />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="风险偏好"
-            value={draft.risk_appetite}
-            onChange={(value) => onChange({ ...draft, risk_appetite: value })}
-          />
-          <Field
-            label="单笔规模"
-            value={draft.check_size}
-            placeholder="例如：500万-3000万人民币"
-            onChange={(value) => onChange({ ...draft, check_size: value })}
-          />
-        </div>
-        <Field
-          label="策略说明"
-          value={draft.notes}
-          rows={3}
-          onChange={(value) => onChange({ ...draft, notes: value })}
-        />
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="h-10 rounded-lg px-4 text-sm font-semibold text-slate-600 hover:bg-slate-100">
-            取消
-          </button>
-          <button type="submit" className="h-10 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">
-            保存
-          </button>
-        </div>
-      </form>
-    </DialogShell>
-  );
-}
-
 function SidebarHint({ children, tone }: { children: ReactNode; tone?: "error" }) {
   return (
     <div
@@ -1360,44 +1183,6 @@ function TrackList({
           </div>
         </button>
       ))}
-    </div>
-  );
-}
-
-function PreferenceDetail({
-  home,
-  loading,
-}: {
-  home: HomeData | null;
-  loading: boolean;
-}) {
-  if (loading) return <EmptyState title="正在读取投资偏好..." />;
-  if (!home?.preference.exists) return <EmptyState title="数据库暂无投资偏好记录" />;
-
-  const sectors = preferenceList(home, "sectors");
-  const stages = preferenceList(home, "stages");
-  const regions = preferenceList(home, "regions");
-  const preference = home.preference.preference;
-  const risk = typeof preference.risk_appetite === "string" ? preference.risk_appetite : "未设置";
-  const checkSize = typeof preference.check_size === "string" ? preference.check_size : "未设置";
-
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <InfoTile title="偏好赛道" value={displayList(sectors)} />
-      <InfoTile title="偏好阶段" value={displayList(stages)} />
-      <InfoTile title="地域偏好" value={displayList(regions)} />
-      <InfoTile title="风险偏好" value={risk} />
-      <InfoTile title="单笔规模" value={checkSize} />
-      <InfoTile title="版本" value={`v${home.preference.version}`} />
-    </div>
-  );
-}
-
-function InfoTile({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <div className="text-xs font-semibold text-slate-500">{title}</div>
-      <div className="mt-2 text-sm font-bold text-slate-900">{value}</div>
     </div>
   );
 }
