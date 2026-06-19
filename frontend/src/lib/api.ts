@@ -28,6 +28,7 @@ export interface TokenUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  estimated?: boolean;
 }
 
 export interface SseHandlers {
@@ -93,6 +94,7 @@ export async function sendMessage(
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ content, model_tier: modelTier }),
     signal,
+    openWhenHidden: true,
     onopen: ensureSseResponse,
     onmessage(ev) {
       switch (ev.event) {
@@ -138,6 +140,7 @@ export async function uploadMaterial(
     headers: authHeaders(),
     body,
     signal,
+    openWhenHidden: true,
     onopen: ensureSseResponse,
     onmessage(ev) {
       switch (ev.event) {
@@ -349,6 +352,31 @@ export interface ConversationMessage {
 export interface ConversationMessagesResponse {
   conversation: { id: string; title?: string | null; updated_at: string };
   messages: ConversationMessage[];
+}
+
+export interface ConversationListResponse {
+  items: HomeConversation[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ConversationListParams {
+  limit?: number;
+  offset?: number;
+  q?: string;
+}
+
+export async function listConversations(
+  params: ConversationListParams = {}
+): Promise<ConversationListResponse> {
+  const qs = new URLSearchParams();
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params.offset !== undefined) qs.set("offset", String(params.offset));
+  const query = params.q?.trim();
+  if (query) qs.set("q", query);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiJson<ConversationListResponse>(`/api/conversations${suffix}`);
 }
 
 export async function getConversationMessages(

@@ -25,6 +25,7 @@ import {
   FileText,
   FolderKanban,
   GraduationCap,
+  History,
   Library,
   LogOut,
   Loader2,
@@ -32,9 +33,10 @@ import {
   Paperclip,
   Plus,
   RefreshCcw,
-  Sparkles,
+  Search,
   Target,
   UserRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { DeliverableView } from "../components/objects/registry";
@@ -45,32 +47,21 @@ import {
   getDeliverable,
   getHome,
   getModels,
-  sendMessage,
+  listConversations,
   updatePreference,
-  uploadMaterial,
   type ConversationMessage,
+  type HomeConversation,
   type HomeData,
   type HomeDeliverable,
   type MessageBlock,
   type ModelOption,
-  type SseHandlers,
   type TokenUsage,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useChatSession, type ChatMessage } from "../lib/chatSession";
 import type { Deliverable } from "../lib/types";
 
 type HomeMode = "chat" | "tracks" | "preference";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  deliverables: Deliverable[];
-  reasoning?: string;
-  usage?: TokenUsage;
-  pending?: boolean;
-  error?: boolean;
-};
 
 type RecentItem =
   | {
@@ -186,13 +177,32 @@ export default function ChatPage() {
   const [homeError, setHomeError] = useState<string | null>(null);
   const [isHomeLoading, setIsHomeLoading] = useState(true);
   const [mode, setMode] = useState<HomeMode>("chat");
-  const [conversationId, setConversationId] = useState(() => makeId());
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [progress, setProgress] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
+  const {
+    conversationId,
+    messages,
+    progress,
+    isSending,
+    recentConversationOverrides,
+    streamingConversationIds,
+    completionSeq,
+    startNewConversation,
+    setActiveConversationId,
+    setConversationMessages,
+    setConversationProgress,
+    setConversationSending,
+    clearRecentOverrides,
+    startTextMessage,
+    startUpload,
+  } = useChatSession();
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [modelTier, setModelTier] = useState<string>("standard");
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyItems, setHistoryItems] = useState<HomeConversation[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     getModels()
@@ -239,6 +249,7 @@ export default function ChatPage() {
       setHomeError(null);
       const data = await getHome();
       setHome(data);
+      clearRecentOverrides(data.conversations.map((item) => item.id));
     } catch (error) {
       setHomeError(compactError(error));
     } finally {
@@ -250,24 +261,63 @@ export default function ChatPage() {
     void refreshHome();
   }, []);
 
+  useEffect(() => {
+    if (completionSeq > 0) void refreshHome();
+  }, [completionSeq]);
+
+  useEffect(() => {
+    if (!historyDialogOpen) return;
+    const timer = window.setTimeout(() => {
+      void refreshConversationHistory(historyQuery);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [historyDialogOpen, historyQuery]);
+
+  async function refreshConversationHistory(query = historyQuery) {
+    try {
+      setIsHistoryLoading(true);
+      setHistoryError(null);
+      const data = await listConversations({
+        limit: 100,
+        q: query.trim() || undefined,
+      });
+      setHistoryItems(data.items);
+      setHistoryTotal(data.total);
+    } catch (error) {
+      setHistoryError(compactError(error));
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }
+
+  function openHistoryDialog() {
+    setHistoryDialogOpen(true);
+  }
+
   const recentItems = useMemo<RecentItem[]>(() => {
-    if (!home) return [];
+    const homeConversations = home?.conversations ?? [];
+    const overrideIds = new Set(recentConversationOverrides.map((item) => item.id));
+    const conversations = [
+      ...recentConversationOverrides,
+      ...homeConversations.filter((item) => !overrideIds.has(item.id)),
+    ];
+
     return [
-      ...home.conversations.map((item) => ({
+      ...conversations.map((item) => ({
         kind: "conversation" as const,
         id: item.id,
         title: item.title,
         subtitle: item.preview,
         updated_at: item.updated_at,
       })),
-      ...home.deliverables.map((item) => ({
+      ...(home?.deliverables ?? []).map((item) => ({
         kind: "deliverable" as const,
         id: item.id,
         title: item.title,
         subtitle: item.status,
         updated_at: item.updated_at,
       })),
-      ...home.deals.map((item) => ({
+      ...(home?.deals ?? []).map((item) => ({
         kind: "deal" as const,
         id: item.id,
         title: item.company_name ?? "未命名项目",
@@ -277,7 +327,7 @@ export default function ChatPage() {
     ]
       .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
       .slice(0, 5);
-  }, [home]);
+  }, [home, recentConversationOverrides]);
 
   const suggested = useMemo(() => {
     const [sector] = preferenceList(home, "sectors");
@@ -399,26 +449,14 @@ export default function ChatPage() {
   }
 
   function handleNewConversation() {
-    setConversationId(makeId());
-    setMessages([]);
+    startNewConversation();
     setInput("");
-    setProgress(null);
-    setIsSending(false);
     setMode("chat");
   }
 
   function handleSignOut() {
     signOut();
     navigate("/login", { replace: true });
-  }
-
-  function updateAssistant(
-    id: string,
-    updater: (message: ChatMessage) => ChatMessage
-  ) {
-    setMessages((current) =>
-      current.map((message) => (message.id === id ? updater(message) : message))
-    );
   }
 
   async function fetchMessageDeliverables(blocks: MessageBlock[]) {
@@ -433,8 +471,11 @@ export default function ChatPage() {
 
   async function loadConversation(id: string) {
     setMode("chat");
-    setConversationId(id);
-    setMessages([
+    setActiveConversationId(id);
+    if (streamingConversationIds.has(id)) return;
+    setConversationProgress(id, null);
+    setConversationSending(id, false);
+    setConversationMessages(id, [
       {
         id: makeId(),
         role: "assistant",
@@ -459,9 +500,9 @@ export default function ChatPage() {
             };
           })
       );
-      setMessages(loaded);
+      setConversationMessages(id, loaded);
     } catch (error) {
-      setMessages([
+      setConversationMessages(id, [
         {
           id: makeId(),
           role: "assistant",
@@ -475,9 +516,11 @@ export default function ChatPage() {
 
   async function openDeliverable(id: string) {
     setMode("chat");
+    setConversationProgress(conversationId, null);
+    setConversationSending(conversationId, false);
     try {
       const deliverable = await getDeliverable(id);
-      setMessages([
+      setConversationMessages(conversationId, [
         {
           id: makeId(),
           role: "assistant",
@@ -486,7 +529,7 @@ export default function ChatPage() {
         },
       ]);
     } catch (error) {
-      setMessages([
+      setConversationMessages(conversationId, [
         {
           id: makeId(),
           role: "assistant",
@@ -508,128 +551,23 @@ export default function ChatPage() {
     }
   }
 
-  async function runAssistantFlow(
-    userContent: string,
-    run: (handlers: SseHandlers) => Promise<void>
-  ) {
-    const assistantId = makeId();
-    setMode("chat");
-    setInput("");
-    setIsSending(true);
-    setProgress("正在理解你的问题");
-    setMessages((current) => [
-      ...current,
-      { id: makeId(), role: "user", content: userContent, deliverables: [] },
-      {
-        id: assistantId,
-        role: "assistant",
-        content: "",
-        deliverables: [],
-        pending: true,
-      },
-    ]);
-
-    try {
-      await run({
-        onProgress: (next) => {
-          setProgress(next);
-          updateAssistant(assistantId, (message) => ({
-            ...message,
-            content: next,
-            pending: true,
-          }));
-        },
-        onToken: (token) => {
-          setProgress(null);
-          updateAssistant(assistantId, (message) => ({
-            ...message,
-            content: `${message.pending ? "" : message.content}${token}`,
-            pending: false,
-          }));
-        },
-        onReasoning: (delta) => {
-          updateAssistant(assistantId, (message) => ({
-            ...message,
-            reasoning: (message.reasoning ?? "") + delta,
-          }));
-        },
-        onObject: (ref) => {
-          if (!ref.deliverable_id) return;
-          void getDeliverable(ref.deliverable_id)
-            .then((deliverable) => {
-              updateAssistant(assistantId, (message) => ({
-                ...message,
-                content:
-                  message.content && !message.pending
-                    ? message.content
-                    : "已生成交付结果。",
-                deliverables: [...message.deliverables, deliverable],
-                pending: false,
-              }));
-            })
-            .catch((error) => {
-              updateAssistant(assistantId, (message) => ({
-                ...message,
-                content: `交付结果已生成，但拉取详情失败：${compactError(error)}`,
-                pending: false,
-                error: true,
-              }));
-            });
-        },
-        onUsage: (usage) => {
-          updateAssistant(assistantId, (message) => ({
-            ...message,
-            usage,
-          }));
-        },
-        onError: (message) => {
-          setProgress(null);
-          updateAssistant(assistantId, (current) => ({
-            ...current,
-            content: message,
-            pending: false,
-            error: true,
-          }));
-        },
-        onDone: () => {
-          setProgress(null);
-          updateAssistant(assistantId, (message) => ({
-            ...message,
-            content:
-              message.content || message.deliverables.length > 0
-                ? message.content
-                : "已完成。",
-            pending: false,
-          }));
-          void refreshHome();
-        },
-      });
-    } catch (error) {
-      setProgress(null);
-      updateAssistant(assistantId, (message) => ({
-        ...message,
-        content: compactError(error),
-        pending: false,
-        error: true,
-      }));
-    } finally {
-      setIsSending(false);
-    }
+  function handleHistoryClick(item: HomeConversation) {
+    setHistoryDialogOpen(false);
+    void loadConversation(item.id);
   }
 
   async function handleSend(text: string) {
     const content = text.trim();
     if (!content || isSending) return;
-    await runAssistantFlow(content, (handlers) =>
-      sendMessage(conversationId, content, handlers, undefined, modelTier)
-    );
+    setMode("chat");
+    setInput("");
+    await startTextMessage(content, modelTier);
   }
 
   async function handleUpload(file: File) {
     if (isSending) return;
-    await runAssistantFlow(`上传文件：${file.name}`, (handlers) =>
-      uploadMaterial(conversationId, file, handlers)
-    );
+    setMode("chat");
+    await startUpload(file);
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -665,14 +603,24 @@ export default function ChatPage() {
         <section className="mt-5 min-h-0 flex-1 border-t border-slate-200 pt-4">
           <div className="mb-2 flex items-center justify-between px-1">
             <div className="text-sm font-semibold text-slate-500">最近</div>
-            <button
-              type="button"
-              title="刷新"
-              onClick={() => void refreshHome()}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
-            >
-              <RefreshCcw className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                title="历史会话"
+                onClick={openHistoryDialog}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+              >
+                <History className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                title="刷新"
+                onClick={() => void refreshHome()}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+              >
+                <RefreshCcw className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <div className="space-y-1 overflow-hidden">
             {isHomeLoading && <SidebarHint>正在读取数据库...</SidebarHint>}
@@ -684,6 +632,7 @@ export default function ChatPage() {
               <RecentButton
                 key={`${item.kind}-${item.id}`}
                 item={item}
+                streaming={item.kind === "conversation" && streamingConversationIds.has(item.id)}
                 onClick={() => handleRecentClick(item)}
               />
             ))}
@@ -869,6 +818,19 @@ export default function ChatPage() {
           onSubmit={handleSavePreference}
         />
       )}
+      {historyDialogOpen && (
+        <ConversationHistoryDialog
+          query={historyQuery}
+          items={historyItems}
+          total={historyTotal}
+          loading={isHistoryLoading}
+          error={historyError}
+          onQueryChange={setHistoryQuery}
+          onRefresh={() => void refreshConversationHistory()}
+          onOpen={handleHistoryClick}
+          onClose={() => setHistoryDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -934,6 +896,120 @@ function DialogShell({
         {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
         {children}
       </div>
+    </div>
+  );
+}
+
+function ConversationHistoryDialog({
+  query,
+  items,
+  total,
+  loading,
+  error,
+  onQueryChange,
+  onRefresh,
+  onOpen,
+  onClose,
+}: {
+  query: string;
+  items: HomeConversation[];
+  total: number;
+  loading: boolean;
+  error: string | null;
+  onQueryChange: (value: string) => void;
+  onRefresh: () => void;
+  onOpen: (item: HomeConversation) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 px-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="历史会话"
+        className="flex max-h-[78vh] w-full max-w-2xl flex-col rounded-lg border border-slate-200 bg-white shadow-xl"
+      >
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="text-lg font-black text-slate-950">历史会话</h2>
+            <p className="mt-1 text-xs text-slate-500">共 {total} 条会话记录</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title="刷新历史会话"
+              onClick={onRefresh}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+            >
+              <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
+            <button
+              type="button"
+              title="关闭"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+
+        <div className="shrink-0 px-5 py-4">
+          <label className="flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 transition focus-within:border-indigo-300">
+            <Search className="h-4 w-4 shrink-0 text-slate-400" />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="搜索标题或消息内容"
+              className="min-w-0 flex-1 bg-transparent text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400"
+            />
+          </label>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+          {error && (
+            <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+          {loading && items.length === 0 ? (
+            <div className="flex min-h-40 items-center justify-center text-sm font-semibold text-slate-400">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              正在读取历史会话...
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm font-semibold text-slate-400">
+              未找到匹配的历史会话
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {items.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => onOpen(item)}
+                  className="grid w-full grid-cols-[28px_1fr_auto] items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/30"
+                >
+                  <MessageSquare className="mt-0.5 h-5 w-5 text-slate-700" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-slate-900">
+                      {item.title}
+                    </span>
+                    {item.preview && (
+                      <span className="mt-1 block truncate text-xs text-slate-500">
+                        {item.preview}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs font-medium text-slate-400">
+                    {formatDate(item.updated_at)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -1147,7 +1223,15 @@ function SidebarHint({ children, tone }: { children: ReactNode; tone?: "error" }
   );
 }
 
-function RecentButton({ item, onClick }: { item: RecentItem; onClick: () => void }) {
+function RecentButton({
+  item,
+  streaming,
+  onClick,
+}: {
+  item: RecentItem;
+  streaming?: boolean;
+  onClick: () => void;
+}) {
   const Icon =
     item.kind === "conversation"
       ? MessageSquare
@@ -1158,9 +1242,12 @@ function RecentButton({ item, onClick }: { item: RecentItem; onClick: () => void
     <button
       type="button"
       onClick={onClick}
-      className="grid h-10 w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+      className="relative grid h-10 w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
     >
-      <Icon className="h-5 w-5 text-slate-800" />
+      {streaming && (
+        <span className="absolute left-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_4px_rgba(79,70,229,0.14)] animate-pulse" />
+      )}
+      <Icon className={`h-5 w-5 ${streaming ? "text-indigo-600" : "text-slate-800"}`} />
       <span className="min-w-0 truncate">{item.title}</span>
       <span className="text-[11px] font-medium text-slate-400">{formatDate(item.updated_at)}</span>
     </button>
@@ -1389,10 +1476,6 @@ function Composer({
           >
             <Paperclip className="h-5 w-5" />
           </button>
-          <div className="flex h-9 items-center gap-2 px-2 text-sm font-semibold text-slate-700">
-            <Sparkles className="h-5 w-5 text-indigo-600" />
-            <span>智能体</span>
-          </div>
           {models && models.length > 0 && onModelChange && (
             <select
               value={modelTier}
@@ -1402,7 +1485,7 @@ function Composer({
             >
               {models.map((option) => (
                 <option key={option.tier} value={option.tier} disabled={!option.available}>
-                  {option.label}（{option.model}）{option.available ? "" : " · 需开启海外模型"}
+                  {option.model}{option.available ? "" : " · 需开启海外模型"}
                 </option>
               ))}
             </select>
@@ -1430,6 +1513,7 @@ function Composer({
 
 function formatTokens(usage: TokenUsage): string {
   const parts: string[] = [];
+  if (usage.estimated) parts.push("预估");
   if (typeof usage.prompt_tokens === "number") parts.push(`输入 ${usage.prompt_tokens}`);
   if (typeof usage.completion_tokens === "number") parts.push(`输出 ${usage.completion_tokens}`);
   const total =
@@ -1469,7 +1553,7 @@ function ReasoningCard({ text, streaming }: { text: string; streaming: boolean }
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   const showReasoning = !isUser && !!message.reasoning;
-  const showUsage = !isUser && !!message.usage && !message.pending;
+  const showUsage = !isUser && !!message.usage;
   return (
     <article className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
@@ -1479,7 +1563,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       )}
       <div className={`min-w-0 ${isUser ? "max-w-[72%]" : "max-w-full flex-1"}`}>
         {showReasoning && (
-          <ReasoningCard text={message.reasoning ?? ""} streaming={!!message.pending} />
+          <ReasoningCard text={message.reasoning ?? ""} streaming={!!message.streaming} />
         )}
         {message.content && (
           <div
