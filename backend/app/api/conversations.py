@@ -39,6 +39,7 @@ from app.models.models import Conversation, Message
 from app.services.conversations import (
     assistant_blocks,
     ensure_conversation,
+    list_conversation_summaries,
     load_history,
     save_message,
     text_blocks,
@@ -71,6 +72,40 @@ async def classify_intent_bounded(content: str):
         )
     except Exception:
         return None
+
+
+@router.get("")
+async def list_conversations(
+    limit: int = 50,
+    offset: int = 0,
+    q: str | None = None,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """会话历史窗口：当前用户在本租户下的全部会话（分页 + 关键词过滤）。
+
+    投影口径（标题/预览/最后活跃时间）与首页「最近会话」一致，均走
+    services.conversations.list_conversation_summaries，避免两处漂移。
+    - limit 收敛到 1..100，offset>=0；
+    - q 在标题与最近消息预览里大小写无关匹配（Phase 1 再升级为全文检索）。
+    返回 {items, total, limit, offset}，total 为过滤后总数，供前端翻页。
+    """
+    page_size = max(1, min(limit, 100))
+    page_offset = max(0, offset)
+    async with SessionLocal() as db:
+        items, total = await list_conversation_summaries(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            limit=page_size,
+            offset=page_offset,
+            query=q,
+        )
+    return {
+        "items": items,
+        "total": total,
+        "limit": page_size,
+        "offset": page_offset,
+    }
 
 
 @router.get("/{conversation_id}/messages")

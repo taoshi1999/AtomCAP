@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Conversation, Message
@@ -171,3 +173,149 @@ async def load_history(
         )
     ).scalars().all()
     return list(reversed(rows))
+
+
+# ===== 会话历史列表（会话历史窗口 / 首页「最近会话」共用口径） =====
+# DB 读取与纯函数投影分离：_fetch_conversation_records 取行，project_conversations
+# 做过滤/排序/分页（纯函数、离线可测）。两处入口共用同一口径，避免标题/预览/
+# 排序在首页与历史窗口之间漂移。
+
+PREVIEW_LIMIT = 80
+CONVERSATION_TITLE_FALLBACK = "未命名对话"
+
+
+def preview_from_content(content: Any) -> str | None:
+    """从一条消息的块数组生成预览（取前 PREVIEW_LIMIT 字，object_ref 计占位符）。空则 None。"""
+    text = blocks_to_text(content)
+    if not text:
+        return None
+    return text[:PREVIEW_LIMIT]
+
+
+@dataclass
+class ConversationRecord:
+    """会话列表投影的中间行：已带最后消息时间与预览，供纯函数排序/过滤/分页。"""
+
+    id: uuid.UUID
+    title: str | None
+    updated_at: datetime
+    last_message_at: datetime | None
+    preview: str | None
+
+
+def _record_sort_key(record: "ConversationRecord") -> datetime:
+    # 最后活跃时间：有消息取最后一条消息时间，否则回退会话更新时间（与首页一致）
+    return record.last_message_at or record.updated_at
+
+
+def _record_matches_query(record: "ConversationRecord", needle: str) -> bool:
+    """大小写无关地在标题 + 最近消息预览里匹配关键词。"""
+    haystack = f"{record.title or ''}\n{record.preview or ''}".lower()
+    return needle in haystack
+
+
+def project_conversations(
+    records: list["ConversationRecord"],
+    *,
+    query: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """纯函数：按关键词过滤 -> 按最后活跃时间倒序 -> 分页 -> 投影成前端列表项。
+
+    返回 (当前页 items, 过滤后总数)。total 反映过滤后、分页前的条数，供前端翻页。
+    排序口径与首页「最近会话」一致；时间相同以 id 兜底稳定排序（SQL 层无显式兜底，
+    这里补上只影响并列项的确定性，不改变可观察行为）。
+    """
+    needle = (query or "").strip().lower()
+    filtered = [r for r in records if not needle or _record_matches_query(r, needle)]
+    ordered = sorted(
+        filtered,
+        key=lambda r: (_record_sort_key(r), str(r.id)),
+        reverse=True,
+    )
+    total = len(ordered)
+    start = max(0, offset)
+    page = ordered[start : start + limit] if limit is not None else ordered[start:]
+    items = [
+        {
+            "id": str(r.id),
+            "title": r.title or CONVERSATION_TITLE_FALLBACK,
+            "preview": r.preview,
+            "updated_at": _record_sort_key(r).isoformat(),
+        }
+        for r in page
+    ]
+    return items, total
+
+
+async def _fetch_conversation_records(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> list["ConversationRecord"]:
+    """读取当前用户在本租户下的全部会话，并补齐最后消息时间与预览。"""
+    last_message = (
+        select(
+            Message.conversation_id.label("conversation_id"),
+            func.max(Message.created_at).label("last_message_at"),
+        )
+        .where(Message.institution_id == institution_id)
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(Conversation, last_message.c.last_message_at)
+            .outerjoin(last_message, Conversation.id == last_message.c.conversation_id)
+            .where(
+                Conversation.institution_id == institution_id,
+                Conversation.user_id == user_id,
+            )
+        )
+    ).all()
+
+    records: list[ConversationRecord] = []
+    for conversation, last_message_at in rows:
+        latest = (
+            await db.execute(
+                select(Message)
+                .where(
+                    Message.institution_id == institution_id,
+                    Message.conversation_id == conversation.id,
+                )
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        records.append(
+            ConversationRecord(
+                id=conversation.id,
+                title=conversation.title,
+                updated_at=conversation.updated_at,
+                last_message_at=last_message_at,
+                preview=preview_from_content(latest.content) if latest else None,
+            )
+        )
+    return records
+
+
+async def list_conversation_summaries(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID,
+    limit: int | None = None,
+    offset: int = 0,
+    query: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """会话历史列表（租户 + 用户过滤）。
+
+    DB 读取（_fetch_conversation_records）与纯函数投影（project_conversations）分离，
+    后者可离线单测。首页聚合与独立历史端点共用同一口径。
+    """
+    records = await _fetch_conversation_records(
+        db, institution_id=institution_id, user_id=user_id
+    )
+    return project_conversations(records, query=query, limit=limit, offset=offset)

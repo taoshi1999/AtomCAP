@@ -11,14 +11,14 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
-from app.models.models import Conversation, Deal, Deliverable, Institution, Message, User
+from app.models.models import Deal, Deliverable, Institution, User
 from app.services import preferences as preferences_service
-from app.services.conversations import blocks_to_text
+from app.services.conversations import list_conversation_summaries
 from app.services.deals import list_deals
 
 router = APIRouter()
@@ -34,30 +34,6 @@ def _deliverable_title(row: Deliverable) -> str:
     return payload.get("title") or f"{row.type} 交付对象"
 
 
-def _conversation_title(row: Conversation) -> str:
-    return row.title or "未命名对话"
-
-
-async def _latest_message_preview(
-    db: AsyncSession, *, institution_id: uuid.UUID, conversation_id: uuid.UUID
-) -> str | None:
-    message = (
-        await db.execute(
-            select(Message)
-            .where(
-                Message.institution_id == institution_id,
-                Message.conversation_id == conversation_id,
-            )
-            .order_by(Message.created_at.desc(), Message.id.desc())
-            .limit(1)
-        )
-    ).scalars().first()
-    if message is None:
-        return None
-    text = blocks_to_text(message.content)
-    return text[:80] if text else None
-
-
 async def _conversation_items(
     db: AsyncSession,
     *,
@@ -65,41 +41,10 @@ async def _conversation_items(
     user_id: uuid.UUID,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    last_message = (
-        select(
-            Message.conversation_id.label("conversation_id"),
-            func.max(Message.created_at).label("last_message_at"),
-        )
-        .where(Message.institution_id == institution_id)
-        .group_by(Message.conversation_id)
-        .subquery()
+    """会话列表投影——复用 services.conversations 的统一口径（与历史窗口同源）。"""
+    items, _total = await list_conversation_summaries(
+        db, institution_id=institution_id, user_id=user_id, limit=limit
     )
-    stmt = (
-        select(Conversation, last_message.c.last_message_at)
-        .outerjoin(last_message, Conversation.id == last_message.c.conversation_id)
-        .where(
-            Conversation.institution_id == institution_id,
-            Conversation.user_id == user_id,
-        )
-        .order_by(desc(func.coalesce(last_message.c.last_message_at, Conversation.updated_at)))
-    )
-    if limit is not None:
-        stmt = stmt.limit(limit)
-    rows = (await db.execute(stmt)).all()
-
-    items: list[dict[str, Any]] = []
-    for conversation, last_message_at in rows:
-        preview = await _latest_message_preview(
-            db, institution_id=institution_id, conversation_id=conversation.id
-        )
-        items.append(
-            {
-                "id": str(conversation.id),
-                "title": _conversation_title(conversation),
-                "preview": preview,
-                "updated_at": (last_message_at or conversation.updated_at).isoformat(),
-            }
-        )
     return items
 
 
