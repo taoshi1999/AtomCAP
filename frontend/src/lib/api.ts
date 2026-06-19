@@ -369,6 +369,23 @@ export async function getPreferenceRecommendations(
   );
 }
 
+export interface PreferenceAssistantResponse {
+  action: "create" | "filter" | "unrelated" | string;
+  message: string;
+  profile?: PreferenceProfileDetail;
+  filter_keywords?: string[];
+}
+
+// POST /api/preference-profiles/assistant —— 会话栏自然语言指令（创建/筛选/无关）
+export async function preferenceAssistant(
+  instruction: string
+): Promise<PreferenceAssistantResponse> {
+  return apiJson<PreferenceAssistantResponse>("/api/preference-profiles/assistant", {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
+}
+
 /* --------------------------------- 认证 --------------------------------- */
 
 export interface AuthTokenResponse {

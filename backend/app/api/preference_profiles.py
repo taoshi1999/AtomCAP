@@ -10,16 +10,22 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
 from app.objects.preference_profile import DIMENSION_LABELS, PreferenceProfile
 from app.services import preference_profiles as profiles_service
+from app.services import preference_assistant as assistant_service
 from app.services import preference_recommendations as rec_service
 from app.services.events import record_event
 
 router = APIRouter()
+
+
+class AssistantRequest(BaseModel):
+    instruction: str
 
 
 def _dimension_summary(profile: PreferenceProfile) -> dict:
@@ -93,6 +99,54 @@ async def create_preference_profile(
         payload=_dimension_summary(body),
     )
     return profiles_service.profile_detail(row)
+
+
+@router.post("/assistant")
+async def preference_assistant_endpoint(
+    body: AssistantRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """会话栏指令助手：解析自然语言 → 自动创建 / 筛选偏好，或提示无关请求。
+
+    - create：解析出新偏好并落库（写 domain_events，约定 4），返回新卡片详情，前端在右侧栏刷新出现；
+    - filter：返回筛选关键词，前端据此在右侧栏过滤已有卡片；
+    - unrelated：返回提示，引导用户输入与投资偏好相关的请求。
+    """
+    result = await assistant_service.interpret_instruction(
+        body.instruction, allow_overseas=user.allow_overseas_models
+    )
+    if result.action == assistant_service.ACTION_CREATE and result.profile is not None:
+        row = await profiles_service.create_profile(
+            db,
+            institution_id=user.institution_id,
+            created_by=user.user_id,
+            profile=result.profile,
+        )
+        await record_event(
+            db,
+            institution_id=user.institution_id,
+            event_type="preference_profile.created",
+            subject_type="preference_profile",
+            subject_id=row.id,
+            user_id=user.user_id,
+            payload={**_dimension_summary(result.profile), "source": "assistant"},
+        )
+        return {
+            "action": "create",
+            "message": result.message,
+            "profile": profiles_service.profile_detail(row),
+        }
+    if result.action == assistant_service.ACTION_FILTER:
+        return {
+            "action": "filter",
+            "message": result.message,
+            "filter_keywords": result.filter_keywords,
+        }
+    return {
+        "action": "unrelated",
+        "message": result.message or assistant_service.UNRELATED_MESSAGE,
+    }
 
 
 @router.get("/{profile_id}")
