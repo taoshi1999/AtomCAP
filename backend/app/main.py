@@ -13,6 +13,7 @@ from app.api.experience import router as experience_router
 from app.api.home import router as home_router
 from app.api.models import router as models_router
 from app.api.preference_advice import router as preference_advice_router
+from app.api.preference_profiles import router as preference_profiles_router
 from app.api.preferences import router as preferences_router
 
 app = FastAPI(title="AtomCAP API", version="0.1.0")
@@ -36,6 +37,11 @@ app.include_router(
     preference_advice_router,
     prefix="/api/preference-advice",
     tags=["preference-advice"],
+)
+app.include_router(
+    preference_profiles_router,
+    prefix="/api/preference-profiles",
+    tags=["preference-profiles"],
 )
 app.include_router(preferences_router, prefix="/api/preferences", tags=["preferences"])
 

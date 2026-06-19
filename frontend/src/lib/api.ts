@@ -275,6 +275,98 @@ export async function updatePreference(
   });
 }
 
+/* ---------------------- 投资偏好卡片（用户自建命名偏好） ---------------------- */
+/* 与「当前投资偏好」（机构唯一生效偏好 /api/preferences）分离：这里是用户在
+ * 「投资偏好」界面手动创建的多张命名卡片，五维（赛道/阶段/地域/风险/规模）增量配置。 */
+
+export interface PreferenceProfileContent {
+  name: string;
+  sectors: string[];
+  stages: string[];
+  regions: string[];
+  risk_levels: string[];
+  check_sizes: string[];
+  notes?: string | null;
+}
+
+export interface PreferenceProfileSummary {
+  id: string;
+  name: string;
+  sectors: string[];
+  stages: string[];
+  regions: string[];
+  risk_levels: string[];
+  check_sizes: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PreferenceProfileDetail {
+  id: string;
+  name: string;
+  archived: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  profile: PreferenceProfileContent;
+}
+
+export interface PreferenceProfileListResponse {
+  items: PreferenceProfileSummary[];
+  count: number;
+}
+
+// GET /api/preference-profiles —— 卡片列表
+export async function listPreferenceProfiles(): Promise<PreferenceProfileListResponse> {
+  return apiJson<PreferenceProfileListResponse>("/api/preference-profiles");
+}
+
+// GET /api/preference-profiles/{id} —— 卡片详情
+export async function getPreferenceProfile(id: string): Promise<PreferenceProfileDetail> {
+  return apiJson<PreferenceProfileDetail>(`/api/preference-profiles/${id}`);
+}
+
+// POST /api/preference-profiles —— 创建命名偏好卡片
+export async function createPreferenceProfile(
+  content: PreferenceProfileContent
+): Promise<PreferenceProfileDetail> {
+  return apiJson<PreferenceProfileDetail>("/api/preference-profiles", {
+    method: "POST",
+    body: JSON.stringify(content),
+  });
+}
+
+// PUT /api/preference-profiles/{id} —— 整体覆盖（详情界面编辑保存）
+export async function updatePreferenceProfile(
+  id: string,
+  content: PreferenceProfileContent
+): Promise<PreferenceProfileDetail> {
+  return apiJson<PreferenceProfileDetail>(`/api/preference-profiles/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(content),
+  });
+}
+
+export interface DimensionRecommendationResponse {
+  dimension: string;
+  recommendations: string[];
+  source: "ai" | "curated" | string; // ai=LLM 生成；curated=精选清单兜底
+}
+
+// GET /api/preference-profiles/recommendations —— 某维度「添加」时的推荐候选
+export async function getPreferenceRecommendations(
+  dimension: string,
+  opts: { name?: string; existing?: string[]; limit?: number } = {}
+): Promise<DimensionRecommendationResponse> {
+  const qs = new URLSearchParams();
+  qs.set("dimension", dimension);
+  if (opts.name?.trim()) qs.set("name", opts.name.trim());
+  if (opts.existing && opts.existing.length) qs.set("existing", opts.existing.join(","));
+  if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+  return apiJson<DimensionRecommendationResponse>(
+    `/api/preference-profiles/recommendations?${qs.toString()}`
+  );
+}
+
 /* --------------------------------- 认证 --------------------------------- */
 
 export interface AuthTokenResponse {

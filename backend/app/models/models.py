@@ -276,3 +276,22 @@ class PreferenceAdviceRow(Base, TimestampMixin):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     applied: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # PreferenceAdvice schema
+
+
+class PreferenceProfileRow(Base, TimestampMixin):
+    """用户自建的命名投资偏好卡片（「投资偏好」界面创建 / 列表 / 详情 / 编辑）。
+
+    与机构唯一生效偏好 Preference 表分离：那张表是经验沉淀 Agent 反哺、fit_score 单条
+    读取的机构偏好；本表是用户手动维护的多张命名偏好卡片，互不干扰主链路。
+    created_by 记录创建者（可空，兼容 AUTH_DEV_FALLBACK 的开发租户，故不加 users 外键）。
+    archived 软删除标志，列表默认只看未归档。payload 存完整 PreferenceProfile。
+    """
+
+    __tablename__ = "preference_profiles"
+    id: Mapped[uuid.UUID] = pk()
+    institution_id: Mapped[uuid.UUID] = tenant_fk()
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # PreferenceProfile schema
+

@@ -612,7 +612,7 @@ export default function ChatPage() {
           <NavButton icon={Plus} label="新对话" active={mode === "chat" && messages.length === 0} primary onClick={handleNewConversation} />
           <NavButton icon={FolderKanban} label="项目库" meta={String(home?.deals.length ?? 0)} onClick={() => navigate("/workspace")} />
           <NavButton icon={Library} label="赛道库" meta={String(home?.deliverables.filter((item) => item.type === "thesis").length ?? 0)} active={mode === "tracks"} onClick={() => setMode("tracks")} />
-          <NavButton icon={Target} label="投资偏好" active={mode === "preference"} onClick={() => setMode("preference")} />
+          <NavButton icon={Target} label="投资偏好" onClick={() => navigate("/preferences")} />
         </nav>
 
         <section className="mt-5 min-h-0 flex-1 border-t border-slate-200 pt-4">

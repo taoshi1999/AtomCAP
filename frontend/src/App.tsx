@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import ChatPage from "./pages/ChatPage";
 import WorkspacePage from "./pages/WorkspacePage";
+import PreferencePage from "./pages/PreferencePage";
 import LoginPage from "./pages/LoginPage";
 import { RequireAuth } from "./lib/auth";
 
@@ -13,6 +14,23 @@ export default function App() {
         element={
           <RequireAuth>
             <ChatPage />
+          </RequireAuth>
+        }
+      />
+      {/* 投资偏好：用户自建命名偏好卡片的 列表 / 创建 / 详情编辑 */}
+      <Route
+        path="/preferences"
+        element={
+          <RequireAuth>
+            <PreferencePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/preferences/:profileId"
+        element={
+          <RequireAuth>
+            <PreferencePage />
           </RequireAuth>
         }
       />
