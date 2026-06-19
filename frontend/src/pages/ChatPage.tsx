@@ -186,7 +186,11 @@ export default function ChatPage() {
   const [home, setHome] = useState<HomeData | null>(null);
   const [homeError, setHomeError] = useState<string | null>(null);
   const [isHomeLoading, setIsHomeLoading] = useState(true);
-  const [mode, setMode] = useState<HomeMode>("chat");
+  const [mode, setMode] = useState<HomeMode>(() => {
+    // 支持其它页面（如投资偏好页侧边栏）经 ?view= 深链到指定模式
+    const view = new URLSearchParams(window.location.search).get("view");
+    return view === "tracks" || view === "preference" ? view : "chat";
+  });
   const [input, setInput] = useState("");
   const {
     conversationId,
