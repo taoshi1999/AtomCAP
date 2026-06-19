@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import ChatPage from "./pages/ChatPage";
 import WorkspacePage from "./pages/WorkspacePage";
 import LoginPage from "./pages/LoginPage";
@@ -16,6 +16,9 @@ export default function App() {
           </RequireAuth>
         }
       />
+      {/* 兼容旧链接：投资偏好已并入首页内部模式，/preferences 重定向到首页并切到该模式 */}
+      <Route path="/preferences" element={<Navigate to="/?view=preference" replace />} />
+      <Route path="/preferences/:profileId" element={<Navigate to="/?view=preference" replace />} />
       {/* 项目工作台：凡是绑定具体项目的深度动作（Pre-DD）都在这里进行 */}
       <Route
         path="/workspace/:dealId?"
