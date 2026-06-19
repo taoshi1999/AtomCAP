@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { DeliverableView } from "../components/objects/registry";
 import TrackManager from "../components/TrackManager";
+import DealManager from "../components/DealManager";
 import PreferenceManager from "../components/PreferenceManager";
 import {
   getConversationMessages,
@@ -58,7 +59,7 @@ import { useAuth } from "../lib/auth";
 import { useChatSession, type ChatMessage } from "../lib/chatSession";
 import type { Deliverable } from "../lib/types";
 
-type HomeMode = "chat" | "tracks" | "preference";
+type HomeMode = "chat" | "tracks" | "preference" | "deals";
 
 type RecentItem =
   | {
@@ -180,7 +181,7 @@ export default function ChatPage() {
   const [mode, setMode] = useState<HomeMode>(() => {
     // 支持其它页面（如投资偏好页侧边栏）经 ?view= 深链到指定模式
     const view = new URLSearchParams(window.location.search).get("view");
-    return view === "tracks" || view === "preference" ? view : "chat";
+    return view === "tracks" || view === "preference" || view === "deals" ? view : "chat";
   });
   const [input, setInput] = useState("");
   const {
@@ -492,7 +493,7 @@ export default function ChatPage() {
 
         <nav className="space-y-1">
           <NavButton icon={Plus} label="新对话" active={mode === "chat" && messages.length === 0} primary onClick={handleNewConversation} />
-          <NavButton icon={FolderKanban} label="项目库" meta={String(home?.deals.length ?? 0)} onClick={() => navigate("/workspace")} />
+          <NavButton icon={FolderKanban} label="项目库" meta={String(home?.deals.length ?? 0)} active={mode === "deals"} onClick={() => setMode("deals")} />
           <NavButton icon={Library} label="赛道库" meta={String(home?.deliverables.filter((item) => item.type === "thesis").length ?? 0)} active={mode === "tracks"} onClick={() => setMode("tracks")} />
           <NavButton icon={Target} label="投资偏好" active={mode === "preference"} onClick={() => setMode("preference")} />
         </nav>
@@ -565,7 +566,9 @@ export default function ChatPage() {
           </button>
         </header>
 
-        {mode === "tracks" ? (
+        {mode === "deals" ? (
+          <DealManager />
+        ) : mode === "tracks" ? (
           <TrackManager
             theses={(home?.deliverables ?? []).filter((item) => item.type === "thesis")}
             loading={isHomeLoading}

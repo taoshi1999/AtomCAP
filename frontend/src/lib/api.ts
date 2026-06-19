@@ -401,6 +401,21 @@ export async function trackAssistant(instruction: string): Promise<TrackAssistan
   });
 }
 
+export interface DealAssistantResponse {
+  action: "create" | "filter" | "unrelated" | string;
+  message: string;
+  deal?: DealSummary;
+  filter_keywords?: string[];
+}
+
+// POST /api/deals/assistant —— 项目库会话栏自然语言指令（创建/筛选/无关）
+export async function dealAssistant(instruction: string): Promise<DealAssistantResponse> {
+  return apiJson<DealAssistantResponse>("/api/deals/assistant", {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
+}
+
 /* --------------------------------- 认证 --------------------------------- */
 
 export interface AuthTokenResponse {

@@ -37,6 +37,7 @@ from app.services.deals import (
     list_deals,
     transition_deal_status,
 )
+from app.services import deal_assistant
 from app.services.events import record_event
 
 router = APIRouter()
@@ -169,6 +170,73 @@ async def get_deals(
         limit=limit,
     )
     return {"items": items, "count": len(items)}
+
+
+class DealAssistantRequest(BaseModel):
+    instruction: str
+
+
+@router.post("/assistant")
+async def deal_assistant_endpoint(
+    body: DealAssistantRequest,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """项目库会话栏指令助手：解析自然语言 → 自动创建 / 筛选项目，或提示无关请求。
+
+    - create：解析出项目草稿并复用手动建项目逻辑建 Company+Deal（写 deal.created，source=assistant），
+      返回项目摘要，前端在右侧栏刷新出现；
+    - filter：返回筛选关键词，前端据此在右侧栏过滤已有项目；
+    - unrelated：返回提示，引导用户输入与项目相关的请求。
+    """
+    result = await deal_assistant.interpret_instruction(
+        body.instruction, allow_overseas=user.allow_overseas_models
+    )
+    if result.action == deal_assistant.ACTION_CREATE and result.deal is not None:
+        draft = result.deal
+        cbody = CreateDealBody(
+            company_name=draft.company_name,
+            one_line_intro=draft.one_line_intro,
+            track=draft.track,
+            funding_stage=draft.funding_stage,
+        )
+        name = cbody.company_name.strip()
+        company = Company(
+            institution_id=user.institution_id,
+            name=name,
+            profile={"source": "assistant", "one_line_intro": cbody.one_line_intro, "track": cbody.track},
+        )
+        db.add(company)
+        await db.flush()
+        profile = _manual_deal_profile(cbody)
+        deal = Deal(
+            institution_id=user.institution_id,
+            company_id=company.id,
+            status=DealStatus.SCREENING.value,
+            data=profile.model_dump(mode="json"),
+        )
+        db.add(deal)
+        await db.flush()
+        await record_event(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            event_type="deal.created",
+            subject_type="deal",
+            subject_id=deal.id,
+            payload={"source": "assistant", "company_id": str(company.id), "track": cbody.track},
+        )
+        return {"action": "create", "message": result.message, "deal": deal_summary(deal, company)}
+    if result.action == deal_assistant.ACTION_FILTER:
+        return {
+            "action": "filter",
+            "message": result.message,
+            "filter_keywords": result.filter_keywords,
+        }
+    return {
+        "action": "unrelated",
+        "message": result.message or deal_assistant.UNRELATED_MESSAGE,
+    }
 
 
 @router.get("/{deal_id}")
