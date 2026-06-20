@@ -6,16 +6,35 @@
  *   - 「帮我创建一个关注固态电池的赛道」→ 自动创建赛道草稿；
  *   - 「筛选出半导体相关的赛道」→ 自动过滤展示；
  *   - 与赛道无关的请求 → 提示用户输入相关操作。
- * 点击赛道卡片 → 调 onOpenTrack 在对话视图打开该赛道交付物（沿用 ChatPage 既有行为）。
+ * 点击赛道卡片 → 在赛道库主区打开结构化详情，保留左侧导航与赛道库上下文。
  */
 import { useMemo, useState } from "react";
-import { ArrowUp, Bot, Filter, Loader2, MessageSquare, Plus, Sparkles, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUp,
+  Bot,
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  Filter,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   ApiError,
   createManualThesis,
+  getDeliverable,
+  sendMessage,
   trackAssistant,
   type HomeDeliverable,
+  type SseHandlers,
+  type TokenUsage,
 } from "../lib/api";
+import type { Deliverable, Thesis } from "../lib/types";
+import ThesisView from "./objects/ThesisView";
 
 function normTerm(s: string): string {
   return s.replace(/\s+/g, "").toLowerCase();
@@ -176,32 +195,185 @@ function CreateTrackModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
-/* ---------------------- 中间会话栏（指令助手） ---------------------- */
-type ChatMsg = { id: string; role: "user" | "assistant"; text: string; pending?: boolean; error?: boolean };
+/* ---------------------- 中间会话栏（指令助手 / 赛道工作台会话） ---------------------- */
+type ChatMsg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  reasoning?: string;
+  usage?: TokenUsage;
+  pending?: boolean;
+  streaming?: boolean;
+  error?: boolean;
+};
 let _mid = 0;
 function mid() {
   _mid += 1;
   return `t${_mid}-${Date.now()}`;
 }
 
+function makeConversationId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `track-conv-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function updateAssistantMessage(
+  messages: ChatMsg[],
+  id: string,
+  updater: (message: ChatMsg) => ChatMsg
+) {
+  return messages.map((message) => (message.id === id ? updater(message) : message));
+}
+
+function formatTokens(usage: TokenUsage): string {
+  const parts: string[] = [];
+  if (usage.estimated) parts.push("预估");
+  if (typeof usage.prompt_tokens === "number") parts.push(`输入 ${usage.prompt_tokens}`);
+  if (typeof usage.completion_tokens === "number") parts.push(`输出 ${usage.completion_tokens}`);
+  const total =
+    typeof usage.total_tokens === "number"
+      ? usage.total_tokens
+      : (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0) || undefined;
+  if (typeof total === "number") parts.push(`共 ${total} tokens`);
+  return parts.join(" · ");
+}
+
+function AssistantReasoning({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-1 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <Brain className="h-3.5 w-3.5" />
+        <span>思考过程{streaming ? "（生成中…）" : ""}</span>
+      </button>
+      {open && (
+        <div className="whitespace-pre-wrap border-t border-slate-200 px-2.5 py-2 text-xs leading-5 text-slate-500">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrackAssistantPanel({
   onClose,
   onCreated,
   onFilter,
+  workspaceTrack,
+  onWorkspaceChanged,
 }: {
   onClose: () => void;
   onCreated: () => void;
   onFilter: (keywords: string[]) => void;
+  workspaceTrack?: Deliverable<Thesis> | null;
+  onWorkspaceChanged?: () => void;
 }) {
+  const isWorkspace = !!workspaceTrack;
+  const thesis = workspaceTrack?.payload;
+  const [conversationId] = useState(() => makeConversationId());
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       id: mid(),
       role: "assistant",
-      text: "你可以让我创建或筛选赛道，例如「帮我创建一个关注固态电池的赛道」「筛选出半导体相关的赛道」。",
+      text: isWorkspace
+        ? `当前是「${thesis?.thesis_name ?? "该赛道"}」的赛道工作台。这里发起的会话和操作只会针对这个赛道。`
+        : "当前是普通对话，操作对象为赛道库中的全部赛道。你可以让我创建或筛选赛道。",
     },
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+
+  async function sendWorkspaceMessage(text: string, assistantId: string) {
+    if (!workspaceTrack || !thesis) return;
+    const context = [
+      "当前页面：赛道工作台",
+      "对话类型：赛道工作台",
+      `操作对象：${thesis.thesis_name}`,
+      `source_thesis_id：${workspaceTrack.id}`,
+      `一句话判断：${thesis.one_line_view}`,
+      `机会等级：${thesis.opportunity_level}`,
+      `风险等级：${thesis.risk_level}`,
+      "用户在该页面提出的分析、生成项目池、风险梳理和后续操作，均只针对当前赛道。",
+    ].join("\n");
+    const handlers: SseHandlers = {
+      onProgress(next) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({ ...m, text: next, pending: true }))
+        );
+      },
+      onToken(token) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text: `${m.pending ? "" : m.text}${token}`,
+            pending: false,
+            streaming: true,
+          }))
+        );
+      },
+      onReasoning(delta) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            reasoning: (m.reasoning ?? "") + delta,
+            streaming: true,
+          }))
+        );
+      },
+      onObject(ref) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text:
+              m.text && !m.pending
+                ? `${m.text}\n\n已生成交付结果：${ref.type}`
+                : `已生成交付结果：${ref.type}`,
+            pending: false,
+            streaming: true,
+          }))
+        );
+        onWorkspaceChanged?.();
+      },
+      onUsage(usage) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({ ...m, usage }))
+        );
+      },
+      onError(message) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text: message,
+            pending: false,
+            streaming: false,
+            error: true,
+          }))
+        );
+      },
+      onDone() {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text: m.text || "已完成。",
+            pending: false,
+            streaming: false,
+          }))
+        );
+        onWorkspaceChanged?.();
+      },
+    };
+    await sendMessage(conversationId, text, handlers, undefined, undefined, context, {
+      conversationType: "track_workspace",
+      sourceThesisId: workspaceTrack.id,
+    });
+  }
 
   async function send() {
     const text = input.trim();
@@ -215,12 +387,16 @@ function TrackAssistantPanel({
       { id: assistantId, role: "assistant", text: "正在处理…", pending: true },
     ]);
     try {
-      const res = await trackAssistant(text);
-      setMessages((cur) => cur.map((m) => (m.id === assistantId ? { ...m, text: res.message, pending: false } : m)));
-      if (res.action === "create" && res.deliverable) {
-        onCreated();
-      } else if (res.action === "filter") {
-        onFilter(res.filter_keywords ?? []);
+      if (isWorkspace) {
+        await sendWorkspaceMessage(text, assistantId);
+      } else {
+        const res = await trackAssistant(text);
+        setMessages((cur) => cur.map((m) => (m.id === assistantId ? { ...m, text: res.message, pending: false } : m)));
+        if (res.action === "create" && res.deliverable) {
+          onCreated();
+        } else if (res.action === "filter") {
+          onFilter(res.filter_keywords ?? []);
+        }
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "请求失败，请确认后端已启动。";
@@ -233,8 +409,14 @@ function TrackAssistantPanel({
   return (
     <div className="flex w-[400px] shrink-0 flex-col border-r border-slate-200 bg-white">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <Sparkles className="h-4 w-4 text-indigo-600" /> 赛道库 · AI 助手
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Sparkles className="h-4 w-4 shrink-0 text-indigo-600" />
+            <span>{isWorkspace ? "赛道工作台 · AI 助手" : "赛道库 · AI 助手"}</span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-slate-400">
+            {isWorkspace ? `操作对象：${thesis?.thesis_name ?? "当前赛道"}` : "普通对话 · 面向全部赛道"}
+          </div>
         </div>
         <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600" title="关闭">
           <X className="h-5 w-5" />
@@ -256,7 +438,13 @@ function TrackAssistantPanel({
               >
                 {!isUser && <Bot className="mr-1.5 inline h-4 w-4 align-[-2px] text-indigo-600" />}
                 {m.pending && <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin align-[-2px]" />}
-                {m.text}
+                {!isUser && m.reasoning && (
+                  <AssistantReasoning text={m.reasoning} streaming={!!m.streaming} />
+                )}
+                <span className="whitespace-pre-wrap">{m.text}</span>
+                {!isUser && m.usage && (
+                  <div className="mt-1 text-[11px] text-slate-400">{formatTokens(m.usage)}</div>
+                )}
               </div>
             </div>
           );
@@ -274,7 +462,7 @@ function TrackAssistantPanel({
               }
             }}
             rows={2}
-            placeholder="用自然语言下达赛道指令…"
+            placeholder={isWorkspace ? "向当前赛道工作台提需求…" : "用自然语言下达赛道库指令…"}
             className="min-w-0 flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
           />
           <button
@@ -296,34 +484,64 @@ function TrackAssistantPanel({
 export default function TrackManager({
   theses,
   loading,
-  onOpenTrack,
   onChanged,
+  currentPreference,
 }: {
   theses: HomeDeliverable[];
   loading: boolean;
-  onOpenTrack: (id: string) => void;
   onChanged: () => void;
+  currentPreference?: Record<string, unknown>;
 }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+  const [selectedDeliverable, setSelectedDeliverable] = useState<Deliverable<Thesis> | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const filtered = useMemo(
     () => theses.filter((t) => matchesKeywords(t, filterKeywords)),
     [theses, filterKeywords]
   );
 
+  async function loadTrackDetail(id: string) {
+    setSelectedTrackId(id);
+    setSelectedDeliverable(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const deliverable = await getDeliverable(id);
+      if (deliverable.type !== "thesis") {
+        throw new Error("该交付物不是赛道前瞻对象");
+      }
+      setSelectedDeliverable(deliverable as Deliverable<Thesis>);
+    } catch (error) {
+      setDetailError(error instanceof ApiError ? error.message : error instanceof Error ? error.message : "赛道详情加载失败");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function refreshAfterDetailAction() {
+    onChanged();
+    if (selectedTrackId) void loadTrackDetail(selectedTrackId);
+  }
+
   return (
     <div className="flex min-h-0 flex-1">
       {/* 中栏：会话指令助手 */}
       {chatOpen && (
         <TrackAssistantPanel
+          key={selectedDeliverable ? `workspace-${selectedDeliverable.id}` : "library"}
           onClose={() => setChatOpen(false)}
           onCreated={() => {
             setFilterKeywords([]);
             onChanged();
           }}
           onFilter={(kw) => setFilterKeywords(kw)}
+          workspaceTrack={selectedDeliverable}
+          onWorkspaceChanged={refreshAfterDetailAction}
         />
       )}
 
@@ -354,32 +572,72 @@ export default function TrackManager({
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-          {loading && (
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <Loader2 className="h-4 w-4 animate-spin" /> 正在加载赛道…
-            </div>
-          )}
-          {!loading && theses.length === 0 && (
-            <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
-              <p className="text-sm text-slate-500">赛道库暂无赛道</p>
+          {selectedTrackId ? (
+            <div className="space-y-4">
               <button
                 type="button"
-                onClick={() => setCreateOpen(true)}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                onClick={() => {
+                  setSelectedTrackId(null);
+                  setSelectedDeliverable(null);
+                  setDetailError(null);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                <Plus className="h-4 w-4" /> 新建赛道
+                <ArrowLeft className="h-4 w-4" />
+                返回赛道库
               </button>
+
+              {detailLoading && (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> 正在加载赛道详情…
+                </div>
+              )}
+
+              {detailError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {detailError}
+                </div>
+              )}
+
+              {selectedDeliverable && (
+                <ThesisView
+                  thesis={selectedDeliverable.payload}
+                  deliverableId={selectedDeliverable.id}
+                  currentPreference={currentPreference}
+                  onActionComplete={refreshAfterDetailAction}
+                />
+              )}
             </div>
-          )}
-          {!loading && theses.length > 0 && filtered.length === 0 && (
-            <div className="text-sm text-slate-400">没有匹配筛选条件的赛道。</div>
-          )}
-          {!loading && filtered.length > 0 && (
-            <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
-              {filtered.map((t) => (
-                <TrackCard key={t.id} track={t} onClick={() => onOpenTrack(t.id)} />
-              ))}
-            </div>
+          ) : (
+            <>
+              {loading && (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> 正在加载赛道…
+                </div>
+              )}
+              {!loading && theses.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
+                  <p className="text-sm text-slate-500">赛道库暂无赛道</p>
+                  <button
+                    type="button"
+                    onClick={() => setCreateOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  >
+                    <Plus className="h-4 w-4" /> 新建赛道
+                  </button>
+                </div>
+              )}
+              {!loading && theses.length > 0 && filtered.length === 0 && (
+                <div className="text-sm text-slate-400">没有匹配筛选条件的赛道。</div>
+              )}
+              {!loading && filtered.length > 0 && (
+                <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
+                  {filtered.map((t) => (
+                    <TrackCard key={t.id} track={t} onClick={() => void loadTrackDetail(t.id)} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

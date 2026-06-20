@@ -17,6 +17,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
 from app.objects.preference_profile import DIMENSION_LABELS, PreferenceProfile
 from app.services import preference_profiles as profiles_service
+from app.services import preferences as preferences_service
 from app.services import preference_assistant as assistant_service
 from app.services import preference_recommendations as rec_service
 from app.services.events import record_event
@@ -30,14 +31,7 @@ class AssistantRequest(BaseModel):
 
 def _dimension_summary(profile: PreferenceProfile) -> dict:
     """偏好维度随事件落盘（事后无法补），供经验沉淀 Agent 复盘偏好演进。"""
-    return {
-        "name": profile.name,
-        "sectors": profile.sectors,
-        "stages": profile.stages,
-        "regions": profile.regions,
-        "risk_levels": profile.risk_levels,
-        "check_sizes": profile.check_sizes,
-    }
+    return profiles_service.profile_event_payload(profile)
 
 
 @router.get("")
@@ -162,6 +156,79 @@ async def get_preference_profile(
     if row is None:
         raise HTTPException(status_code=404, detail="偏好不存在")
     return profiles_service.profile_detail(row)
+
+
+@router.get("/{profile_id}/versions")
+async def list_preference_profile_versions(
+    profile_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """查看单张偏好卡片的历史版本（基于 domain_events 快照回放）。"""
+    row = await profiles_service.get_profile(
+        db, institution_id=user.institution_id, profile_id=profile_id
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="偏好不存在")
+    versions = await profiles_service.list_profile_versions(
+        db, institution_id=user.institution_id, profile_id=profile_id
+    )
+    return {"items": versions, "count": len(versions)}
+
+
+@router.post("/{profile_id}/apply")
+async def apply_preference_profile(
+    profile_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """把一张命名偏好卡片应用为机构当前生效偏好。"""
+    row = await profiles_service.get_profile(
+        db, institution_id=user.institution_id, profile_id=profile_id
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="偏好不存在")
+    profile = PreferenceProfile.model_validate(row.payload or {})
+    pref_row = await preferences_service.set_active_preference(
+        db,
+        institution_id=user.institution_id,
+        payload=profiles_service.profile_to_investment_preference(profile),
+    )
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        event_type="preference.updated",
+        subject_type="preference",
+        subject_id=pref_row.id,
+        user_id=user.user_id,
+        payload={
+            "version": pref_row.version,
+            "source": "preference_profile",
+            "source_profile_id": str(row.id),
+            **profiles_service.profile_event_payload(profile),
+        },
+    )
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        event_type="preference_profile.applied",
+        subject_type="preference_profile",
+        subject_id=row.id,
+        user_id=user.user_id,
+        payload={
+            **profiles_service.profile_event_payload(profile),
+            "applied_preference_id": str(pref_row.id),
+            "applied_preference_version": pref_row.version,
+        },
+    )
+    return {
+        "profile": profiles_service.profile_detail(row),
+        "applied_preference": {
+            "id": str(pref_row.id),
+            "version": pref_row.version,
+            "preference": pref_row.payload,
+        },
+    }
 
 
 @router.put("/{profile_id}")

@@ -52,6 +52,10 @@ def test_preview_includes_object_ref_placeholder():
     assert preview_from_content([{"type": "object_ref", "deliverable_id": "abc"}]) == "[交付对象 abc]"
 
 
+def test_preview_includes_deal_ref_placeholder():
+    assert preview_from_content([{"type": "deal_ref", "deal_id": "deal-1"}]) == "[项目工作台 deal-1]"
+
+
 # ---------- project_conversations：排序 ----------
 
 def test_orders_by_last_activity_desc_with_updated_fallback():

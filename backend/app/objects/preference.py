@@ -50,6 +50,9 @@ class DeclaredStrategy(BaseModel):
     focus_regions: list[str] = Field(default_factory=list)
     check_size: CheckSize | None = None
     target_deal_types: list[str] = Field(default_factory=list)
+    custom_dimensions: dict[str, list[str]] = Field(
+        default_factory=dict, description="用户自定义声明偏好维度"
+    )
     description: str | None = None
 
 

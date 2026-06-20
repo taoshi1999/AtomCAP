@@ -1,7 +1,7 @@
 """对话与消息持久化 + domain_events 记账。
 
 消息 content 为块数组（与 Message ORM 注释一致）：
-  [{"type": "text", "text": "..."} | {"type": "object_ref", "deliverable_id": "..."}]
+  [{"type": "text", "text": "..."} | {"type": "object_ref", "deliverable_id": "..."} | {"type": "deal_ref", "deal_id": "..."}]
 
 核心约定 4：消息落库属于用户操作/状态流转，必须写 domain_events。
 与 services/deliverables.py 同约定：服务层收 institution_id/user_id 原始值，
@@ -55,7 +55,7 @@ def assistant_blocks(
 
 
 def blocks_to_text(blocks: list[dict[str, Any]] | dict[str, Any]) -> str:
-    """把块数组拍平成纯文本（喂给 LLM 的历史）。object_ref 以占位符表示。"""
+    """把块数组拍平成纯文本（喂给 LLM 的历史）。对象引用以占位符表示。"""
     if isinstance(blocks, dict):  # 兼容历史脏数据
         blocks = blocks.get("blocks", [])
     parts: list[str] = []
@@ -64,6 +64,8 @@ def blocks_to_text(blocks: list[dict[str, Any]] | dict[str, Any]) -> str:
             parts.append(b.get("text", ""))
         elif b.get("type") == "object_ref":
             parts.append(f"[交付对象 {b.get('deliverable_id')}]")
+        elif b.get("type") == "deal_ref":
+            parts.append(f"[项目工作台 {b.get('deal_id')}]")
     return "".join(parts)
 
 

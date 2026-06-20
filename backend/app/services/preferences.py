@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import func, select, update
@@ -22,6 +23,105 @@ from app.models.models import Preference
 from app.objects.preference import InvestmentPreference
 
 logger = logging.getLogger(__name__)
+
+
+def _string_list(value: Any) -> list[str]:
+    """宽松提取字符串列表，供 Agent 上下文摘要使用。"""
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+
+def _join(items: list[str], *, limit: int = 8) -> str:
+    normalized = _unique(items)
+    if not normalized:
+        return ""
+    suffix = " 等" if len(normalized) > limit else ""
+    return "、".join(normalized[:limit]) + suffix
+
+
+def _text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) and value.strip() else ""
+
+
+def describe_for_agent(preference: dict[str, Any] | None) -> str:
+    """把当前 active 投资偏好压缩成可注入 LLM/Agent 的文本上下文。
+
+    该函数只做展示层归一化，不改变 preferences.payload。所有需要偏好语境的
+    Agent 都应以 get_active()/get_active_row() 的结果为准，再用本函数生成
+    prompt 上下文，避免读到未应用的命名偏好卡片或前端临时状态。
+    """
+    preference = preference or {}
+    if not preference:
+        return "当前应用的投资偏好：未配置。"
+
+    declared = preference.get("declared_strategy")
+    declared = declared if isinstance(declared, dict) else {}
+    lines = ["当前应用的投资偏好："]
+
+    name = _text(preference.get("name"))
+    if name:
+        lines.append(f"- 名称：{name}")
+
+    version = preference.get("version")
+    if isinstance(version, int):
+        lines.append(f"- 版本：v{version}")
+
+    sectors = _join(
+        _string_list(declared.get("focus_sectors"))
+        + _string_list(preference.get("track_preferences"))
+    )
+    if sectors:
+        lines.append(f"- 关注赛道：{sectors}")
+
+    stages = _join(
+        _string_list(declared.get("focus_stages"))
+        + _string_list(preference.get("stages"))
+    )
+    if stages:
+        lines.append(f"- 投资阶段：{stages}")
+
+    regions = _join(
+        _string_list(declared.get("focus_regions"))
+        + _string_list(preference.get("geographies"))
+    )
+    if regions:
+        lines.append(f"- 地域偏好：{regions}")
+
+    risk_appetite = _text(preference.get("risk_appetite"))
+    if risk_appetite:
+        lines.append(f"- 风险偏好：{risk_appetite}")
+
+    check_size = _text(preference.get("check_size"))
+    if check_size:
+        lines.append(f"- 单笔规模：{check_size}")
+
+    custom_dimensions = declared.get("custom_dimensions")
+    if isinstance(custom_dimensions, dict):
+        for label, values in custom_dimensions.items():
+            label_text = _text(label)
+            value_text = _join(_string_list(values))
+            if label_text and value_text:
+                lines.append(f"- {label_text}：{value_text}")
+
+    notes = _text(preference.get("notes")) or _text(declared.get("description"))
+    if notes:
+        lines.append(f"- 备注：{notes}")
+
+    if len(lines) == 1:
+        lines.append("- 已配置，但未填写具体维度。")
+    return "\n".join(lines)
 
 
 async def get_active_row(

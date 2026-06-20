@@ -1,19 +1,21 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 import {
   getDeliverable,
+  getDealDetail,
   sendMessage,
   uploadMaterial,
   type HomeConversation,
   type SseHandlers,
   type TokenUsage,
 } from "./api";
-import type { Deliverable } from "./types";
+import type { DealDetail, Deliverable } from "./types";
 
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   deliverables: Deliverable[];
+  deals?: DealDetail[];
   reasoning?: string;
   usage?: TokenUsage;
   pending?: boolean;
@@ -206,6 +208,31 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           }));
         },
         onObject(ref) {
+          if (ref.type === "deal" && ref.deal_id) {
+            void getDealDetail(ref.deal_id)
+              .then((deal) => {
+                updateAssistant(id, assistantId, (message) => ({
+                  ...message,
+                  content:
+                    message.content && !message.pending
+                      ? message.content
+                      : "项目分析完成，已进入项目工作台。",
+                  deals: [...(message.deals ?? []), deal],
+                  pending: false,
+                  streaming: message.streaming,
+                }));
+              })
+              .catch((error) => {
+                updateAssistant(id, assistantId, (message) => ({
+                  ...message,
+                  content: `项目已生成，但拉取工作台详情失败：${compactError(error)}`,
+                  pending: false,
+                  streaming: false,
+                  error: true,
+                }));
+              });
+            return;
+          }
           if (!ref.deliverable_id) return;
           void getDeliverable(ref.deliverable_id)
             .then((deliverable) => {
@@ -252,7 +279,9 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
           updateAssistant(id, assistantId, (message) => ({
             ...message,
             content:
-              message.content || message.deliverables.length > 0
+              message.content ||
+              message.deliverables.length > 0 ||
+              (message.deals?.length ?? 0) > 0
                 ? message.content
                 : "已完成。",
             pending: false,

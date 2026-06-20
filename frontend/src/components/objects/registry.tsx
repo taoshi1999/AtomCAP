@@ -9,10 +9,22 @@ import DealListView from "./DealListView";
 
 const REGISTRY: Partial<Record<DeliverableType, ComponentType<{ payload: never }>>> = {};
 
-export function DeliverableView({ deliverable }: { deliverable: Deliverable }) {
+export function DeliverableView({
+  deliverable,
+  currentPreference,
+}: {
+  deliverable: Deliverable;
+  currentPreference?: Record<string, unknown>;
+}) {
   switch (deliverable.type) {
     case "thesis":
-      return <ThesisView thesis={deliverable.payload as Thesis} />;
+      return (
+        <ThesisView
+          thesis={deliverable.payload as Thesis}
+          deliverableId={deliverable.id}
+          currentPreference={currentPreference}
+        />
+      );
     case "deal_list":
       return <DealListView payload={deliverable.payload} />;
     default:

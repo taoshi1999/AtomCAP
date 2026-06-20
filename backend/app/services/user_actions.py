@@ -58,6 +58,8 @@ DEAL_TRANSITION_ACTIONS: dict[str, UserActionType] = {
 THESIS_ACTIONS: dict[str, UserActionType] = {
     "follow_track": UserActionType.FOLLOW_THESIS,        # 关注赛道 (+2)
     "generate_deal_pool": UserActionType.GENERATE_PROJECT_POOL,  # 生成项目池 (+2)
+    "join_project_library": UserActionType.JOIN_PROJECT_LIBRARY,  # 将赛道/子赛道纳入项目获取目标 (+3)
+    "dismiss_track": UserActionType.DISLIKE_THESIS,      # 不感兴趣 (-3)
 }
 
 # 中文标签（前端/复盘可读，写入 UserAction.action_label）。
@@ -65,6 +67,7 @@ ACTION_LABELS: dict[UserActionType, str] = {
     UserActionType.JOIN_PROJECT_LIBRARY: "加入项目库",
     UserActionType.MARK_DEAL_AS_INTERESTED: "关注项目",
     UserActionType.DISLIKE_DEAL: "不感兴趣",
+    UserActionType.DISLIKE_THESIS: "不感兴趣",
     UserActionType.ABANDON_DEAL: "放弃项目",
     UserActionType.CREATE_PROJECT_WORKSPACE: "创建项目工作台",
     UserActionType.GENERATE_PRE_DD_BRIEF: "进入 Pre-DD",

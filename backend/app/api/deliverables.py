@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +46,8 @@ ACTION_EVENT_SUFFIX = {
     "generate_deal_pool": "deal_pool_requested",
     "generate_briefing": "briefing_requested",
     "re_recommend": "re_recommend_requested",
+    "join_project_library": "project_library_joined",
+    "dismiss_track": "dismissed",
 }
 
 
@@ -56,6 +58,15 @@ class CreateThesisBody(BaseModel):
     risk_level: str = Field(default="中", max_length=20)
     advice: str | None = Field(default=None, max_length=500)
     sub_directions: list[str] = Field(default_factory=list, description="子方向名称，少于 3 个会自动补足")
+
+
+class DeliverableActionBody(BaseModel):
+    source_sub_direction: str | None = Field(
+        default=None,
+        max_length=120,
+        description="触发动作的子赛道名称；为空表示作用于整份 Thesis。",
+    )
+    note: str | None = Field(default=None, max_length=500)
 
 
 def _manual_fit(rationale: str) -> FitScoreBreakdown:
@@ -246,17 +257,23 @@ async def get_deliverable(
 async def trigger_action(
     deliverable_id: uuid.UUID,
     action: str,
+    body: DeliverableActionBody | None = Body(default=None),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """对象上的动作按钮：follow_track / generate_deal_pool / generate_briefing / re_recommend。"""
+    """对象上的动作按钮：关注、生成项目池、简报、加入项目库、不感兴趣等。"""
     if action not in ACTION_EVENT_SUFFIX:
         raise HTTPException(status_code=422, detail=f"未知动作: {action}")
 
     row = await _get_owned(db, deliverable_id, user)
+    action_body = body or DeliverableActionBody()
+    source_sub_direction = action_body.source_sub_direction
 
-    if action == "follow_track":
-        row.status = "followed"  # 已关注 → 进入定时监控（Phase 4 cron）
+    if action in {"follow_track", "join_project_library"}:
+        row.status = ThesisStatus.FOLLOWING.value  # 已关注 → 进入定时监控（Phase 4 cron）
+    elif action == "dismiss_track" and not source_sub_direction:
+        # 子赛道级“不感兴趣”只记录偏好信号；整份 Thesis 级动作才隐藏该赛道。
+        row.status = ThesisStatus.DELETED.value
 
     await record_event(
         db,
@@ -269,11 +286,16 @@ async def trigger_action(
             "action": action,
             # 赛道上下文随事件落盘（事后无法补）：load_history 按赛道回放的匹配依据
             "track": (row.payload or {}).get("thesis_name"),
+            "source_sub_direction": source_sub_direction,
+            "note": action_body.note,
         },
     )
     # 约定 4 强化：关注赛道/生成项目池落结构化 UserAction，快照存赛道名供经验沉淀复盘。
     ua_type = THESIS_ACTIONS.get(action)
     if ua_type is not None:
+        snapshot = snapshot_from_thesis(row.payload)
+        if source_sub_direction:
+            snapshot.sub_sector = source_sub_direction
         await record_user_action(
             db,
             action_type=ua_type,
@@ -282,7 +304,11 @@ async def trigger_action(
             target_type=row.type,
             target_id=row.id,
             target_name=(row.payload or {}).get("thesis_name"),
-            snapshot=snapshot_from_thesis(row.payload),
+            snapshot=snapshot,
+            extra_payload={
+                "source_sub_direction": source_sub_direction,
+                "note": action_body.note,
+            },
         )
     # 生成项目池有专用 SSE 端点（见 generate_deal_pool）真正驱动 deal_sourcing 子图；
     # 简报/重新推荐待 Phase 1 入 ARQ 队列触发对应 agent run。
@@ -300,6 +326,7 @@ GENERATE_DEAL_POOL_FAILED_MSG = "生成项目池失败，请稍后重试。"
 @router.post("/{deliverable_id}/generate-deal-pool")
 async def generate_deal_pool(
     deliverable_id: uuid.UUID,
+    body: DeliverableActionBody | None = Body(default=None),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -321,6 +348,23 @@ async def generate_deal_pool(
     thesis_payload = row.payload or {}
     thesis_context = thesis_context_from_payload(thesis_payload)
     thesis_name = thesis_payload.get("thesis_name") or "赛道"
+    action_body = body or DeliverableActionBody()
+    source_sub_direction = action_body.source_sub_direction
+    if source_sub_direction:
+        sub_directions = thesis_context.get("sub_directions")
+        if isinstance(sub_directions, list):
+            selected = [
+                item
+                for item in sub_directions
+                if isinstance(item, dict) and item.get("name") == source_sub_direction
+            ]
+            if selected:
+                thesis_context["sub_directions"] = selected
+                thesis_context["selected_sub_direction"] = selected[0]
+        thesis_context["scope"] = {
+            "source_sub_direction": source_sub_direction,
+            "instruction": "仅围绕该子赛道生成候选项目池",
+        }
     institution_id = user.institution_id
     user_id = user.user_id
     allow_overseas = user.allow_overseas_models
@@ -347,15 +391,34 @@ async def generate_deal_pool(
                     payload={
                         "action": "generate_deal_pool",
                         "track": thesis_name,
+                        "source_sub_direction": source_sub_direction,
                         "conversation_id": str(conversation_id),
                     },
+                )
+                snapshot = snapshot_from_thesis(owned.payload)
+                if source_sub_direction:
+                    snapshot.sub_sector = source_sub_direction
+                await record_user_action(
+                    wdb,
+                    action_type=THESIS_ACTIONS["generate_deal_pool"],
+                    institution_id=institution_id,
+                    user_id=user_id,
+                    target_type=DeliverableType.THESIS.value,
+                    target_id=owned.id,
+                    target_name=thesis_name,
+                    snapshot=snapshot,
+                    extra_payload={"source_sub_direction": source_sub_direction},
                 )
             await ensure_conversation(
                 wdb,
                 institution_id=institution_id,
                 user_id=user_id,
                 conversation_id=conversation_id,
-                title_hint=f"{thesis_name} 项目池",
+                title_hint=(
+                    f"{thesis_name} · {source_sub_direction} 项目池"
+                    if source_sub_direction
+                    else f"{thesis_name} 项目池"
+                ),
             )
             await save_message(
                 wdb,
@@ -363,15 +426,24 @@ async def generate_deal_pool(
                 user_id=user_id,
                 conversation_id=conversation_id,
                 role="user",
-                blocks=text_blocks(f"根据《{thesis_name}》赛道判断生成候选项目池"),
+                blocks=text_blocks(
+                    f"根据《{thesis_name}》中的「{source_sub_direction}」子赛道判断生成候选项目池"
+                    if source_sub_direction
+                    else f"根据《{thesis_name}》赛道判断生成候选项目池"
+                ),
                 event_payload={
                     "intent": "deal_sourcing",
                     "source_thesis_id": str(deliverable_id),
+                    "source_sub_direction": source_sub_direction,
                 },
             )
 
         # 2) 进 deal_sourcing 搜寻流：source_thesis_id + thesis_context 驱动策略，DealList 回链
-        query = f"根据《{thesis_name}》赛道判断，找一批匹配的候选项目"
+        query = (
+            f"根据《{thesis_name}》中的「{source_sub_direction}」子赛道判断，找一批匹配的候选项目"
+            if source_sub_direction
+            else f"根据《{thesis_name}》赛道判断，找一批匹配的候选项目"
+        )
         async for ev in run_deal_sourcing(
             institution_id=institution_id,
             user_id=user_id,

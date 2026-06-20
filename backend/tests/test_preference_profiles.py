@@ -34,11 +34,18 @@ def test_profile_schema_cleans_lists_and_name():
         name="  硬科技  ",
         sectors=[" 半导体 ", "半导体", "", "人工智能"],
         stages=["A 轮"],
+        custom_dimensions=[
+            {"key": "team", "label": "团队背景", "values": [" 科研背景 ", "科研背景", ""]},
+            {"key": "team", "label": "重复维度", "values": ["不应保留"]},
+        ],
     )
     assert p.name == "硬科技"  # 裁剪
     assert p.sectors == ["半导体", "人工智能"]  # 去空白去重保序
     assert p.stages == ["A 轮"]
     assert p.regions == [] and p.risk_levels == [] and p.check_sizes == []
+    assert len(p.custom_dimensions) == 1
+    assert p.custom_dimensions[0].label == "团队背景"
+    assert p.custom_dimensions[0].values == ["科研背景"]
 
 
 def test_profile_schema_rejects_empty_name():
@@ -175,6 +182,7 @@ def test_profile_projections():
             "regions": ["北京"],
             "risk_levels": [],
             "check_sizes": [],
+            "custom_dimensions": [{"key": "team", "label": "团队背景", "values": ["科研背景"]}],
             "notes": "备注",
         },
     )
@@ -185,9 +193,31 @@ def test_profile_projections():
     summary = profiles_service.profile_summary(row)
     assert summary["name"] == "均衡型"
     assert summary["sectors"] == ["人工智能"] and summary["regions"] == ["北京"]
+    assert summary["custom_dimensions"][0]["label"] == "团队背景"
     assert summary["created_at"] is None  # 容空
 
     detail = profiles_service.profile_detail(row)
     assert detail["archived"] is False
     assert detail["profile"]["name"] == "均衡型"
+    assert detail["profile"]["custom_dimensions"][0]["values"] == ["科研背景"]
     assert detail["profile"]["notes"] == "备注"
+
+
+def test_profile_to_investment_preference_payload():
+    prof = PreferenceProfile(
+        name="AI 早期",
+        sectors=["人工智能"],
+        stages=["Pre-A"],
+        regions=["中国"],
+        risk_levels=["高风险"],
+        check_sizes=["1000-3000万"],
+        custom_dimensions=[{"key": "team", "label": "团队背景", "values": ["科研背景"]}],
+        notes="重点看上游",
+    )
+    payload = profiles_service.profile_to_investment_preference(prof)
+    assert payload["name"] == "AI 早期"
+    assert payload["track_preferences"] == ["人工智能"]
+    assert payload["declared_strategy"]["focus_stages"] == ["Pre-A"]
+    assert payload["declared_strategy"]["custom_dimensions"] == {"团队背景": ["科研背景"]}
+    assert payload["risk_appetite"] == "高风险"
+    assert payload["check_size"] == "1000-3000万"

@@ -44,6 +44,7 @@ import DealManager from "../components/DealManager";
 import PreferenceManager from "../components/PreferenceManager";
 import {
   getConversationMessages,
+  getDealDetail,
   getDeliverable,
   getHome,
   getModels,
@@ -57,7 +58,7 @@ import {
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useChatSession, type ChatMessage } from "../lib/chatSession";
-import type { Deliverable } from "../lib/types";
+import type { DealDetail, Deliverable } from "../lib/types";
 
 type HomeMode = "chat" | "tracks" | "preference" | "deals";
 
@@ -84,6 +85,10 @@ type RecentItem =
       updated_at: string;
     };
 
+function recentItemKey(item: Pick<RecentItem, "kind" | "id">) {
+  return `${item.kind}-${item.id}`;
+}
+
 function makeId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -102,10 +107,13 @@ function normalizeBlocks(content: ConversationMessage["content"]): MessageBlock[
 }
 
 function blocksToText(blocks: MessageBlock[]) {
-  return blocks
+  const text = blocks
     .filter((block) => block.type === "text")
     .map((block) => block.text ?? "")
     .join("");
+  if (text) return text;
+  const deal = blocks.find((block) => block.type === "deal_ref" && block.deal_id);
+  return deal ? `[项目工作台 ${deal.deal_id}]` : "";
 }
 
 function usageFromBlocks(blocks: MessageBlock[]): TokenUsage | undefined {
@@ -119,9 +127,15 @@ function getStringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function getRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function preferenceList(home: HomeData | null, key: "sectors" | "stages" | "regions") {
   const preference = home?.preference.preference ?? {};
-  const declared = preference.declared_strategy as Record<string, unknown> | undefined;
+  const declared = getRecord(preference.declared_strategy);
   if (key === "sectors") {
     return [
       ...getStringList(declared?.focus_sectors),
@@ -141,7 +155,54 @@ function preferenceList(home: HomeData | null, key: "sectors" | "stages" | "regi
 }
 
 function displayList(items: string[], empty = "未设置") {
-  return items.length > 0 ? items.slice(0, 3).join(" / ") : empty;
+  const normalized = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+  return normalized.length > 0 ? normalized.join(" / ") : empty;
+}
+
+function displayPreferenceValue(value: unknown, empty = "未设置") {
+  if (typeof value === "string") {
+    return value.trim() || empty;
+  }
+  return displayList(getStringList(value), empty);
+}
+
+function optionalPreferenceText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function currentPreferenceName(home: HomeData | null) {
+  return optionalPreferenceText(home?.preference.preference?.name) ?? "未命名偏好";
+}
+
+type PreferenceDisplayLine = {
+  label: string;
+  value: string;
+};
+
+function preferenceDisplayLines(home: HomeData | null): PreferenceDisplayLine[] {
+  const preference = home?.preference.preference ?? {};
+  const declared = getRecord(preference.declared_strategy);
+  const customDimensions = getRecord(declared.custom_dimensions);
+  const notes = optionalPreferenceText(preference.notes) ?? optionalPreferenceText(declared.description);
+  const lines: PreferenceDisplayLine[] = [
+    { label: "赛道", value: displayList(preferenceList(home, "sectors")) },
+    { label: "阶段", value: displayList(preferenceList(home, "stages")) },
+    { label: "地域", value: displayList(preferenceList(home, "regions")) },
+    { label: "风险", value: displayPreferenceValue(preference.risk_appetite) },
+    { label: "规模", value: displayPreferenceValue(preference.check_size) },
+  ];
+
+  for (const [label, value] of Object.entries(customDimensions)) {
+    const normalizedLabel = label.trim();
+    if (!normalizedLabel) continue;
+    lines.push({ label: normalizedLabel, value: displayPreferenceValue(value) });
+  }
+
+  if (notes) {
+    lines.push({ label: "备注", value: notes });
+  }
+
+  return lines;
 }
 
 
@@ -209,6 +270,7 @@ export default function ChatPage() {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [activeRecentKey, setActiveRecentKey] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     getModels()
@@ -346,7 +408,21 @@ export default function ChatPage() {
 
   const userName = home?.user.name || "你好";
   const userSubtitle = home?.user.email || home?.institution.name || "";
+  const newConversationActive = mode === "chat" && messages.length === 0;
+
+  function switchMode(nextMode: HomeMode) {
+    setActiveRecentKey(null);
+    setMode(nextMode);
+  }
+
+  function isRecentActive(item: RecentItem) {
+    if (mode !== "chat") return false;
+    if (activeRecentKey) return activeRecentKey === recentItemKey(item);
+    return item.kind === "conversation" && item.id === conversationId && messages.length > 0;
+  }
+
   function handleNewConversation() {
+    setActiveRecentKey(null);
     startNewConversation();
     setInput("");
     setMode("chat");
@@ -367,7 +443,16 @@ export default function ChatPage() {
     return deliverables.filter((item): item is Deliverable => item !== null);
   }
 
+  async function fetchMessageDeals(blocks: MessageBlock[]) {
+    const refs = blocks
+      .filter((block) => block.type === "deal_ref" && block.deal_id)
+      .map((block) => block.deal_id as string);
+    const deals = await Promise.all(refs.map((id) => getDealDetail(id).catch(() => null)));
+    return deals.filter((item): item is DealDetail => item !== null);
+  }
+
   async function loadConversation(id: string) {
+    setActiveRecentKey(null);
     setMode("chat");
     setActiveConversationId(id);
     if (streamingConversationIds.has(id)) return;
@@ -394,6 +479,7 @@ export default function ChatPage() {
               role: message.role === "user" ? "user" : "assistant",
               content: blocksToText(blocks),
               deliverables: await fetchMessageDeliverables(blocks),
+              deals: await fetchMessageDeals(blocks),
               usage: usageFromBlocks(blocks),
             };
           })
@@ -413,6 +499,7 @@ export default function ChatPage() {
   }
 
   async function openDeliverable(id: string) {
+    setActiveRecentKey(`deliverable-${id}`);
     setMode("chat");
     setConversationProgress(conversationId, null);
     setConversationSending(conversationId, false);
@@ -445,6 +532,7 @@ export default function ChatPage() {
     } else if (item.kind === "deliverable") {
       void openDeliverable(item.id);
     } else {
+      setActiveRecentKey(recentItemKey(item));
       navigate(`/workspace/${item.id}`);
     }
   }
@@ -457,6 +545,7 @@ export default function ChatPage() {
   async function handleSend(text: string) {
     const content = text.trim();
     if (!content || isSending) return;
+    setActiveRecentKey(null);
     setMode("chat");
     setInput("");
     await startTextMessage(content, modelTier);
@@ -464,6 +553,7 @@ export default function ChatPage() {
 
   async function handleUpload(file: File) {
     if (isSending) return;
+    setActiveRecentKey(null);
     setMode("chat");
     await startUpload(file);
   }
@@ -492,10 +582,16 @@ export default function ChatPage() {
         </div>
 
         <nav className="space-y-1">
-          <NavButton icon={Plus} label="新对话" active={mode === "chat" && messages.length === 0} primary onClick={handleNewConversation} />
-          <NavButton icon={FolderKanban} label="项目库" meta={String(home?.deals.length ?? 0)} active={mode === "deals"} onClick={() => setMode("deals")} />
-          <NavButton icon={Library} label="赛道库" meta={String(home?.deliverables.filter((item) => item.type === "thesis").length ?? 0)} active={mode === "tracks"} onClick={() => setMode("tracks")} />
-          <NavButton icon={Target} label="投资偏好" active={mode === "preference"} onClick={() => setMode("preference")} />
+          <NavButton icon={Plus} label="新对话" active={newConversationActive} primary onClick={handleNewConversation} />
+          <NavButton icon={FolderKanban} label="项目库" meta={String(home?.deals.length ?? 0)} active={mode === "deals"} onClick={() => switchMode("deals")} />
+          <NavButton icon={Library} label="赛道库" meta={String(home?.deliverables.filter((item) => item.type === "thesis").length ?? 0)} active={mode === "tracks"} onClick={() => switchMode("tracks")} />
+          <NavButton
+            icon={Target}
+            label="投资偏好"
+            meta={String(home?.stats.preference_profile_count ?? 0)}
+            active={mode === "preference"}
+            onClick={() => switchMode("preference")}
+          />
         </nav>
 
         <section className="mt-5 min-h-0 flex-1 border-t border-slate-200 pt-4">
@@ -518,8 +614,9 @@ export default function ChatPage() {
             )}
             {recentItems.map((item) => (
               <RecentButton
-                key={`${item.kind}-${item.id}`}
+                key={recentItemKey(item)}
                 item={item}
+                active={isRecentActive(item)}
                 streaming={item.kind === "conversation" && streamingConversationIds.has(item.id)}
                 onClick={() => handleRecentClick(item)}
               />
@@ -528,7 +625,7 @@ export default function ChatPage() {
         </section>
 
         <div className="mt-3 space-y-3">
-          <PreferenceCard home={home} loading={isHomeLoading} onOpen={() => setMode("preference")} />
+          <PreferenceCard home={home} loading={isHomeLoading} onOpen={() => switchMode("preference")} />
           <button
             type="button"
             onClick={handleSignOut}
@@ -572,11 +669,11 @@ export default function ChatPage() {
           <TrackManager
             theses={(home?.deliverables ?? []).filter((item) => item.type === "thesis")}
             loading={isHomeLoading}
-            onOpenTrack={(id) => void openDeliverable(id)}
             onChanged={() => void refreshHome()}
+            currentPreference={home?.preference.preference ?? {}}
           />
         ) : mode === "preference" ? (
-          <PreferenceManager />
+          <PreferenceManager onPreferenceApplied={() => void refreshHome()} />
         ) : messages.length === 0 ? (
           <section className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-5 pb-5 lg:px-8">
             <div className="flex min-h-0 flex-1 items-center justify-center pb-10">
@@ -611,7 +708,11 @@ export default function ChatPage() {
             <section className="min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-8">
               <div className="mx-auto flex max-w-4xl flex-col gap-5">
                 {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    currentPreference={home?.preference.preference ?? {}}
+                  />
                 ))}
               </div>
             </section>
@@ -667,21 +768,22 @@ function NavButton({
   meta?: string;
   onClick?: () => void;
 }) {
+  const primaryActive = primary && active;
   return (
     <button
       type="button"
       onClick={onClick}
       className={`flex h-11 w-full items-center gap-3 rounded-lg px-4 text-left text-sm font-semibold transition ${
-        primary
+        primaryActive
           ? "justify-center bg-indigo-600 text-white shadow-sm shadow-indigo-200 hover:bg-indigo-700"
           : active
             ? "bg-indigo-50 text-indigo-700"
             : "text-slate-700 hover:bg-slate-50"
       }`}
     >
-      <Icon className={`h-5 w-5 ${primary ? "" : "text-current"}`} />
+      <Icon className={`h-5 w-5 ${primaryActive ? "" : "text-current"}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {meta && !primary && <span className="text-xs text-slate-400">{meta}</span>}
+      {meta && !primaryActive && <span className="text-xs text-slate-400">{meta}</span>}
     </button>
   );
 }
@@ -817,10 +919,12 @@ function SidebarHint({ children, tone }: { children: ReactNode; tone?: "error" }
 
 function RecentButton({
   item,
+  active,
   streaming,
   onClick,
 }: {
   item: RecentItem;
+  active?: boolean;
   streaming?: boolean;
   onClick: () => void;
 }) {
@@ -834,14 +938,18 @@ function RecentButton({
     <button
       type="button"
       onClick={onClick}
-      className="relative grid h-10 w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+      className={`relative grid h-10 w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold transition ${
+        active ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-50"
+      }`}
     >
       {streaming && (
         <span className="absolute left-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_4px_rgba(79,70,229,0.14)] animate-pulse" />
       )}
-      <Icon className={`h-5 w-5 ${streaming ? "text-indigo-600" : "text-slate-800"}`} />
+      <Icon className={`h-5 w-5 ${active || streaming ? "text-indigo-600" : "text-slate-800"}`} />
       <span className="min-w-0 truncate">{item.title}</span>
-      <span className="text-[11px] font-medium text-slate-400">{formatDate(item.updated_at)}</span>
+      <span className={`text-[11px] font-medium ${active ? "text-indigo-400" : "text-slate-400"}`}>
+        {formatDate(item.updated_at)}
+      </span>
     </button>
   );
 }
@@ -855,9 +963,8 @@ function PreferenceCard({
   loading: boolean;
   onOpen: () => void;
 }) {
-  const sectors = preferenceList(home, "sectors");
-  const stages = preferenceList(home, "stages");
-  const regions = preferenceList(home, "regions");
+  const lines = preferenceDisplayLines(home);
+  const preferenceName = currentPreferenceName(home);
   return (
     <button
       type="button"
@@ -875,11 +982,16 @@ function PreferenceCard({
       ) : !home?.preference.exists ? (
         <div className="text-xs leading-5 text-slate-500">数据库暂无偏好记录</div>
       ) : (
-        <div className="space-y-1.5 text-xs leading-5 text-slate-800">
-          <PreferenceLine label="赛道" value={displayList(sectors)} />
-          <PreferenceLine label="阶段" value={displayList(stages)} />
-          <PreferenceLine label="地域" value={displayList(regions)} />
-        </div>
+        <>
+          <div className="mb-2 truncate text-xs font-semibold text-slate-700" title={preferenceName}>
+            {preferenceName}
+          </div>
+          <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1 text-xs leading-5 text-slate-800">
+            {lines.map((line, index) => (
+              <PreferenceLine key={`${line.label}-${index}`} label={line.label} value={line.value} />
+            ))}
+          </div>
+        </>
       )}
     </button>
   );
@@ -887,10 +999,10 @@ function PreferenceCard({
 
 function PreferenceLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[8px_36px_1fr] items-start gap-2">
+    <div className="grid grid-cols-[8px_56px_minmax(0,1fr)] items-start gap-2">
       <span className="mt-2 h-1.5 w-1.5 rounded-full bg-indigo-600" />
       <span className="font-semibold text-slate-500">{label}</span>
-      <span className="min-w-0 truncate">{value}</span>
+      <span className="min-w-0 break-words">{value}</span>
     </div>
   );
 }
@@ -1037,10 +1149,57 @@ function ReasoningCard({ text, streaming }: { text: string; streaming: boolean }
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function DealReferenceCard({ deal }: { deal: DealDetail }) {
+  const navigate = useNavigate();
+  const extraction = deal.data.extraction;
+  const analysis = deal.data.analysis;
+  const companyName = deal.company?.name || extraction.company_name || "未命名项目";
+  const fit = typeof analysis.overall_fit === "number" ? Math.round(analysis.overall_fit) : null;
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/workspace/${deal.id}`)}
+      className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/30"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600">
+            <FolderKanban className="h-4 w-4" />
+            项目工作台
+          </div>
+          <h3 className="mt-1 truncate text-base font-bold text-slate-950">{companyName}</h3>
+        </div>
+        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
+          {dealStatusLabel(deal.status)}
+        </span>
+      </div>
+      {analysis.portrait && (
+        <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
+          {analysis.portrait}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-slate-500">
+        {extraction.track && <span className="rounded-full bg-slate-100 px-2.5 py-1">{extraction.track}</span>}
+        {extraction.funding_stage && (
+          <span className="rounded-full bg-slate-100 px-2.5 py-1">{extraction.funding_stage}</span>
+        )}
+        {fit !== null && <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-600">匹配度 {fit}</span>}
+      </div>
+    </button>
+  );
+}
+
+function MessageBubble({
+  message,
+  currentPreference,
+}: {
+  message: ChatMessage;
+  currentPreference?: Record<string, unknown>;
+}) {
   const isUser = message.role === "user";
   const showReasoning = !isUser && !!message.reasoning;
   const showUsage = !isUser && !!message.usage;
+  const deals = message.deals ?? [];
   return (
     <article className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
@@ -1076,7 +1235,18 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {message.deliverables.length > 0 && (
           <div className="mt-4 space-y-4">
             {message.deliverables.map((deliverable) => (
-              <DeliverableView key={deliverable.id} deliverable={deliverable} />
+              <DeliverableView
+                key={deliverable.id}
+                deliverable={deliverable}
+                currentPreference={currentPreference}
+              />
+            ))}
+          </div>
+        )}
+        {deals.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {deals.map((deal) => (
+              <DealReferenceCard key={deal.id} deal={deal} />
             ))}
           </div>
         )}

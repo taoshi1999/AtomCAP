@@ -24,6 +24,7 @@ from app.services.deals import (
     deal_summary,
     is_allowed_transition,
 )
+from app.services.pre_dd import build_pre_dd_workspace
 
 
 def _valid_data(**overrides) -> dict:
@@ -160,3 +161,49 @@ def test_deal_summary_tolerates_missing_company():
     s = deal_summary(deal, None)
     assert s["company_name"] is None
     assert s["is_in_library"] is False
+
+
+# ---------- Pre-DD 工作台只读视图 ----------
+
+def test_pre_dd_workspace_builds_material_tree_from_profile():
+    profile = DealProfile.model_validate(
+        _valid_data(
+            extraction={
+                "company_name": "光羽科技",
+                "one_line_intro": "AI 眼镜光学模组方案商",
+                "product": "光学模组",
+                "founders": ["张三"],
+                "customers": ["头部消费电子客户"],
+                "funding_stage": "Pre-A",
+                "funding_amount": "3000 万元",
+            },
+            analysis={
+                "portrait": "AI 眼镜光学模组方案商",
+                "overall_fit": 89,
+                "initial_risks": [{"text": "客户集中度待验证", "evidence_ids": [], "inferred": True}],
+                "info_gaps": ["估值与股权结构仍需补充"],
+                "open_questions": ["核心客户收入占比是多少？"],
+                "next_steps": [{"text": "安排 Founder Call", "evidence_ids": [], "inferred": True}],
+            },
+        )
+    )
+
+    view = build_pre_dd_workspace(profile)
+    assert view["completion"]["total"] == 14
+    assert view["completion"]["score"] > 0
+    bp = next(item for item in view["items"] if item["key"] == "bp_product")
+    assert bp["status"] == "complete"
+    assert any("产品方案" in item for item in bp["provided"])
+    equity = next(item for item in view["items"] if item["key"] == "equity")
+    assert equity["status"] in {"partial", "public_data_possible"}
+    assert view["priority_questions"] == ["核心客户收入占比是多少？"]
+    assert view["risk_queue"] == ["客户集中度待验证"]
+
+
+def test_pre_dd_workspace_empty_profile_has_no_fake_questions_or_risks():
+    profile = DealProfile.model_validate(_valid_data())
+    view = build_pre_dd_workspace(profile)
+    assert view["completion"]["total"] == 14
+    assert view["priority_questions"] == []
+    assert view["risk_queue"] == []
+    assert all(item["status"] in {"missing", "partial", "public_data_possible", "complete"} for item in view["items"])

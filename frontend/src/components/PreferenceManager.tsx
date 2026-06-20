@@ -14,6 +14,7 @@ import {
   Bot,
   Check,
   Filter,
+  History,
   Loader2,
   MessageSquare,
   Plus,
@@ -22,14 +23,18 @@ import {
 } from "lucide-react";
 import {
   ApiError,
+  applyPreferenceProfile,
   createPreferenceProfile,
   getPreferenceProfile,
   getPreferenceRecommendations,
+  listPreferenceProfileVersions,
   listPreferenceProfiles,
   preferenceAssistant,
   updatePreferenceProfile,
+  type PreferenceCustomDimension,
   type PreferenceProfileContent,
   type PreferenceProfileSummary,
+  type PreferenceProfileVersion,
 } from "../lib/api";
 
 const DIMENSIONS = [
@@ -49,6 +54,7 @@ const EMPTY_FORM: PreferenceProfileContent = {
   regions: [],
   risk_levels: [],
   check_sizes: [],
+  custom_dimensions: [],
   notes: "",
 };
 
@@ -58,10 +64,26 @@ function normTerm(s: string): string {
 }
 function matchesKeywords(p: PreferenceProfileSummary, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
+  const customText = (p.custom_dimensions ?? [])
+    .flatMap((item) => [item.label, ...item.values])
+    .join("\n");
   const hay = normTerm(
-    [p.name, ...p.sectors, ...p.stages, ...p.regions, ...p.risk_levels, ...p.check_sizes].join("\n")
+    [
+      p.name,
+      ...p.sectors,
+      ...p.stages,
+      ...p.regions,
+      ...p.risk_levels,
+      ...p.check_sizes,
+      customText,
+    ].join("\n")
   );
   return keywords.some((k) => hay.includes(normTerm(k)));
+}
+
+function makeCustomDimensionKey(label: string) {
+  const normalized = normTerm(label).slice(0, 32) || "dimension";
+  return `custom-${normalized}-${Date.now().toString(36)}`;
 }
 
 /* ---------------------- 单维度增量编辑器 ---------------------- */
@@ -186,6 +208,85 @@ function DimensionField({
   );
 }
 
+function CustomDimensionField({
+  dimension,
+  onChange,
+  onRemove,
+}: {
+  dimension: PreferenceCustomDimension;
+  onChange: (next: PreferenceCustomDimension) => void;
+  onRemove: () => void;
+}) {
+  const [custom, setCustom] = useState("");
+  const values = dimension.values ?? [];
+
+  function addValue(value: string) {
+    const next = value.trim();
+    if (!next || values.includes(next)) return;
+    onChange({ ...dimension, values: [...values, next] });
+    setCustom("");
+  }
+
+  function removeValue(value: string) {
+    onChange({ ...dimension, values: values.filter((item) => item !== value) });
+  }
+
+  return (
+    <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <input
+          value={dimension.label}
+          onChange={(event) => onChange({ ...dimension, label: event.target.value })}
+          placeholder="自定义维度名称"
+          className="min-w-0 flex-1 bg-transparent text-sm font-medium text-slate-700 outline-none"
+        />
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-md px-2 py-1 text-xs font-medium text-slate-400 hover:bg-white hover:text-rose-500"
+        >
+          删除维度
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {values.length === 0 && <span className="text-xs text-slate-400">尚未配置</span>}
+        {values.map((value) => (
+          <span
+            key={value}
+            className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-slate-700"
+          >
+            {value}
+            <button type="button" onClick={() => removeValue(value)} className="text-slate-400 hover:text-rose-500">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          value={custom}
+          onChange={(event) => setCustom(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addValue(custom);
+            }
+          }}
+          placeholder="输入该维度的取值，回车添加"
+          className="min-w-0 flex-1 rounded-md border border-indigo-100 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-indigo-300"
+        />
+        <button
+          type="button"
+          onClick={() => addValue(custom)}
+          className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+        >
+          添加
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------- 偏好表单 ---------------------- */
 function ProfileForm({
   form,
@@ -194,9 +295,39 @@ function ProfileForm({
   form: PreferenceProfileContent;
   onChange: (next: PreferenceProfileContent) => void;
 }) {
+  const customDimensions = form.custom_dimensions ?? [];
+
   function setDim(key: DimKey, next: string[]) {
     onChange({ ...form, [key]: next });
   }
+
+  function addCustomDimension() {
+    const label = `自定义维度 ${customDimensions.length + 1}`;
+    onChange({
+      ...form,
+      custom_dimensions: [
+        ...customDimensions,
+        { key: makeCustomDimensionKey(label), label, values: [] },
+      ],
+    });
+  }
+
+  function updateCustomDimension(key: string | null | undefined, next: PreferenceCustomDimension) {
+    onChange({
+      ...form,
+      custom_dimensions: customDimensions.map((item) =>
+        item.key === key ? { ...next, key: next.key || key || makeCustomDimensionKey(next.label) } : item
+      ),
+    });
+  }
+
+  function removeCustomDimension(key: string | null | undefined) {
+    onChange({
+      ...form,
+      custom_dimensions: customDimensions.filter((item) => item.key !== key),
+    });
+  }
+
   return (
     <div className="space-y-3">
       <div>
@@ -218,6 +349,33 @@ function ProfileForm({
           onChange={(next) => setDim(d.key, next)}
         />
       ))}
+      <div className="rounded-lg border border-dashed border-indigo-200 bg-white p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-slate-700">自定义偏好维度</div>
+            <div className="mt-1 text-xs text-slate-400">补充系统预设之外的投资判断标准</div>
+          </div>
+          <button
+            type="button"
+            onClick={addCustomDimension}
+            className="flex shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100"
+          >
+            <Plus className="h-3.5 w-3.5" /> 新建维度
+          </button>
+        </div>
+        {customDimensions.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {customDimensions.map((dimension) => (
+              <CustomDimensionField
+                key={dimension.key ?? dimension.label}
+                dimension={dimension}
+                onChange={(next) => updateCustomDimension(dimension.key, next)}
+                onRemove={() => removeCustomDimension(dimension.key)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-700">备注（可选）</label>
         <textarea
@@ -287,16 +445,154 @@ function CreatePreferenceModal({ onClose, onCreated }: { onClose: () => void; on
   );
 }
 
+function eventLabel(eventType: string) {
+  const labels: Record<string, string> = {
+    "preference_profile.created": "创建",
+    "preference_profile.updated": "更新",
+    "preference_profile.applied": "应用",
+  };
+  return labels[eventType] ?? eventType;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function versionChips(profile: PreferenceProfileContent) {
+  const fixed = DIMENSIONS.map((d) => ({
+    label: d.label,
+    values: profile[d.key],
+  }));
+  const custom = (profile.custom_dimensions ?? []).map((item) => ({
+    label: item.label,
+    values: item.values ?? [],
+  }));
+  return [...fixed, ...custom].filter((item) => item.values.length > 0);
+}
+
+function PreferenceHistoryModal({
+  title,
+  versions,
+  loading,
+  error,
+  onClose,
+}: {
+  title: string;
+  versions: PreferenceProfileVersion[];
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 py-10">
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">历史版本</h2>
+            <p className="mt-1 text-xs text-slate-500">{title}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+          {loading && (
+            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> 正在读取历史版本…
+            </div>
+          )}
+          {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+          {!loading && !error && versions.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">
+              暂无历史版本
+            </div>
+          )}
+          {!loading && versions.length > 0 && (
+            <div className="space-y-3">
+              {versions
+                .slice()
+                .reverse()
+                .map((version) => {
+                  const chips = versionChips(version.profile);
+                  return (
+                    <article key={`${version.version}-${version.occurred_at}`} className="rounded-lg border border-slate-200 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-bold text-slate-900">
+                            v{version.version} · {eventLabel(version.event_type)}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {formatDateTime(version.occurred_at)}
+                          </div>
+                        </div>
+                        <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+                          {version.profile.name}
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-1.5">
+                        {chips.length === 0 && <div className="text-xs text-slate-400">该版本未配置维度</div>}
+                        {chips.map((chip) => (
+                          <div key={`${version.version}-${chip.label}`} className="grid grid-cols-[96px_1fr] gap-2 text-xs">
+                            <span className="font-medium text-slate-400">{chip.label}</span>
+                            <span className="text-slate-700">{chip.values.join("、")}</span>
+                          </div>
+                        ))}
+                        {version.profile.notes && (
+                          <div className="grid grid-cols-[96px_1fr] gap-2 text-xs">
+                            <span className="font-medium text-slate-400">备注</span>
+                            <span className="text-slate-700">{version.profile.notes}</span>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------- 卡片 ---------------------- */
 function summaryChips(profile: PreferenceProfileSummary): { label: string; values: string[] }[] {
-  return DIMENSIONS.map((d) => ({ label: d.label, values: profile[d.key] })).filter((x) => x.values.length > 0);
+  return [
+    ...DIMENSIONS.map((d) => ({ label: d.label, values: profile[d.key] })),
+    ...(profile.custom_dimensions ?? []).map((item) => ({
+      label: item.label,
+      values: item.values ?? [],
+    })),
+  ].filter((x) => x.values.length > 0);
 }
-function PreferenceCard({ profile, onClick }: { profile: PreferenceProfileSummary; onClick: () => void }) {
+function PreferenceCard({
+  profile,
+  applying,
+  onClick,
+  onHistory,
+  onApply,
+}: {
+  profile: PreferenceProfileSummary;
+  applying?: boolean;
+  onClick: () => void;
+  onHistory: () => void;
+  onApply: () => void;
+}) {
   const chips = summaryChips(profile);
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:shadow-sm"
     >
       <span className="text-sm font-bold text-slate-900">{profile.name}</span>
@@ -310,7 +606,31 @@ function PreferenceCard({ profile, onClick }: { profile: PreferenceProfileSummar
         ))}
         {chips.length > 3 && <span className="text-xs text-slate-400">等 {chips.length} 个维度</span>}
       </div>
-    </button>
+      <div className="mt-4 flex gap-2 border-t border-slate-100 pt-3">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onHistory();
+          }}
+          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          <History className="h-3.5 w-3.5" /> 查看历史版本
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onApply();
+          }}
+          disabled={applying}
+          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          应用此偏好
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -318,12 +638,18 @@ function PreferenceCard({ profile, onClick }: { profile: PreferenceProfileSummar
 function DetailEditor({
   id,
   chatOpen,
+  applying,
   onToggleChat,
+  onHistory,
+  onApply,
   onBack,
 }: {
   id: string;
   chatOpen: boolean;
+  applying?: boolean;
   onToggleChat: () => void;
+  onHistory: () => void;
+  onApply: () => void;
   onBack: () => void;
 }) {
   const [form, setForm] = useState<PreferenceProfileContent | null>(null);
@@ -386,6 +712,23 @@ function DetailEditor({
           <AssistantToggle chatOpen={chatOpen} onToggle={onToggleChat} />
           <button
             type="button"
+            onClick={onHistory}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+          >
+            <History className="h-4 w-4" />
+            查看历史版本
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={applying}
+            className="flex items-center gap-1.5 rounded-lg border border-indigo-200 px-3.5 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+          >
+            {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            应用此偏好
+          </button>
+          <button
+            type="button"
             onClick={save}
             disabled={saving || loading || !form}
             className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
@@ -444,9 +787,12 @@ function CardList({
   error,
   filterKeywords,
   chatOpen,
+  applyingId,
   onToggleChat,
   onClearFilter,
   onOpen,
+  onHistory,
+  onApply,
   onCreate,
 }: {
   items: PreferenceProfileSummary[];
@@ -454,9 +800,12 @@ function CardList({
   error: string | null;
   filterKeywords: string[];
   chatOpen: boolean;
+  applyingId: string | null;
   onToggleChat: () => void;
   onClearFilter: () => void;
   onOpen: (id: string) => void;
+  onHistory: (profile: PreferenceProfileSummary) => void;
+  onApply: (profile: PreferenceProfileSummary) => void;
   onCreate: () => void;
 }) {
   const filtered = useMemo(
@@ -514,7 +863,14 @@ function CardList({
         {!loading && filtered.length > 0 && (
           <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
             {filtered.map((p) => (
-              <PreferenceCard key={p.id} profile={p} onClick={() => onOpen(p.id)} />
+              <PreferenceCard
+                key={p.id}
+                profile={p}
+                applying={applyingId === p.id}
+                onClick={() => onOpen(p.id)}
+                onHistory={() => onHistory(p)}
+                onApply={() => onApply(p)}
+              />
             ))}
           </div>
         )}
@@ -645,7 +1001,11 @@ function AssistantPanel({
 }
 
 /* ---------------------- 入口：三列编排 ---------------------- */
-export default function PreferenceManager() {
+export default function PreferenceManager({
+  onPreferenceApplied,
+}: {
+  onPreferenceApplied?: () => void;
+}) {
   const [items, setItems] = useState<PreferenceProfileSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -653,6 +1013,15 @@ export default function PreferenceManager() {
   const [createOpen, setCreateOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [historyState, setHistoryState] = useState<{
+    open: boolean;
+    title: string;
+    loading: boolean;
+    error: string | null;
+    versions: PreferenceProfileVersion[];
+  }>({ open: false, title: "", loading: false, error: null, versions: [] });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -678,6 +1047,45 @@ export default function PreferenceManager() {
     void refresh();
   }, [refresh]);
 
+  async function openHistory(profile: Pick<PreferenceProfileSummary, "id" | "name">) {
+    setHistoryState({ open: true, title: profile.name, loading: true, error: null, versions: [] });
+    try {
+      const res = await listPreferenceProfileVersions(profile.id);
+      setHistoryState({
+        open: true,
+        title: profile.name,
+        loading: false,
+        error: null,
+        versions: res.items,
+      });
+    } catch (error) {
+      setHistoryState({
+        open: true,
+        title: profile.name,
+        loading: false,
+        error: error instanceof ApiError ? error.message : "历史版本读取失败",
+        versions: [],
+      });
+    }
+  }
+
+  async function applyProfile(profile: Pick<PreferenceProfileSummary, "id" | "name">) {
+    setApplyingId(profile.id);
+    setNotice(null);
+    try {
+      const res = await applyPreferenceProfile(profile.id);
+      setNotice(`已应用「${profile.name}」为当前投资偏好 v${res.applied_preference.version}`);
+      onPreferenceApplied?.();
+      void refresh();
+    } catch (error) {
+      setNotice(error instanceof ApiError ? error.message : "应用偏好失败");
+    } finally {
+      setApplyingId(null);
+    }
+  }
+
+  const selectedSummary = selectedId ? items.find((item) => item.id === selectedId) : null;
+
   return (
     <div className="flex min-h-0 flex-1">
       {/* 中栏：会话指令助手（点 AI 助手后出现，形成左中右三列） */}
@@ -702,7 +1110,10 @@ export default function PreferenceManager() {
           <DetailEditor
             id={selectedId}
             chatOpen={chatOpen}
+            applying={applyingId === selectedId}
             onToggleChat={() => setChatOpen((v) => !v)}
+            onHistory={() => void openHistory(selectedSummary ?? { id: selectedId, name: "当前偏好" })}
+            onApply={() => void applyProfile(selectedSummary ?? { id: selectedId, name: "当前偏好" })}
             onBack={() => {
               setSelectedId(null);
               void refresh();
@@ -715,9 +1126,12 @@ export default function PreferenceManager() {
             error={error}
             filterKeywords={filterKeywords}
             chatOpen={chatOpen}
+            applyingId={applyingId}
             onToggleChat={() => setChatOpen((v) => !v)}
             onClearFilter={() => setFilterKeywords([])}
             onOpen={(id) => setSelectedId(id)}
+            onHistory={(profile) => void openHistory(profile)}
+            onApply={(profile) => void applyProfile(profile)}
             onCreate={() => setCreateOpen(true)}
           />
         )}
@@ -731,6 +1145,20 @@ export default function PreferenceManager() {
             void refresh();
           }}
         />
+      )}
+      {historyState.open && (
+        <PreferenceHistoryModal
+          title={historyState.title}
+          versions={historyState.versions}
+          loading={historyState.loading}
+          error={historyState.error}
+          onClose={() => setHistoryState((state) => ({ ...state, open: false }))}
+        />
+      )}
+      {notice && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border border-indigo-100 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-lg">
+          {notice}
+        </div>
       )}
     </div>
   );

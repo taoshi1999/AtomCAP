@@ -29,6 +29,9 @@ import type {
   DealStatus,
   DealSummary,
   FitScoreBreakdown,
+  PreDDChecklistItem,
+  PreDDTaskStatus,
+  PreDDWorkspace,
 } from "../lib/types";
 
 // 管线状态展示元信息（与 backend DealStatus 对齐）
@@ -67,10 +70,26 @@ const ACTION_LABELS: Record<DealAction, string> = {
   create_workspace: "创建工作台",
 };
 
+const PRE_DD_STATUS_META: Record<PreDDTaskStatus, { label: string; className: string }> = {
+  complete: { label: "已提供", className: "bg-emerald-50 text-emerald-700" },
+  partial: { label: "部分提供", className: "bg-amber-50 text-amber-700" },
+  missing: { label: "未提供", className: "bg-rose-50 text-rose-700" },
+  public_data_possible: { label: "可公开补全", className: "bg-blue-50 text-blue-700" },
+};
+
 function StatusBadge({ status }: { status: DealStatus }) {
   const meta = STATUS_META[status] ?? { label: status, badge: "bg-slate-100 text-slate-600" };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+function PreDDStatusBadge({ status }: { status: PreDDTaskStatus }) {
+  const meta = PRE_DD_STATUS_META[status] ?? PRE_DD_STATUS_META.missing;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}>
       {meta.label}
     </span>
   );
@@ -286,6 +305,85 @@ function FitScore({ fit }: { fit: FitScoreBreakdown }) {
   );
 }
 
+function PreDDTaskCard({ item }: { item: PreDDChecklistItem }) {
+  const details = [
+    ...item.provided.map((text) => ({ kind: "已有", text })),
+    ...item.missing.map((text) => ({ kind: "缺失", text })),
+    ...item.gaps.map((text) => ({ kind: "缺口", text })),
+    ...item.questions.map((text) => ({ kind: "问题", text })),
+  ].slice(0, 4);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 text-sm font-semibold text-slate-800">{item.title}</div>
+        <PreDDStatusBadge status={item.status} />
+      </div>
+      {details.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {details.map((detail, index) => (
+            <div key={`${detail.kind}-${index}`} className="grid grid-cols-[34px_1fr] gap-2 text-xs leading-5">
+              <span className="text-slate-400">{detail.kind}</span>
+              <span className="min-w-0 text-slate-600">{detail.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreDDPanel({ workspace }: { workspace: PreDDWorkspace }) {
+  const { completion } = workspace;
+  return (
+    <Section title="Pre-DD 资料任务树">
+      <div className="mb-4 grid gap-3 md:grid-cols-[160px_1fr]">
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="text-3xl font-black text-slate-950">{completion.score}%</div>
+          <div className="mt-1 text-xs font-medium text-slate-400">资料完整度</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">已提供 {completion.complete}</div>
+          <div className="rounded-lg bg-amber-50 p-2 text-amber-700">部分提供 {completion.partial}</div>
+          <div className="rounded-lg bg-blue-50 p-2 text-blue-700">可公开补全 {completion.public_data_possible}</div>
+          <div className="rounded-lg bg-rose-50 p-2 text-rose-700">未提供 {completion.missing}</div>
+        </div>
+      </div>
+
+      <div className="grid gap-2 lg:grid-cols-2">
+        {workspace.items.map((item) => (
+          <PreDDTaskCard key={item.key} item={item} />
+        ))}
+      </div>
+
+      {(workspace.priority_questions.length > 0 || workspace.risk_queue.length > 0) && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {workspace.priority_questions.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-semibold text-slate-400">待验证问题</div>
+              <ul className="ml-4 list-disc text-sm leading-6 text-slate-700">
+                {workspace.priority_questions.map((question, index) => (
+                  <li key={index}>{question}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {workspace.risk_queue.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-semibold text-slate-400">风险扫描队列</div>
+              <ul className="ml-4 list-disc text-sm leading-6 text-slate-700">
+                {workspace.risk_queue.map((risk, index) => (
+                  <li key={index}>{risk}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function Facts({ detail }: { detail: DealDetail }) {
   const e = detail.data.extraction;
   const rows: [string, string | null | undefined][] = [
@@ -403,6 +501,8 @@ function DealDetailPanel({
           <FitScore fit={a.fit_score} />
         </Section>
       )}
+
+      {detail.pre_dd && <PreDDPanel workspace={detail.pre_dd} />}
 
       {a.highlights.length > 0 && (
         <Section title="投资亮点">

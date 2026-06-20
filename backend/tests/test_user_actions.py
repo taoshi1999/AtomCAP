@@ -67,6 +67,9 @@ def test_mappings_only_cover_defined_action_types():
     assert action_strength(DEAL_TRANSITION_ACTIONS["rejected"]).polarity == Polarity.NEGATIVE
     # 上会是最强正向
     assert action_strength(DEAL_TRANSITION_ACTIONS["ic_ready"]).weight == 6
+    assert THESIS_ACTIONS["dismiss_track"] == UserActionType.DISLIKE_THESIS
+    assert action_strength(THESIS_ACTIONS["dismiss_track"]).polarity == Polarity.NEGATIVE
+    assert THESIS_ACTIONS["join_project_library"] == UserActionType.JOIN_PROJECT_LIBRARY
 
 
 def test_snapshot_from_deal_extracts_portrait():

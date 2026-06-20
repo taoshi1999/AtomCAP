@@ -34,6 +34,7 @@ from app.services.user_actions import (
     record_user_action,
     snapshot_from_deal,
 )
+from app.services.pre_dd import build_pre_dd_workspace
 
 # ---------- 管线状态机：允许的前向流转 ----------
 
@@ -203,11 +204,13 @@ async def get_deal_detail(
             Company.institution_id == institution_id,
         )
     )
+    profile = DealProfile.model_validate(deal.data or {})
     return {
         "id": str(deal.id),
         "company_id": str(deal.company_id),
         "status": deal.status,
-        "data": deal.data,
+        "data": profile.model_dump(mode="json"),
+        "pre_dd": build_pre_dd_workspace(profile),
         "company": (
             {
                 "id": str(company.id),

@@ -4,7 +4,14 @@
  * token / reasoning / progress / object / usage / error / done
  */
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import type { DealAction, DealDetail, DealStatus, DealSummary, Deliverable } from "./types";
+import type {
+  DealAction,
+  DealDetail,
+  DealStatus,
+  DealSummary,
+  Deliverable,
+  ThesisAction,
+} from "./types";
 
 /* ----------------------------------------------------------------------------
  * token 注入。
@@ -31,14 +38,26 @@ export interface TokenUsage {
   estimated?: boolean;
 }
 
+export interface SseObjectRef {
+  type: string;
+  deliverable_id?: string | null;
+  deal_id?: string | null;
+  company_id?: string | null;
+}
+
 export interface SseHandlers {
   onToken?: (text: string) => void;
   onReasoning?: (text: string) => void;
   onProgress?: (text: string) => void;
-  onObject?: (ref: { type: string; deliverable_id: string | null }) => void;
+  onObject?: (ref: SseObjectRef) => void;
   onUsage?: (usage: TokenUsage) => void;
   onError?: (text: string) => void;
   onDone?: () => void;
+}
+
+export interface SendMessageOptions {
+  conversationType?: "normal" | "track_workspace";
+  sourceThesisId?: string;
 }
 
 async function ensureSseResponse(response: Response) {
@@ -88,13 +107,20 @@ export async function sendMessage(
   handlers: SseHandlers,
   signal?: AbortSignal,
   modelTier?: string,
-  context?: string
+  context?: string,
+  options: SendMessageOptions = {}
 ) {
   await fetchEventSource(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     // context 为页面级助手注入的页面上下文：只进 LLM 输入，后端不写入持久化消息正文
-    body: JSON.stringify({ content, model_tier: modelTier, context }),
+    body: JSON.stringify({
+      content,
+      model_tier: modelTier,
+      context,
+      conversation_type: options.conversationType ?? "normal",
+      source_thesis_id: options.sourceThesisId ?? null,
+    }),
     signal,
     openWhenHidden: true,
     onopen: ensureSseResponse,
@@ -248,6 +274,7 @@ export interface HomeData {
   stats: {
     conversation_count: number;
     deliverable_count: number;
+    preference_profile_count: number;
     deal_status_counts: Record<string, number>;
   };
 }
@@ -288,7 +315,14 @@ export interface PreferenceProfileContent {
   regions: string[];
   risk_levels: string[];
   check_sizes: string[];
+  custom_dimensions?: PreferenceCustomDimension[];
   notes?: string | null;
+}
+
+export interface PreferenceCustomDimension {
+  key?: string | null;
+  label: string;
+  values: string[];
 }
 
 export interface PreferenceProfileSummary {
@@ -299,6 +333,7 @@ export interface PreferenceProfileSummary {
   regions: string[];
   risk_levels: string[];
   check_sizes: string[];
+  custom_dimensions?: PreferenceCustomDimension[];
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -317,6 +352,27 @@ export interface PreferenceProfileListResponse {
   count: number;
 }
 
+export interface PreferenceProfileVersion {
+  version: number;
+  event_type: string;
+  occurred_at?: string | null;
+  profile: PreferenceProfileContent;
+}
+
+export interface PreferenceProfileVersionListResponse {
+  items: PreferenceProfileVersion[];
+  count: number;
+}
+
+export interface ApplyPreferenceProfileResponse {
+  profile: PreferenceProfileDetail;
+  applied_preference: {
+    id: string;
+    version: number;
+    preference: Record<string, unknown>;
+  };
+}
+
 // GET /api/preference-profiles —— 卡片列表
 export async function listPreferenceProfiles(): Promise<PreferenceProfileListResponse> {
   return apiJson<PreferenceProfileListResponse>("/api/preference-profiles");
@@ -325,6 +381,25 @@ export async function listPreferenceProfiles(): Promise<PreferenceProfileListRes
 // GET /api/preference-profiles/{id} —— 卡片详情
 export async function getPreferenceProfile(id: string): Promise<PreferenceProfileDetail> {
   return apiJson<PreferenceProfileDetail>(`/api/preference-profiles/${id}`);
+}
+
+// GET /api/preference-profiles/{id}/versions —— 卡片历史版本
+export async function listPreferenceProfileVersions(
+  id: string
+): Promise<PreferenceProfileVersionListResponse> {
+  return apiJson<PreferenceProfileVersionListResponse>(
+    `/api/preference-profiles/${id}/versions`
+  );
+}
+
+// POST /api/preference-profiles/{id}/apply —— 应用为机构当前生效偏好
+export async function applyPreferenceProfile(
+  id: string
+): Promise<ApplyPreferenceProfileResponse> {
+  return apiJson<ApplyPreferenceProfileResponse>(
+    `/api/preference-profiles/${id}/apply`,
+    { method: "POST" }
+  );
 }
 
 // POST /api/preference-profiles —— 创建命名偏好卡片
@@ -475,12 +550,86 @@ export async function createManualThesis(payload: CreateThesisPayload): Promise<
   });
 }
 
+export interface DeliverableActionPayload {
+  source_sub_direction?: string | null;
+  note?: string | null;
+}
+
+export interface DeliverableActionResponse {
+  deliverable_id: string;
+  action: ThesisAction | string;
+  status: string;
+  event_recorded: boolean;
+}
+
+export async function triggerDeliverableAction(
+  deliverableId: string,
+  action: ThesisAction,
+  payload?: DeliverableActionPayload
+): Promise<DeliverableActionResponse> {
+  return apiJson<DeliverableActionResponse>(
+    `/api/deliverables/${deliverableId}/actions/${action}`,
+    {
+      method: "POST",
+      body: payload ? JSON.stringify(payload) : undefined,
+    }
+  );
+}
+
+export async function generateDealPool(
+  deliverableId: string,
+  handlers: SseHandlers,
+  payload?: DeliverableActionPayload,
+  signal?: AbortSignal
+) {
+  await fetchEventSource(`/api/deliverables/${deliverableId}/generate-deal-pool`, {
+    method: "POST",
+    headers: payload
+      ? { "Content-Type": "application/json", ...authHeaders() }
+      : authHeaders(),
+    body: payload ? JSON.stringify(payload) : undefined,
+    signal,
+    openWhenHidden: true,
+    onopen: ensureSseResponse,
+    onmessage(ev) {
+      switch (ev.event) {
+        case "token":
+          handlers.onToken?.(ev.data);
+          break;
+        case "reasoning":
+          handlers.onReasoning?.(ev.data);
+          break;
+        case "progress":
+          handlers.onProgress?.(ev.data);
+          break;
+        case "object":
+          handlers.onObject?.(JSON.parse(ev.data));
+          break;
+        case "usage":
+          handlers.onUsage?.(JSON.parse(ev.data));
+          break;
+        case "error":
+          handlers.onError?.(ev.data);
+          break;
+        case "done":
+          handlers.onDone?.();
+          break;
+      }
+    },
+    onerror(error) {
+      throw error;
+    },
+  });
+}
+
 /* --------------------------------- 会话 --------------------------------- */
 
 export interface MessageBlock {
-  type: "text" | "object_ref" | string;
+  type: "text" | "object_ref" | "deal_ref" | string;
   text?: string;
   deliverable_id?: string;
+  deal_id?: string;
+  company_id?: string;
 }
 
 export interface ConversationMessage {

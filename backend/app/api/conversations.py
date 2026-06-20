@@ -35,7 +35,8 @@ from app.services.document_extract import (
 )
 from app.db import SessionLocal
 from app.llm.client import coerce_tier, stream_chat
-from app.models.models import Conversation, Message
+from app.models.models import Conversation, Deliverable, Message
+from app.objects import DeliverableType
 from app.services.conversations import (
     assistant_blocks,
     compose_user_content,
@@ -46,6 +47,8 @@ from app.services.conversations import (
     text_blocks,
     to_llm_messages,
 )
+from app.services import preferences as preferences_service
+from app.services.thesis_context import thesis_context_from_payload
 
 router = APIRouter()
 
@@ -58,6 +61,10 @@ class SendMessageRequest(BaseModel):
     model_tier: str | None = None
     # 页面级助手注入的页面上下文：只进 LLM 输入，不写入持久化消息正文/标题
     context: str | None = None
+    # normal=普通对话；track_workspace=具体赛道工作台内的会话。
+    conversation_type: str = "normal"
+    # 赛道工作台绑定的 Thesis deliverable id。仅 conversation_type=track_workspace 时使用。
+    source_thesis_id: uuid.UUID | None = None
 
 
 async def classify_intent_bounded(content: str):
@@ -169,16 +176,48 @@ async def send_message(
 
     async def event_stream():
         # 1) 短事务：建会话（如需）→ 取历史 → 用户消息落库 + 记账
+        workspace_thesis_context: dict | None = None
+        workspace_thesis_name: str | None = None
+        source_thesis_id = (
+            body.source_thesis_id
+            if body.conversation_type == "track_workspace"
+            else None
+        )
         async with SessionLocal() as db, db.begin():
+            if source_thesis_id is not None:
+                thesis_row = await db.scalar(
+                    select(Deliverable).where(
+                        Deliverable.id == source_thesis_id,
+                        Deliverable.institution_id == user.institution_id,
+                        Deliverable.type == DeliverableType.THESIS.value,
+                    )
+                )
+                if thesis_row is None:
+                    yield {"event": "error", "data": "赛道工作台绑定的赛道不存在。"}
+                    yield {"event": "done", "data": ""}
+                    return
+                payload = thesis_row.payload or {}
+                workspace_thesis_context = thesis_context_from_payload(payload)
+                workspace_thesis_name = payload.get("thesis_name") or "未命名赛道"
+
+            conversation_type = "track_workspace" if source_thesis_id else "normal"
+            title_hint = (
+                f"赛道工作台 · {workspace_thesis_name}"
+                if conversation_type == "track_workspace"
+                else body.content
+            )
             await ensure_conversation(
                 db,
                 institution_id=user.institution_id,
                 user_id=user.user_id,
                 conversation_id=conversation_id,
-                title_hint=body.content,
+                title_hint=title_hint,
             )
             history = await load_history(
                 db, institution_id=user.institution_id, conversation_id=conversation_id
+            )
+            active_preference = await preferences_service.get_active(
+                db, institution_id=user.institution_id
             )
             await save_message(
                 db,
@@ -187,6 +226,11 @@ async def send_message(
                 conversation_id=conversation_id,
                 role="user",
                 blocks=text_blocks(body.content),
+                event_payload={
+                    "conversation_type": conversation_type,
+                    "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
+                    "source_thesis_name": workspace_thesis_name,
+                },
             )
 
         # 2) 意图路由（LLM 结构化分类；网关未就绪/超时一律降级为通用对话）。
@@ -216,6 +260,8 @@ async def send_message(
                 allow_overseas=user.allow_overseas_models,
                 conversation_id=conversation_id,
                 query=body.content,
+                source_thesis_id=source_thesis_id,
+                thesis_context=workspace_thesis_context,
             ):
                 yield ev
         elif intent and intent.intent is Intent.DEAL_INTAKE and intent.confidence >= 0.7:
@@ -238,8 +284,30 @@ async def send_message(
             #     先发进度事件，让前端确认通用 Agent 已接管（与分类阶段区分开）。
             tier = coerce_tier(body.model_tier)
             yield {"event": "progress", "data": "正在生成回答"}
+            preference_context = preferences_service.describe_for_agent(active_preference)
+            workspace_context = ""
+            if source_thesis_id and workspace_thesis_context:
+                workspace_context = "\n".join(
+                    [
+                        "对话类型：赛道工作台",
+                        f"当前操作对象：{workspace_thesis_name}",
+                        f"source_thesis_id：{source_thesis_id}",
+                        "所有分析、建议和可执行操作必须围绕当前赛道，不要默认作用于整个赛道库。",
+                        "当前赛道结构化上下文：",
+                        json.dumps(
+                            workspace_thesis_context,
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    ]
+                )
+            runtime_context = "\n\n".join(
+                part
+                for part in ((body.context or "").strip(), workspace_context, preference_context)
+                if part
+            )
             llm_messages = to_llm_messages(
-                history, compose_user_content(body.content, body.context)
+                history, compose_user_content(body.content, runtime_context)
             )
             parts: list[str] = []
             usage: dict | None = None
@@ -288,6 +356,9 @@ async def send_message(
                             "tier": tier.value,
                             "truncated": failed,
                             "usage": usage,
+                            "conversation_type": "track_workspace" if source_thesis_id else "normal",
+                            "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
+                            "source_thesis_name": workspace_thesis_name,
                         },
                     )
 

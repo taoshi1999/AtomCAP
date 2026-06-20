@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
-from app.models.models import Deal, Deliverable, Institution, User
+from app.models.models import Deal, Deliverable, Institution, PreferenceProfileRow, User
 from app.services import preferences as preferences_service
 from app.services.conversations import list_conversation_summaries
 from app.services.deals import list_deals
@@ -84,6 +84,21 @@ async def _deal_status_counts(
     return {status: count for status, count in rows}
 
 
+async def _preference_profile_count(
+    db: AsyncSession, *, institution_id: uuid.UUID
+) -> int:
+    """当前机构未归档的命名投资偏好卡片数量。"""
+    count = await db.scalar(
+        select(func.count())
+        .select_from(PreferenceProfileRow)
+        .where(
+            PreferenceProfileRow.institution_id == institution_id,
+            PreferenceProfileRow.archived.is_(False),
+        )
+    )
+    return int(count or 0)
+
+
 @router.get("")
 async def get_home(
     user: CurrentUser = Depends(get_current_user),
@@ -113,6 +128,9 @@ async def get_home(
     )
     deals = await list_deals(db, institution_id=user.institution_id, limit=None)
     status_counts = await _deal_status_counts(db, institution_id=user.institution_id)
+    preference_profile_count = await _preference_profile_count(
+        db, institution_id=user.institution_id
+    )
 
     return {
         "user": {
@@ -135,6 +153,7 @@ async def get_home(
         "stats": {
             "conversation_count": len(conversations),
             "deliverable_count": len(deliverables),
+            "preference_profile_count": preference_profile_count,
             "deal_status_counts": status_counts,
         },
     }

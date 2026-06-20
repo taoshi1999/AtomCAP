@@ -116,3 +116,29 @@ def test_validate_payload_degrades_dirty_and_passes_clean():
     clean = Preference(id=uuid.uuid4(), institution_id=INST, version=2,
                        payload={"track_preferences": ["半导体"]}, is_active=True)
     assert preferences_service.validate_payload(clean)["track_preferences"] == ["半导体"]
+
+
+def test_describe_for_agent_includes_current_applied_preference():
+    text = preferences_service.describe_for_agent(
+        {
+            "version": 7,
+            "name": "AI 基础设施偏好",
+            "declared_strategy": {
+                "focus_sectors": ["AI 基础设施", "算力"],
+                "focus_stages": ["Pre-A", "A"],
+                "focus_regions": ["中国", "全球"],
+                "custom_dimensions": {"商业化信号": ["已签大客户", "高留存"]},
+                "description": "优先看能被项目获取 Agent 直接使用的偏好说明",
+            },
+            "track_preferences": ["AI 基础设施"],
+            "stages": ["A"],
+            "geographies": ["中国"],
+            "risk_appetite": "中等风险",
+            "check_size": "500万-2000万",
+        }
+    )
+
+    assert "名称：AI 基础设施偏好" in text
+    assert "版本：v7" in text
+    assert "关注赛道：AI 基础设施、算力" in text
+    assert "商业化信号：已签大客户、高留存" in text

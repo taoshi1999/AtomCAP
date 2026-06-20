@@ -68,6 +68,11 @@ export type RecommendedAction =
   | "generate_briefing"
   | "re_recommend";
 
+export type ThesisAction =
+  | RecommendedAction
+  | "join_project_library"
+  | "dismiss_track";
+
 export type ThesisStatus = "draft" | "following" | "deal_pool_generated" | "deleted";
 
 export interface Thesis {
@@ -168,6 +173,35 @@ export interface DealWorkspace {
   conversation_id?: string | null;
 }
 
+export type PreDDTaskStatus = "complete" | "partial" | "missing" | "public_data_possible";
+
+export interface PreDDChecklistItem {
+  key: string;
+  title: string;
+  status: PreDDTaskStatus;
+  provided: string[];
+  missing: string[];
+  gaps: string[];
+  questions: string[];
+}
+
+export interface PreDDCompletion {
+  score: number;
+  total: number;
+  complete: number;
+  partial: number;
+  missing: number;
+  public_data_possible: number;
+}
+
+export interface PreDDWorkspace {
+  completion: PreDDCompletion;
+  items: PreDDChecklistItem[];
+  priority_questions: string[];
+  risk_queue: string[];
+  next_steps: string[];
+}
+
 // deals.data 完整契约（DealProfile）
 export interface DealProfile {
   schema_version: number;
@@ -210,6 +244,7 @@ export interface DealDetail {
   status: DealStatus;
   data: DealProfile;
   company: DealCompany | null;
+  pre_dd?: PreDDWorkspace | null;
   created_at: string;
   updated_at: string;
 }
