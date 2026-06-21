@@ -123,7 +123,37 @@ export type DealSourceType =
   | "fa_recommendation"
   | "internal_excel"
   | "thesis_generated"
+  | "public_signal_mining"
+  | "system_push"
   | string;
+
+export type RecommendationTier = "strong" | "watch" | "observe" | "reject";
+
+export interface DealCandidate {
+  company_name: string;
+  company_id?: string | null;
+  uscc?: string | null;
+  aliases: string[];
+  sub_direction?: string | null;
+  source_type: DealSourceType;
+  selection_reasons: Claim[];
+  recommendation_reasons: Claim[];
+  initial_risks: Claim[];
+  fit_score?: FitScoreBreakdown | null;
+  initial_score: number;
+  recommendation_tier: RecommendationTier;
+}
+
+export interface DealListDeliverable {
+  schema_version: number;
+  created_from_conversation?: string | null;
+  name: string;
+  source_type: DealSourceType;
+  source_thesis_id?: string | null;
+  search_themes: string[];
+  summary?: string | null;
+  candidates: DealCandidate[];
+}
 
 // Step 3：材料解析出的客观事实（未提及字段留空）
 export interface DealExtraction {

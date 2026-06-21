@@ -35,14 +35,18 @@ from app.services.document_extract import (
 )
 from app.db import SessionLocal
 from app.llm.client import coerce_tier, stream_chat
-from app.models.models import Conversation, Deliverable, Message
+from app.models.models import Company, Conversation, Deal, Deliverable, Message
 from app.objects import DeliverableType
 from app.services.conversations import (
+    CONVERSATION_TYPE_PROJECT_WORKSPACE,
+    ConversationTypeMismatch,
     assistant_blocks,
+    blocks_to_text,
     compose_user_content,
     ensure_conversation,
     list_conversation_summaries,
     load_history,
+    normalize_conversation_type,
     save_message,
     text_blocks,
     to_llm_messages,
@@ -54,6 +58,15 @@ router = APIRouter()
 
 LLM_UNAVAILABLE_MSG = "模型服务暂时不可用，请检查 DEEPSEEK_API_KEY / LITELLM 配置后重试。"
 
+PREFERENCE_ADVICE_SYSTEM = """你是 AtomCAP 的投资偏好 Agent。你的任务是识别用户提出的长期投资偏好修正，并给出可审阅的优化建议。
+要求：
+- 只围绕投资偏好、反偏好、风险边界和推荐过滤逻辑回答。
+- 不要生成项目池，不要推荐项目，不要触发项目获取。
+- 不要声称已经自动修改数据库；偏好变更必须由用户确认后应用。
+- 输出简体中文，结构清晰，包含：识别到的偏好信号、建议修改的字段、建议值、理由、对后续推荐/评分的影响。
+- 对“以后不要推荐 X 相关项目”这类请求，优先建议写入 anti_preference.disliked_sectors 或 anti_preference.disliked_subsectors，并同步补充 excluded_tracks/备注。
+"""
+
 
 class SendMessageRequest(BaseModel):
     content: str
@@ -61,10 +74,54 @@ class SendMessageRequest(BaseModel):
     model_tier: str | None = None
     # 页面级助手注入的页面上下文：只进 LLM 输入，不写入持久化消息正文/标题
     context: str | None = None
-    # normal=普通对话；track_workspace=具体赛道工作台内的会话。
+    # normal=普通会话；project_workspace=绑定具体项目的工作台会话。
     conversation_type: str = "normal"
-    # 赛道工作台绑定的 Thesis deliverable id。仅 conversation_type=track_workspace 时使用。
+    # 赛道详情页注入上下文时使用，但会话类型仍是 normal。
     source_thesis_id: uuid.UUID | None = None
+    # 项目工作台绑定的 Deal id，仅 project_workspace 使用。
+    source_deal_id: uuid.UUID | None = None
+
+
+def _preference_target_hint(content: str) -> str:
+    """从显式偏好修正语句里尽力提取对象名，供 LLM 不可用兜底。"""
+    text = (content or "").strip().strip("。！？!?")
+    for token in (
+        "以后不要推荐",
+        "今后不要推荐",
+        "不要再推荐",
+        "别再推荐",
+        "不要推荐",
+        "以后不看",
+        "今后不看",
+        "不要再看",
+        "别再看",
+        "不想看",
+        "不想投",
+        "排除",
+        "避开",
+    ):
+        text = text.replace(token, "")
+    for token in ("相关的项目", "相关项目", "相关的公司", "相关公司", "这个赛道", "这个方向"):
+        text = text.replace(token, "")
+    return text.strip() or "该方向"
+
+
+def _preference_advice_fallback(content: str) -> str:
+    """模型不可用时仍给出确定性的偏好优化建议，避免误触项目池。"""
+    target = _preference_target_hint(content)
+    return "\n".join(
+        [
+            "已识别为长期投资偏好修正请求，不会触发项目获取。",
+            "",
+            "投资偏好优化建议：",
+            f"1. 在 `anti_preference.disliked_subsectors` 中加入「{target}」。",
+            f"2. 若「{target}」是一级赛道，也同步加入 `anti_preference.disliked_sectors`。",
+            f"3. 在兼容字段 `excluded_tracks` 或偏好备注中记录「不再推荐 {target} 相关项目」。",
+            "4. 后续项目获取、赛道匹配和项目评分时，对命中该方向的候选项目做过滤或显著降权。",
+            "",
+            "说明：我只生成建议，不会直接改写当前投资偏好；需要你在投资偏好页确认后应用。",
+        ]
+    )
 
 
 async def classify_intent_bounded(content: str):
@@ -149,6 +206,8 @@ async def get_messages(
                 "id": str(conversation.id),
                 "title": conversation.title,
                 "updated_at": conversation.updated_at.isoformat(),
+                "conversation_type": normalize_conversation_type(conversation.conversation_type),
+                "source_deal_id": str(conversation.source_deal_id) if conversation.source_deal_id else None,
             },
             "messages": [
                 {
@@ -178,11 +237,20 @@ async def send_message(
         # 1) 短事务：建会话（如需）→ 取历史 → 用户消息落库 + 记账
         workspace_thesis_context: dict | None = None
         workspace_thesis_name: str | None = None
-        source_thesis_id = (
-            body.source_thesis_id
-            if body.conversation_type == "track_workspace"
+        workspace_deal_context: dict | None = None
+        workspace_deal_name: str | None = None
+        conversation_type = normalize_conversation_type(body.conversation_type)
+        # 赛道页 AI 助手只注入赛道上下文，会话仍归为普通会话。
+        source_thesis_id = body.source_thesis_id
+        source_deal_id = (
+            body.source_deal_id
+            if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE
             else None
         )
+        if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE and source_deal_id is None:
+            yield {"event": "error", "data": "项目工作台会话必须绑定一个项目。"}
+            yield {"event": "done", "data": ""}
+            return
         async with SessionLocal() as db, db.begin():
             if source_thesis_id is not None:
                 thesis_row = await db.scalar(
@@ -200,19 +268,59 @@ async def send_message(
                 workspace_thesis_context = thesis_context_from_payload(payload)
                 workspace_thesis_name = payload.get("thesis_name") or "未命名赛道"
 
-            conversation_type = "track_workspace" if source_thesis_id else "normal"
+            if source_deal_id is not None:
+                deal_row = await db.scalar(
+                    select(Deal).where(
+                        Deal.id == source_deal_id,
+                        Deal.institution_id == user.institution_id,
+                    )
+                )
+                if deal_row is None:
+                    yield {"event": "error", "data": "项目工作台绑定的项目不存在。"}
+                    yield {"event": "done", "data": ""}
+                    return
+                company = await db.scalar(
+                    select(Company).where(
+                        Company.id == deal_row.company_id,
+                        Company.institution_id == user.institution_id,
+                    )
+                )
+                data = deal_row.data or {}
+                extraction = data.get("extraction") or {}
+                analysis = data.get("analysis") or {}
+                workspace_deal_name = company.name if company else extraction.get("company_name") or "未命名项目"
+                workspace_deal_context = {
+                    "deal_id": str(deal_row.id),
+                    "company_id": str(deal_row.company_id),
+                    "company_name": workspace_deal_name,
+                    "status": deal_row.status,
+                    "source_type": data.get("source_type"),
+                    "extraction": extraction,
+                    "analysis": analysis,
+                    "user_feedback": data.get("user_feedback") or {},
+                    "workspace": data.get("workspace") or {},
+                }
+
             title_hint = (
-                f"赛道工作台 · {workspace_thesis_name}"
-                if conversation_type == "track_workspace"
+                f"项目工作台 · {workspace_deal_name}"
+                if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE
                 else body.content
             )
-            await ensure_conversation(
-                db,
-                institution_id=user.institution_id,
-                user_id=user.user_id,
-                conversation_id=conversation_id,
-                title_hint=title_hint,
-            )
+
+            try:
+                await ensure_conversation(
+                    db,
+                    institution_id=user.institution_id,
+                    user_id=user.user_id,
+                    conversation_id=conversation_id,
+                    title_hint=title_hint,
+                    conversation_type=conversation_type,
+                    source_deal_id=source_deal_id,
+                )
+            except ConversationTypeMismatch as exc:
+                yield {"event": "error", "data": str(exc)}
+                yield {"event": "done", "data": ""}
+                return
             history = await load_history(
                 db, institution_id=user.institution_id, conversation_id=conversation_id
             )
@@ -230,6 +338,8 @@ async def send_message(
                     "conversation_type": conversation_type,
                     "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
                     "source_thesis_name": workspace_thesis_name,
+                    "source_deal_id": str(source_deal_id) if source_deal_id else None,
+                    "source_deal_name": workspace_deal_name,
                 },
             )
 
@@ -237,9 +347,75 @@ async def send_message(
         #    立即下发一个进度事件：既让前端确认后端已接管、也促使 SSE 通道立刻
         #    开始 flush（排除中间层缓冲）。分类限时见 classify_intent_bounded。
         yield {"event": "progress", "data": "正在理解你的问题"}
-        intent = await classify_intent_bounded(body.content)
+        intent = None if source_deal_id else await classify_intent_bounded(body.content)
 
-        if intent and intent.intent is Intent.THESIS_SCOUT and intent.confidence >= 0.7:
+        if intent and intent.intent is Intent.PREFERENCE_ADVICE and intent.confidence >= 0.7:
+            tier = coerce_tier(body.model_tier)
+            yield {"event": "progress", "data": "正在生成投资偏好优化建议"}
+            preference_context = preferences_service.describe_for_agent(active_preference)
+            runtime_context = "\n\n".join(
+                part
+                for part in ((body.context or "").strip(), preference_context)
+                if part
+            )
+            llm_messages: list[dict[str, str]] = [{"role": "system", "content": PREFERENCE_ADVICE_SYSTEM}]
+            for message in history:
+                if message.role not in ("user", "assistant"):
+                    continue
+                text = blocks_to_text(message.content)
+                if text:
+                    llm_messages.append({"role": message.role, "content": text})
+            llm_messages.append(
+                {
+                    "role": "user",
+                    "content": compose_user_content(body.content, runtime_context),
+                }
+            )
+
+            parts: list[str] = []
+            usage: dict | None = None
+            failed = False
+            try:
+                async for chunk in stream_chat(
+                    tier,
+                    llm_messages,
+                    allow_overseas=user.allow_overseas_models,
+                ):
+                    if chunk.reasoning:
+                        yield {"event": "reasoning", "data": chunk.reasoning}
+                    if chunk.text:
+                        parts.append(chunk.text)
+                        yield {"event": "token", "data": chunk.text}
+                    if chunk.usage:
+                        usage = chunk.usage
+            except Exception:  # noqa: BLE001
+                failed = True
+                fallback = _preference_advice_fallback(body.content)
+                parts = [fallback]
+                yield {"event": "token", "data": fallback}
+
+            if usage:
+                yield {"event": "usage", "data": json.dumps(usage, ensure_ascii=False)}
+
+            answer = "".join(parts)
+            if answer:
+                async with SessionLocal() as db, db.begin():
+                    await save_message(
+                        db,
+                        institution_id=user.institution_id,
+                        user_id=user.user_id,
+                        conversation_id=conversation_id,
+                        role="assistant",
+                        blocks=assistant_blocks(answer, usage=usage),
+                        event_payload={
+                            "intent": Intent.PREFERENCE_ADVICE.value,
+                            "tier": tier.value,
+                            "truncated": failed,
+                            "usage": usage,
+                            "conversation_type": conversation_type,
+                        },
+                    )
+        elif intent and intent.intent is Intent.THESIS_SCOUT and intent.confidence >= 0.7:
             # 3a) 专用 Agent：run 生命周期 + 子图执行 + deliverable 入库 +
             #     assistant 消息（object_ref）全部由 agents/runner.py 编排，
             #     状态流转写 domain_events。生产形态迁 ARQ 队列 + checkpointer。
@@ -301,6 +477,21 @@ async def send_message(
                         ),
                     ]
                 )
+            elif source_deal_id and workspace_deal_context:
+                workspace_context = "\n".join(
+                    [
+                        "对话类型：项目工作台",
+                        f"当前操作对象：{workspace_deal_name}",
+                        f"source_deal_id：{source_deal_id}",
+                        "所有分析、建议和可执行操作必须围绕当前项目，不要新建或默认切换到其他项目。",
+                        "当前项目结构化上下文：",
+                        json.dumps(
+                            workspace_deal_context,
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    ]
+                )
             runtime_context = "\n\n".join(
                 part
                 for part in ((body.context or "").strip(), workspace_context, preference_context)
@@ -356,9 +547,11 @@ async def send_message(
                             "tier": tier.value,
                             "truncated": failed,
                             "usage": usage,
-                            "conversation_type": "track_workspace" if source_thesis_id else "normal",
+                            "conversation_type": conversation_type,
                             "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
                             "source_thesis_name": workspace_thesis_name,
+                            "source_deal_id": str(source_deal_id) if source_deal_id else None,
+                            "source_deal_name": workspace_deal_name,
                         },
                     )
 

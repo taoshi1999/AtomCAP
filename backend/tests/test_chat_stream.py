@@ -183,6 +183,7 @@ def test_compose_user_content_keeps_clean_content():
 
 import app.api.conversations as conv_api  # noqa: E402
 from app.api.conversations import classify_intent_bounded  # noqa: E402
+from app.api.conversations import _preference_advice_fallback, _preference_target_hint  # noqa: E402
 
 
 def test_classify_bounded_returns_result(monkeypatch):
@@ -218,3 +219,12 @@ def test_classify_bounded_swallows_errors(monkeypatch):
     monkeypatch.setattr(conv_api, "classify_intent", _boom)
     monkeypatch.setattr(conv_api.settings, "intent_classify_timeout_seconds", 5.0)
     assert asyncio.run(classify_intent_bounded("你好")) is None
+
+
+def test_preference_advice_fallback_mentions_anti_preference():
+    assert _preference_target_hint("以后不要推荐太阳能电池相关的项目") == "太阳能电池"
+    text = _preference_advice_fallback("以后不要推荐太阳能电池相关的项目")
+
+    assert "长期投资偏好修正" in text
+    assert "anti_preference.disliked_subsectors" in text
+    assert "太阳能电池" in text

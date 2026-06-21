@@ -160,6 +160,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       title: conversationTitleFromContent(userContent),
       preview: userContent,
       updated_at: new Date().toISOString(),
+      conversation_type: "normal",
+      source_deal_id: null,
     });
     markStreaming(id, true);
     updateSession(id, (session) => ({

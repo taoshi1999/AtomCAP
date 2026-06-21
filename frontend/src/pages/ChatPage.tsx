@@ -49,6 +49,7 @@ import {
   getHome,
   getModels,
   listConversations,
+  triggerDealAction,
   type ConversationMessage,
   type HomeConversation,
   type HomeData,
@@ -69,6 +70,8 @@ type RecentItem =
       title: string;
       subtitle?: string | null;
       updated_at: string;
+      conversation_type?: "normal" | "project_workspace" | string;
+      source_deal_id?: string | null;
     }
   | {
       kind: "deliverable";
@@ -362,6 +365,8 @@ export default function ChatPage() {
         title: item.title,
         subtitle: item.preview,
         updated_at: item.updated_at,
+        conversation_type: item.conversation_type,
+        source_deal_id: item.source_deal_id,
       })),
       ...(home?.deliverables ?? []).map((item) => ({
         kind: "deliverable" as const,
@@ -413,6 +418,7 @@ export default function ChatPage() {
   function switchMode(nextMode: HomeMode) {
     setActiveRecentKey(null);
     setMode(nextMode);
+    navigate(nextMode === "chat" ? "/" : `/?view=${nextMode}`);
   }
 
   function isRecentActive(item: RecentItem) {
@@ -426,6 +432,7 @@ export default function ChatPage() {
     startNewConversation();
     setInput("");
     setMode("chat");
+    navigate("/");
   }
 
   function handleSignOut() {
@@ -451,6 +458,12 @@ export default function ChatPage() {
     return deals.filter((item): item is DealDetail => item !== null);
   }
 
+  function openProjectWorkspaceFromConversation(dealId: string) {
+    setActiveRecentKey(null);
+    setMode("deals");
+    navigate(`/?view=deals&dealId=${dealId}`);
+  }
+
   async function loadConversation(id: string) {
     setActiveRecentKey(null);
     setMode("chat");
@@ -469,6 +482,13 @@ export default function ChatPage() {
     ]);
     try {
       const data = await getConversationMessages(id);
+      if (
+        data.conversation.conversation_type === "project_workspace" &&
+        data.conversation.source_deal_id
+      ) {
+        openProjectWorkspaceFromConversation(data.conversation.source_deal_id);
+        return;
+      }
       const loaded = await Promise.all(
         data.messages
           .filter((message) => message.role === "user" || message.role === "assistant")
@@ -528,7 +548,11 @@ export default function ChatPage() {
 
   function handleRecentClick(item: RecentItem) {
     if (item.kind === "conversation") {
-      void loadConversation(item.id);
+      if (item.conversation_type === "project_workspace" && item.source_deal_id) {
+        openProjectWorkspaceFromConversation(item.source_deal_id);
+      } else {
+        void loadConversation(item.id);
+      }
     } else if (item.kind === "deliverable") {
       void openDeliverable(item.id);
     } else {
@@ -539,7 +563,11 @@ export default function ChatPage() {
 
   function handleHistoryClick(item: HomeConversation) {
     setHistoryDialogOpen(false);
-    void loadConversation(item.id);
+    if (item.conversation_type === "project_workspace" && item.source_deal_id) {
+      openProjectWorkspaceFromConversation(item.source_deal_id);
+    } else {
+      void loadConversation(item.id);
+    }
   }
 
   async function handleSend(text: string) {
@@ -1151,6 +1179,7 @@ function ReasoningCard({ text, streaming }: { text: string; streaming: boolean }
 
 function DealReferenceCard({ deal }: { deal: DealDetail }) {
   const navigate = useNavigate();
+  const [opening, setOpening] = useState(false);
   const extraction = deal.data.extraction;
   const analysis = deal.data.analysis;
   const companyName = deal.company?.name || extraction.company_name || "未命名项目";
@@ -1158,7 +1187,17 @@ function DealReferenceCard({ deal }: { deal: DealDetail }) {
   return (
     <button
       type="button"
-      onClick={() => navigate(`/workspace/${deal.id}`)}
+      disabled={opening}
+      onClick={async () => {
+        setOpening(true);
+        try {
+          await triggerDealAction(deal.id, "create_workspace");
+        } catch {
+          // 进入详情页后仍可在项目 AI 助手中补建项目工作台会话。
+        } finally {
+          navigate(`/workspace/${deal.id}`);
+        }
+      }}
       className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/30"
     >
       <div className="flex items-start justify-between gap-3">

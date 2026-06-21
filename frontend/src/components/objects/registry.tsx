@@ -3,7 +3,7 @@
  * 消息流中的 object_ref 块经 DeliverableView 分发渲染；新增对象类型时在此注册。
  */
 import type { ComponentType } from "react";
-import type { Deliverable, DeliverableType, Thesis } from "../../lib/types";
+import type { DealListDeliverable, Deliverable, DeliverableType, Thesis } from "../../lib/types";
 import ThesisView from "./ThesisView";
 import DealListView from "./DealListView";
 
@@ -26,7 +26,7 @@ export function DeliverableView({
         />
       );
     case "deal_list":
-      return <DealListView payload={deliverable.payload} />;
+      return <DealListView payload={deliverable.payload as DealListDeliverable} />;
     default:
       return (
         <div className="rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-400">

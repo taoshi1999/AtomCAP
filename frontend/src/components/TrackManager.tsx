@@ -370,7 +370,6 @@ function TrackAssistantPanel({
       },
     };
     await sendMessage(conversationId, text, handlers, undefined, undefined, context, {
-      conversationType: "track_workspace",
       sourceThesisId: workspaceTrack.id,
     });
   }

@@ -56,8 +56,9 @@ export interface SseHandlers {
 }
 
 export interface SendMessageOptions {
-  conversationType?: "normal" | "track_workspace";
+  conversationType?: "normal" | "project_workspace";
   sourceThesisId?: string;
+  sourceDealId?: string;
 }
 
 async function ensureSseResponse(response: Response) {
@@ -120,6 +121,7 @@ export async function sendMessage(
       context,
       conversation_type: options.conversationType ?? "normal",
       source_thesis_id: options.sourceThesisId ?? null,
+      source_deal_id: options.sourceDealId ?? null,
     }),
     signal,
     openWhenHidden: true,
@@ -244,6 +246,8 @@ export interface HomeConversation {
   title: string;
   preview?: string | null;
   updated_at: string;
+  conversation_type?: "normal" | "project_workspace" | string;
+  source_deal_id?: string | null;
 }
 
 export interface HomeDeliverable {
@@ -640,7 +644,13 @@ export interface ConversationMessage {
 }
 
 export interface ConversationMessagesResponse {
-  conversation: { id: string; title?: string | null; updated_at: string };
+  conversation: {
+    id: string;
+    title?: string | null;
+    updated_at: string;
+    conversation_type?: "normal" | "project_workspace" | string;
+    source_deal_id?: string | null;
+  };
   messages: ConversationMessage[];
 }
 

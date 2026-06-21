@@ -1,8 +1,13 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import ChatPage from "./pages/ChatPage";
-import WorkspacePage from "./pages/WorkspacePage";
 import LoginPage from "./pages/LoginPage";
 import { RequireAuth } from "./lib/auth";
+
+function WorkspaceRedirect() {
+  const { dealId } = useParams();
+  const target = dealId ? `/?view=deals&dealId=${dealId}` : "/?view=deals";
+  return <Navigate to={target} replace />;
+}
 
 export default function App() {
   return (
@@ -24,7 +29,7 @@ export default function App() {
         path="/workspace/:dealId?"
         element={
           <RequireAuth>
-            <WorkspacePage />
+            <WorkspaceRedirect />
           </RequireAuth>
         }
       />

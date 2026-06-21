@@ -21,6 +21,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Conversation, Message
 from app.services.events import record_event
 
+# 会话类型只保留两个稳定业务类型。legacy 值只用于兼容旧前端入参。
+CONVERSATION_TYPE_NORMAL = "normal"
+CONVERSATION_TYPE_PROJECT_WORKSPACE = "project_workspace"
+LEGACY_CONVERSATION_TYPE_DEAL_WORKSPACE = "deal_workspace"
+LEGACY_CONVERSATION_TYPE_TRACK_WORKSPACE = "track_workspace"
+VALID_CONVERSATION_TYPES = {
+    CONVERSATION_TYPE_NORMAL,
+    CONVERSATION_TYPE_PROJECT_WORKSPACE,
+}
+
+
+class ConversationTypeMismatch(ValueError):
+    """Raised when a caller tries to reuse a conversation with another fixed type or project."""
+
+
+def normalize_conversation_type(value: str | None) -> str:
+    """Map legacy request values to the two durable conversation categories."""
+    raw = (value or CONVERSATION_TYPE_NORMAL).strip()
+    if raw == LEGACY_CONVERSATION_TYPE_DEAL_WORKSPACE:
+        return CONVERSATION_TYPE_PROJECT_WORKSPACE
+    if raw == LEGACY_CONVERSATION_TYPE_TRACK_WORKSPACE:
+        return CONVERSATION_TYPE_NORMAL
+    if raw in VALID_CONVERSATION_TYPES:
+        return raw
+    return CONVERSATION_TYPE_NORMAL
+
 # 通用对话默认带的最近历史条数（防 token 膨胀，Phase 1 再做摘要压缩）
 HISTORY_LIMIT = 20
 
@@ -102,8 +128,16 @@ async def ensure_conversation(
     user_id: uuid.UUID,
     conversation_id: uuid.UUID,
     title_hint: str | None = None,
+    conversation_type: str = CONVERSATION_TYPE_NORMAL,
+    source_deal_id: uuid.UUID | None = None,
 ) -> Conversation:
     """取会话（租户过滤）；不存在则以客户端给定 id 创建并记账。"""
+    normalized_type = normalize_conversation_type(conversation_type)
+    if normalized_type == CONVERSATION_TYPE_PROJECT_WORKSPACE and source_deal_id is None:
+        raise ConversationTypeMismatch("项目工作台会话必须绑定一个项目")
+    if normalized_type == CONVERSATION_TYPE_NORMAL:
+        source_deal_id = None
+
     conv = (
         await db.execute(
             select(Conversation).where(
@@ -113,6 +147,14 @@ async def ensure_conversation(
         )
     ).scalar_one_or_none()
     if conv is not None:
+        existing_type = normalize_conversation_type(conv.conversation_type)
+        if existing_type != normalized_type:
+            raise ConversationTypeMismatch("会话类型已经固定，不能切换为其他类型")
+        if (
+            normalized_type == CONVERSATION_TYPE_PROJECT_WORKSPACE
+            and conv.source_deal_id != source_deal_id
+        ):
+            raise ConversationTypeMismatch("项目工作台会话已经绑定到另一个项目")
         return conv
 
     conv = Conversation(
@@ -120,6 +162,8 @@ async def ensure_conversation(
         institution_id=institution_id,
         user_id=user_id,
         title=(title_hint or "")[:50] or None,
+        conversation_type=normalized_type,
+        source_deal_id=source_deal_id,
     )
     db.add(conv)
     await db.flush()
@@ -130,6 +174,10 @@ async def ensure_conversation(
         event_type="conversation.created",
         subject_type="conversation",
         subject_id=conv.id,
+        payload={
+            "conversation_type": normalized_type,
+            "source_deal_id": str(source_deal_id) if source_deal_id else None,
+        },
     )
     return conv
 
@@ -216,6 +264,8 @@ class ConversationRecord:
     updated_at: datetime
     last_message_at: datetime | None
     preview: str | None
+    conversation_type: str = CONVERSATION_TYPE_NORMAL
+    source_deal_id: uuid.UUID | None = None
 
 
 def _record_sort_key(record: "ConversationRecord") -> datetime:
@@ -258,6 +308,8 @@ def project_conversations(
             "title": r.title or CONVERSATION_TITLE_FALLBACK,
             "preview": r.preview,
             "updated_at": _record_sort_key(r).isoformat(),
+            "conversation_type": normalize_conversation_type(r.conversation_type),
+            "source_deal_id": str(r.source_deal_id) if r.source_deal_id else None,
         }
         for r in page
     ]
@@ -311,6 +363,8 @@ async def _fetch_conversation_records(
                 updated_at=conversation.updated_at,
                 last_message_at=last_message_at,
                 preview=preview_from_content(latest.content) if latest else None,
+                conversation_type=normalize_conversation_type(conversation.conversation_type),
+                source_deal_id=conversation.source_deal_id,
             )
         )
     return records

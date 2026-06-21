@@ -51,21 +51,38 @@ def _ts() -> tuple[sa.Column, sa.Column]:
 
 
 def upgrade() -> None:
-    op.create_table(
-        "preference_profiles",
-        _pk(),
-        _tenant(),
-        sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("name", sa.String(100), nullable=False),
-        sa.Column("archived", sa.Boolean(), server_default=sa.text("false"), nullable=False),
-        sa.Column("payload", postgresql.JSONB(), nullable=False),
-        *_ts(),
-    )
-    op.create_index(
-        "ix_preference_profiles_institution_id", "preference_profiles", ["institution_id"]
-    )
-    op.create_index("ix_preference_profiles_name", "preference_profiles", ["name"])
-    op.create_index("ix_preference_profiles_archived", "preference_profiles", ["archived"])
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("preference_profiles"):
+        op.create_table(
+            "preference_profiles",
+            _pk(),
+            _tenant(),
+            sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column("name", sa.String(100), nullable=False),
+            sa.Column("archived", sa.Boolean(), server_default=sa.text("false"), nullable=False),
+            sa.Column("payload", postgresql.JSONB(), nullable=False),
+            *_ts(),
+        )
+
+    indexes = {
+        index["name"]
+        for index in sa.inspect(bind).get_indexes("preference_profiles")
+    }
+    if "ix_preference_profiles_institution_id" not in indexes:
+        op.create_index(
+            "ix_preference_profiles_institution_id",
+            "preference_profiles",
+            ["institution_id"],
+        )
+    if "ix_preference_profiles_name" not in indexes:
+        op.create_index("ix_preference_profiles_name", "preference_profiles", ["name"])
+    if "ix_preference_profiles_archived" not in indexes:
+        op.create_index(
+            "ix_preference_profiles_archived",
+            "preference_profiles",
+            ["archived"],
+        )
 
 
 def downgrade() -> None:

@@ -9,10 +9,35 @@
  * 点击项目卡片 → 跳转 /workspace/:id 打开该项目工作台（Pre-DD、管线推进等深度动作）。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowUp, Bot, Filter, Loader2, MessageSquare, Plus, Sparkles, X } from "lucide-react";
-import { ApiError, createDeal, dealAssistant, listDeals } from "../lib/api";
-import type { DealSummary } from "../lib/types";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  ArrowUp,
+  Bot,
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  Filter,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Sparkles,
+  X,
+} from "lucide-react";
+import {
+  ApiError,
+  createDeal,
+  dealAssistant,
+  getDealDetail,
+  listDeals,
+  sendMessage,
+  transitionDeal,
+  triggerDealAction,
+  type SseHandlers,
+  type TokenUsage,
+} from "../lib/api";
+import type { DealAction, DealDetail, DealStatus, DealSummary } from "../lib/types";
+import { DealDetailPanel } from "../pages/WorkspacePage";
 
 const STATUS_LABEL: Record<string, string> = {
   sourced: "已发现",
@@ -171,32 +196,200 @@ function CreateDealModal({ onClose, onCreated }: { onClose: () => void; onCreate
   );
 }
 
-/* ---------------------- 中间会话栏（指令助手） ---------------------- */
-type ChatMsg = { id: string; role: "user" | "assistant"; text: string; pending?: boolean; error?: boolean };
+/* ---------------------- 中间会话栏（指令助手 / 项目工作台会话） ---------------------- */
+type ChatMsg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  reasoning?: string;
+  usage?: TokenUsage;
+  pending?: boolean;
+  streaming?: boolean;
+  error?: boolean;
+};
 let _mid = 0;
 function mid() {
   _mid += 1;
   return `d${_mid}-${Date.now()}`;
 }
 
+function makeConversationId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `deal-conv-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function updateAssistantMessage(
+  messages: ChatMsg[],
+  id: string,
+  updater: (message: ChatMsg) => ChatMsg
+) {
+  return messages.map((message) => (message.id === id ? updater(message) : message));
+}
+
+function formatTokens(usage: TokenUsage): string {
+  const parts: string[] = [];
+  if (usage.estimated) parts.push("预估");
+  if (typeof usage.prompt_tokens === "number") parts.push(`输入 ${usage.prompt_tokens}`);
+  if (typeof usage.completion_tokens === "number") parts.push(`输出 ${usage.completion_tokens}`);
+  const total =
+    typeof usage.total_tokens === "number"
+      ? usage.total_tokens
+      : (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0) || undefined;
+  if (typeof total === "number") parts.push(`共 ${total} tokens`);
+  return parts.join(" · ");
+}
+
+function AssistantReasoning({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-1 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <Brain className="h-3.5 w-3.5" />
+        <span>思考过程{streaming ? "（生成中…）" : ""}</span>
+      </button>
+      {open && (
+        <div className="whitespace-pre-wrap border-t border-slate-200 px-2.5 py-2 text-xs leading-5 text-slate-500">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DealAssistantPanel({
   onClose,
   onCreated,
   onFilter,
+  workspaceDeal,
+  onWorkspaceChanged,
 }: {
   onClose: () => void;
   onCreated: () => void;
   onFilter: (keywords: string[]) => void;
+  workspaceDeal?: DealDetail | null;
+  onWorkspaceChanged?: () => void;
 }) {
+  const isWorkspace = !!workspaceDeal;
+  const companyName =
+    workspaceDeal?.company?.name ??
+    workspaceDeal?.data.extraction.company_name ??
+    "当前项目";
+  const [conversationId] = useState(
+    () => workspaceDeal?.data.workspace.conversation_id ?? makeConversationId()
+  );
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       id: mid(),
       role: "assistant",
-      text: "你可以让我创建或筛选项目，例如「帮我创建一个叫追觅科技的项目」「筛选出半导体相关的项目」。",
+      text: isWorkspace
+        ? `当前是「${companyName}」的项目工作台。这里发起的会话和操作只会围绕这个项目。`
+        : "你可以让我创建或筛选项目，例如「帮我创建一个叫追觅科技的项目」「筛选出半导体相关的项目」。",
     },
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+
+  async function sendWorkspaceMessage(text: string, assistantId: string) {
+    if (!workspaceDeal) return;
+    const extraction = workspaceDeal.data.extraction;
+    const analysis = workspaceDeal.data.analysis;
+    const context = [
+      "当前页面：项目工作台",
+      "对话类型：项目工作台",
+      `操作对象：${companyName}`,
+      `deal_id：${workspaceDeal.id}`,
+      `状态：${STATUS_LABEL[workspaceDeal.status] ?? workspaceDeal.status}`,
+      `来源：${workspaceDeal.data.source_type}`,
+      `项目画像：${analysis.portrait}`,
+      extraction.track ? `赛道：${extraction.track}` : "",
+      extraction.sub_direction ? `子方向：${extraction.sub_direction}` : "",
+      extraction.funding_stage ? `融资阶段：${extraction.funding_stage}` : "",
+      `整体匹配度：${analysis.overall_fit}`,
+      "用户在该页面提出的分析、风险梳理、资料补全和后续建议，均只针对当前项目。",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const handlers: SseHandlers = {
+      onProgress(next) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({ ...m, text: next, pending: true }))
+        );
+      },
+      onToken(token) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text: `${m.pending ? "" : m.text}${token}`,
+            pending: false,
+            streaming: true,
+          }))
+        );
+      },
+      onReasoning(delta) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            reasoning: (m.reasoning ?? "") + delta,
+            streaming: true,
+          }))
+        );
+      },
+      onObject(ref) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text:
+              m.text && !m.pending
+                ? `${m.text}\n\n已生成结果：${ref.type}`
+                : `已生成结果：${ref.type}`,
+            pending: false,
+            streaming: true,
+          }))
+        );
+        onWorkspaceChanged?.();
+      },
+      onUsage(usage) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({ ...m, usage }))
+        );
+      },
+      onError(message) {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text: message,
+            pending: false,
+            streaming: false,
+            error: true,
+          }))
+        );
+      },
+      onDone() {
+        setMessages((cur) =>
+          updateAssistantMessage(cur, assistantId, (m) => ({
+            ...m,
+            text: m.text || "已完成。",
+            pending: false,
+            streaming: false,
+          }))
+        );
+        onWorkspaceChanged?.();
+      },
+    };
+
+    await sendMessage(conversationId, text, handlers, undefined, undefined, context, {
+      conversationType: "project_workspace",
+      sourceDealId: workspaceDeal.id,
+    });
+  }
 
   async function send() {
     const text = input.trim();
@@ -210,12 +403,16 @@ function DealAssistantPanel({
       { id: assistantId, role: "assistant", text: "正在处理…", pending: true },
     ]);
     try {
-      const res = await dealAssistant(text);
-      setMessages((cur) => cur.map((m) => (m.id === assistantId ? { ...m, text: res.message, pending: false } : m)));
-      if (res.action === "create" && res.deal) {
-        onCreated();
-      } else if (res.action === "filter") {
-        onFilter(res.filter_keywords ?? []);
+      if (isWorkspace) {
+        await sendWorkspaceMessage(text, assistantId);
+      } else {
+        const res = await dealAssistant(text);
+        setMessages((cur) => cur.map((m) => (m.id === assistantId ? { ...m, text: res.message, pending: false } : m)));
+        if (res.action === "create" && res.deal) {
+          onCreated();
+        } else if (res.action === "filter") {
+          onFilter(res.filter_keywords ?? []);
+        }
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "请求失败，请确认后端已启动。";
@@ -228,8 +425,14 @@ function DealAssistantPanel({
   return (
     <div className="flex w-[400px] shrink-0 flex-col border-r border-slate-200 bg-white">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <Sparkles className="h-4 w-4 text-indigo-600" /> 项目库 · AI 助手
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Sparkles className="h-4 w-4 shrink-0 text-indigo-600" />
+            <span>{isWorkspace ? "项目工作台 · AI 助手" : "项目库 · AI 助手"}</span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-slate-400">
+            {isWorkspace ? `操作对象：${companyName}` : "普通对话 · 面向全部项目"}
+          </div>
         </div>
         <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600" title="关闭">
           <X className="h-5 w-5" />
@@ -240,18 +443,26 @@ function DealAssistantPanel({
           const isUser = m.role === "user";
           return (
             <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[88%] rounded-lg px-3 py-2 text-sm leading-6 ${
-                  isUser
-                    ? "bg-indigo-600 text-white"
-                    : m.error
-                      ? "border border-red-200 bg-red-50 text-red-700"
-                      : "border border-slate-200 bg-slate-50 text-slate-800"
-                }`}
-              >
-                {!isUser && <Bot className="mr-1.5 inline h-4 w-4 align-[-2px] text-indigo-600" />}
-                {m.pending && <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin align-[-2px]" />}
-                {m.text}
+              <div className="max-w-[88%]">
+                {!isUser && m.reasoning && (
+                  <AssistantReasoning text={m.reasoning} streaming={!!m.streaming} />
+                )}
+                <div
+                  className={`rounded-lg px-3 py-2 text-sm leading-6 ${
+                    isUser
+                      ? "bg-indigo-600 text-white"
+                      : m.error
+                        ? "border border-red-200 bg-red-50 text-red-700"
+                        : "border border-slate-200 bg-slate-50 text-slate-800"
+                  }`}
+                >
+                  {!isUser && <Bot className="mr-1.5 inline h-4 w-4 align-[-2px] text-indigo-600" />}
+                  {m.pending && <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin align-[-2px]" />}
+                  {m.text}
+                </div>
+                {!isUser && m.usage && (
+                  <div className="mt-1 px-1 text-[11px] text-slate-400">{formatTokens(m.usage)}</div>
+                )}
               </div>
             </div>
           );
@@ -290,9 +501,15 @@ function DealAssistantPanel({
 /* ---------------------- 入口：三列编排 ---------------------- */
 export default function DealManager() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const selectedDealId = searchParams.get("dealId");
   const [deals, setDeals] = useState<DealSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDeal, setSelectedDeal] = useState<DealDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
@@ -315,13 +532,78 @@ export default function DealManager() {
     void refresh();
   }, [refresh]);
 
+  const loadDealDetail = useCallback(async (id: string) => {
+    setSelectedDeal(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const detail = await getDealDetail(id);
+      setSelectedDeal(detail);
+    } catch (e) {
+      setDetailError(
+        e instanceof ApiError
+          ? e.status === 404
+            ? "项目不存在"
+            : `加载详情失败（${e.status}）`
+          : "项目详情加载失败"
+      );
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedDealId) {
+      void loadDealDetail(selectedDealId);
+    } else {
+      setSelectedDeal(null);
+      setDetailError(null);
+      setDetailLoading(false);
+    }
+  }, [loadDealDetail, selectedDealId]);
+
   const filtered = useMemo(
     () => deals.filter((d) => matchesKeywords(d, filterKeywords)),
     [deals, filterKeywords]
   );
 
   function openDeal(id: string) {
-    navigate(`/workspace/${id}`);
+    navigate(`/?view=deals&dealId=${id}`);
+  }
+
+  function closeDealDetail() {
+    navigate("/?view=deals");
+  }
+
+  function refreshAfterDetailAction() {
+    void refresh();
+    if (selectedDealId) void loadDealDetail(selectedDealId);
+  }
+
+  async function handleTransition(to: DealStatus) {
+    if (!selectedDealId) return;
+    setDetailBusy(true);
+    try {
+      await transitionDeal(selectedDealId, to);
+      refreshAfterDetailAction();
+    } catch (e) {
+      setDetailError(e instanceof ApiError ? e.message : "流转失败");
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  async function handleAction(action: DealAction) {
+    if (!selectedDealId) return;
+    setDetailBusy(true);
+    try {
+      await triggerDealAction(selectedDealId, action);
+      refreshAfterDetailAction();
+    } catch (e) {
+      setDetailError(e instanceof ApiError ? e.message : "操作失败");
+    } finally {
+      setDetailBusy(false);
+    }
   }
 
   return (
@@ -329,19 +611,24 @@ export default function DealManager() {
       {/* 中栏：会话指令助手 */}
       {chatOpen && (
         <DealAssistantPanel
+          key={selectedDeal ? `workspace-${selectedDeal.id}` : "library"}
           onClose={() => setChatOpen(false)}
           onCreated={() => {
             setFilterKeywords([]);
             void refresh();
           }}
           onFilter={(kw) => setFilterKeywords(kw)}
+          workspaceDeal={selectedDeal}
+          onWorkspaceChanged={refreshAfterDetailAction}
         />
       )}
 
       {/* 右栏：项目库 */}
       <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-6">
-          <h2 className="text-lg font-bold text-slate-900">项目库</h2>
+          <h2 className="text-lg font-bold text-slate-900">
+            {selectedDealId ? "项目工作台" : "项目库"}
+          </h2>
           <div className="flex items-center gap-2">
             <AssistantToggle chatOpen={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
             <button
@@ -365,35 +652,71 @@ export default function DealManager() {
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-          {loading && (
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <Loader2 className="h-4 w-4 animate-spin" /> 正在加载项目…
-            </div>
-          )}
-          {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
-          )}
-          {!loading && !error && deals.length === 0 && (
-            <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
-              <p className="text-sm text-slate-500">项目库暂无项目</p>
+          {selectedDealId ? (
+            <div className="space-y-4">
               <button
                 type="button"
-                onClick={() => setCreateOpen(true)}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                onClick={closeDealDetail}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                <Plus className="h-4 w-4" /> 新建项目
+                <ArrowLeft className="h-4 w-4" />
+                返回项目库
               </button>
+
+              {detailLoading && (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> 正在加载项目详情…
+                </div>
+              )}
+
+              {detailError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {detailError}
+                </div>
+              )}
+
+              {selectedDeal && (
+                <DealDetailPanel
+                  detail={selectedDeal}
+                  busy={detailBusy}
+                  onTransition={handleTransition}
+                  onAction={handleAction}
+                />
+              )}
             </div>
-          )}
-          {!loading && deals.length > 0 && filtered.length === 0 && (
-            <div className="text-sm text-slate-400">没有匹配筛选条件的项目。</div>
-          )}
-          {!loading && filtered.length > 0 && (
-            <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
-              {filtered.map((d) => (
-                <DealCard key={d.id} deal={d} onClick={() => openDeal(d.id)} />
-              ))}
-            </div>
+          ) : (
+            <>
+              {loading && (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> 正在加载项目…
+                </div>
+              )}
+              {error && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
+              )}
+              {!loading && !error && deals.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
+                  <p className="text-sm text-slate-500">项目库暂无项目</p>
+                  <button
+                    type="button"
+                    onClick={() => setCreateOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                  >
+                    <Plus className="h-4 w-4" /> 新建项目
+                  </button>
+                </div>
+              )}
+              {!loading && deals.length > 0 && filtered.length === 0 && (
+                <div className="text-sm text-slate-400">没有匹配筛选条件的项目。</div>
+              )}
+              {!loading && filtered.length > 0 && (
+                <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
+                  {filtered.map((d) => (
+                    <DealCard key={d.id} deal={d} onClick={() => openDeal(d.id)} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

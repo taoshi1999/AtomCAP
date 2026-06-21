@@ -61,6 +61,11 @@ class Conversation(Base, TimestampMixin):
     institution_id: Mapped[uuid.UUID] = tenant_fk()
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # normal: 普通会话；project_workspace: 绑定单个项目的工作台会话。
+    conversation_type: Mapped[str] = mapped_column(String(30), default="normal", index=True)
+    source_deal_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("deals.id"), nullable=True, index=True
+    )
 
 
 class Message(Base, TimestampMixin):
@@ -294,4 +299,3 @@ class PreferenceProfileRow(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), index=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # PreferenceProfile schema
-

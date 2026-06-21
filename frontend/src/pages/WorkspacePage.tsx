@@ -416,7 +416,7 @@ function Facts({ detail }: { detail: DealDetail }) {
   );
 }
 
-function DealDetailPanel({
+export function DealDetailPanel({
   detail,
   busy,
   onTransition,

@@ -17,6 +17,7 @@ from app.services.conversations import (
     CONVERSATION_TITLE_FALLBACK,
     ConversationRecord,
     list_conversation_summaries,
+    normalize_conversation_type,
     preview_from_content,
     project_conversations,
 )
@@ -26,13 +27,24 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _record(*, title=None, last=None, updated=None, preview=None, rid=None) -> ConversationRecord:
+def _record(
+    *,
+    title=None,
+    last=None,
+    updated=None,
+    preview=None,
+    rid=None,
+    conversation_type="normal",
+    source_deal_id=None,
+) -> ConversationRecord:
     return ConversationRecord(
         id=rid or uuid.uuid4(),
         title=title,
         updated_at=updated or datetime(2026, 6, 1, 0, 0, 0),
         last_message_at=last,
         preview=preview,
+        conversation_type=conversation_type,
+        source_deal_id=source_deal_id,
     )
 
 
@@ -90,6 +102,29 @@ def test_preview_passthrough():
 
 
 # ---------- 关键词过滤 ----------
+
+def test_projection_includes_fixed_conversation_metadata():
+    deal_id = uuid.uuid4()
+    items, _ = project_conversations(
+        [
+            _record(
+                title="project workspace",
+                conversation_type="project_workspace",
+                source_deal_id=deal_id,
+            )
+        ]
+    )
+    assert items[0]["conversation_type"] == "project_workspace"
+    assert items[0]["source_deal_id"] == str(deal_id)
+
+
+def test_normalize_conversation_type_keeps_only_two_durable_types():
+    assert normalize_conversation_type("normal") == "normal"
+    assert normalize_conversation_type("project_workspace") == "project_workspace"
+    assert normalize_conversation_type("deal_workspace") == "project_workspace"
+    assert normalize_conversation_type("track_workspace") == "normal"
+    assert normalize_conversation_type("unexpected") == "normal"
+
 
 def test_query_filters_case_insensitive_on_title_and_preview():
     ai = _record(title="AI 芯片讨论", last=datetime(2026, 6, 9))

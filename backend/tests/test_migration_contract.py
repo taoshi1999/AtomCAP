@@ -1,6 +1,6 @@
 """迁移-模型契约测试：0001 初始迁移必须与 ORM 完全对应。
 
-不连数据库：用 AST 解析迁移文件中的 op.create_table / sa.Column，
+不连数据库：用 AST 解析迁移文件中的 op.create_table / op.add_column / sa.Column，
 与 Base.metadata 对比表集合与列集合，防止两边漂移。
 """
 
@@ -64,6 +64,17 @@ def _tables_in_file(path: Path) -> dict[str, set[str]]:
             else:
                 cols |= _columns_in(target)
         tables[tname] = cols
+
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and _call_name(node) == "add_column"
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Constant)
+        ):
+            continue
+        tname = node.args[0].value
+        tables.setdefault(tname, set()).update(_columns_in(node.args[1]))
     return tables
 
 
@@ -71,7 +82,8 @@ def _migration_tables() -> dict[str, set[str]]:
     """聚合 versions/ 下全部迁移文件建的表（增量迁移并集）。"""
     tables: dict[str, set[str]] = {}
     for path in _migration_files():
-        tables.update(_tables_in_file(path))
+        for tname, cols in _tables_in_file(path).items():
+            tables.setdefault(tname, set()).update(cols)
     return tables
 
 
