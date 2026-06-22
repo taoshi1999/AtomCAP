@@ -10,22 +10,31 @@
  * token 注入待登录页，开发期依赖后端 AUTH_DEV_FALLBACK。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { ArrowRight, FileText, Heart, Plus, Search, ThumbsDown, Trash2, Upload } from "lucide-react";
 import {
   ApiError,
   createDeal,
+  deleteDeal,
+  generatePreDDBrief,
   getDealDetail,
+  listPreDDBriefs,
   listDeals,
   transitionDeal,
   triggerDealAction,
+  searchDealMaterials,
+  uploadDealMaterial,
+  type PreDDBriefHistoryItem,
 } from "../lib/api";
 import PageAssistant from "../components/PageAssistant";
 import type {
   Claim,
+  DDReport,
   DealAction,
   DealDetail,
+  DealMaterial,
+  DealMaterialSearchResult,
   DealStatus,
   DealSummary,
   FitScoreBreakdown,
@@ -37,44 +46,82 @@ import type {
 // 管线状态展示元信息（与 backend DealStatus 对齐）
 const STATUS_META: Record<DealStatus, { label: string; badge: string }> = {
   sourced: { label: "候选", badge: "bg-slate-100 text-slate-600" },
-  screening: { label: "待初筛", badge: "bg-amber-100 text-amber-700" },
+  screening: { label: "初筛中", badge: "bg-amber-100 text-amber-700" },
   pre_dd: { label: "尽调中", badge: "bg-blue-100 text-blue-700" },
   ic_ready: { label: "可上会", badge: "bg-indigo-100 text-indigo-700" },
-  approved: { label: "已立项", badge: "bg-green-100 text-green-700" },
+  approved: { label: "进行中", badge: "bg-green-100 text-green-700" },
   rejected: { label: "已否决", badge: "bg-rose-100 text-rose-700" },
+  exited: { label: "已退出", badge: "bg-slate-200 text-slate-700" },
+  deleted: { label: "已删除", badge: "bg-slate-100 text-slate-400" },
 };
 
 // 允许的前向流转（镜像 backend PIPELINE_TRANSITIONS，仅用于决定可点按钮；最终守卫在后端）
 const PIPELINE_NEXT: Record<DealStatus, DealStatus[]> = {
   sourced: ["screening", "rejected"],
   screening: ["pre_dd", "rejected"],
-  pre_dd: ["ic_ready", "rejected"],
+  pre_dd: ["approved", "rejected"],
   ic_ready: ["approved", "rejected", "pre_dd"],
-  approved: [],
+  approved: ["exited"],
   rejected: [],
+  exited: [],
+  deleted: [],
+};
+
+const TRANSITION_ACTION_LABELS: Partial<Record<`${DealStatus}->${DealStatus}`, string>> = {
+  "sourced->screening": "初筛",
+  "sourced->rejected": "否决",
+  "screening->pre_dd": "立项",
+  "screening->rejected": "否决",
+  "pre_dd->approved": "划款",
+  "pre_dd->rejected": "否决",
+  "ic_ready->approved": "划款",
+  "ic_ready->rejected": "否决",
+  "ic_ready->pre_dd": "回尽调",
+  "approved->exited": "退出",
 };
 
 const FILTERS: { key: string; label: string; status?: DealStatus; inLibrary?: boolean }[] = [
   { key: "all", label: "全部" },
   { key: "library", label: "项目库", inLibrary: true },
-  { key: "screening", label: "待初筛", status: "screening" },
+  { key: "screening", label: "初筛中", status: "screening" },
   { key: "pre_dd", label: "尽调中", status: "pre_dd" },
-  { key: "ic_ready", label: "可上会", status: "ic_ready" },
+  { key: "approved", label: "进行中", status: "approved" },
+  { key: "exited", label: "已退出", status: "exited" },
 ];
-
-const ACTION_LABELS: Record<DealAction, string> = {
-  add_to_library: "加入项目库",
-  follow: "关注",
-  dismiss: "不感兴趣",
-  abandon: "放弃",
-  create_workspace: "创建工作台",
-};
 
 const PRE_DD_STATUS_META: Record<PreDDTaskStatus, { label: string; className: string }> = {
   complete: { label: "已提供", className: "bg-emerald-50 text-emerald-700" },
   partial: { label: "部分提供", className: "bg-amber-50 text-amber-700" },
   missing: { label: "未提供", className: "bg-rose-50 text-rose-700" },
   public_data_possible: { label: "可公开补全", className: "bg-blue-50 text-blue-700" },
+};
+
+const MATERIAL_STATUS_LABELS: Record<string, string> = {
+  completed: "已解析",
+  pending: "解析中",
+  failed: "解析失败",
+};
+
+const MATERIAL_TYPE_LABELS: Record<string, string> = {
+  bp: "BP",
+  internal_excel: "项目表",
+};
+
+const PRE_DD_TASK_LABELS: Record<string, string> = {
+  bp_product: "BP/产品",
+  equity: "股权",
+  organization: "组织",
+  business_model: "业务",
+  sales_model: "营销",
+  profit_model: "盈利",
+  financials: "财务",
+  suppliers: "供应商",
+  customers: "客户",
+  competitors: "竞争",
+  market: "市场",
+  team: "团队",
+  financing: "融资",
+  development: "发展",
 };
 
 function StatusBadge({ status }: { status: DealStatus }) {
@@ -92,6 +139,149 @@ function PreDDStatusBadge({ status }: { status: PreDDTaskStatus }) {
     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}>
       {meta.label}
     </span>
+  );
+}
+
+function transitionActionLabel(from: DealStatus, to: DealStatus) {
+  return TRANSITION_ACTION_LABELS[`${from}->${to}`] ?? "推进";
+}
+
+function deriveStatusPath(current: DealStatus, history: DealStatus[] = []): DealStatus[] {
+  const known = new Set<DealStatus>([
+    "sourced",
+    "screening",
+    "pre_dd",
+    "ic_ready",
+    "approved",
+    "rejected",
+    "exited",
+    "deleted",
+  ]);
+  const path = history.filter((status) => known.has(status));
+  if (path.length > 0) {
+    if (path[path.length - 1] !== current) path.push(current);
+    return path;
+  }
+
+  switch (current) {
+    case "sourced":
+      return ["sourced"];
+    case "pre_dd":
+      return ["screening", "pre_dd"];
+    case "ic_ready":
+      return ["screening", "pre_dd", "ic_ready"];
+    case "approved":
+      return ["screening", "pre_dd", "approved"];
+    case "rejected":
+      return ["screening", "rejected"];
+    case "exited":
+      return ["screening", "pre_dd", "approved", "exited"];
+    case "deleted":
+      return history.length > 0 ? history : ["deleted"];
+    case "screening":
+    default:
+      return ["screening"];
+  }
+}
+
+function StatusFlowNode({ status, active }: { status: DealStatus; active: boolean }) {
+  const meta = STATUS_META[status] ?? { label: status, badge: "bg-slate-100 text-slate-600" };
+  return (
+    <div
+      className={`flex h-10 min-w-20 items-center justify-center rounded-lg border px-3 text-sm font-semibold ${
+        active
+          ? "border-blue-400 bg-blue-50 text-blue-700 shadow-sm"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+    >
+      {meta.label}
+    </div>
+  );
+}
+
+function CompletedFlowEdge({ from, to }: { from: DealStatus; to: DealStatus }) {
+  return (
+    <div className="flex items-center gap-2 text-slate-300">
+      <div className="h-px w-6 bg-slate-300" />
+      <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500">
+        {transitionActionLabel(from, to)}
+      </span>
+      <ArrowRight className="h-4 w-4" />
+    </div>
+  );
+}
+
+function PendingFlowEdge({
+  from,
+  to,
+  busy,
+  onTransition,
+}: {
+  from: DealStatus;
+  to: DealStatus;
+  busy: boolean;
+  onTransition: (to: DealStatus) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-px w-6 bg-slate-300" />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onTransition(to)}
+        className="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        {transitionActionLabel(from, to)}
+      </button>
+      <ArrowRight className="h-4 w-4 text-slate-300" />
+      <StatusFlowNode status={to} active={false} />
+    </div>
+  );
+}
+
+function ProjectStatusFlow({
+  detail,
+  busy,
+  onTransition,
+}: {
+  detail: DealDetail;
+  busy: boolean;
+  onTransition: (to: DealStatus) => void;
+}) {
+  const path = deriveStatusPath(detail.status, detail.data.status_history);
+  const nextStatuses = PIPELINE_NEXT[detail.status] ?? [];
+  const lastPathStatus = path[path.length - 1];
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-900">项目状态</h3>
+        <StatusBadge status={detail.status} />
+      </div>
+      <div className="overflow-x-auto pb-1">
+        <div className="inline-flex min-w-max items-center gap-2">
+          {path.map((status, index) => (
+            <div key={`${status}-${index}`} className="flex items-center gap-2">
+              {index > 0 && <CompletedFlowEdge from={path[index - 1]} to={status} />}
+              <StatusFlowNode status={status} active={status === detail.status && index === path.length - 1} />
+            </div>
+          ))}
+          {nextStatuses.length > 0 && lastPathStatus === detail.status && (
+            <div className={nextStatuses.length > 1 ? "grid gap-2" : "flex items-center"}>
+              {nextStatuses.map((to) => (
+                <PendingFlowEdge
+                  key={to}
+                  from={detail.status}
+                  to={to}
+                  busy={busy}
+                  onTransition={onTransition}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -306,12 +496,17 @@ function FitScore({ fit }: { fit: FitScoreBreakdown }) {
 }
 
 function PreDDTaskCard({ item }: { item: PreDDChecklistItem }) {
-  const details = [
+  const details: { kind: string; text: string; evidenceId?: string | null }[] = [
     ...item.provided.map((text) => ({ kind: "已有", text })),
+    ...(item.materials ?? []).map((hit) => ({
+      kind: "材料",
+      text: `《${hit.filename}》${hit.snippet}`,
+      evidenceId: hit.evidence_id,
+    })),
     ...item.missing.map((text) => ({ kind: "缺失", text })),
     ...item.gaps.map((text) => ({ kind: "缺口", text })),
     ...item.questions.map((text) => ({ kind: "问题", text })),
-  ].slice(0, 4);
+  ].slice(0, 5);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
@@ -324,7 +519,14 @@ function PreDDTaskCard({ item }: { item: PreDDChecklistItem }) {
           {details.map((detail, index) => (
             <div key={`${detail.kind}-${index}`} className="grid grid-cols-[34px_1fr] gap-2 text-xs leading-5">
               <span className="text-slate-400">{detail.kind}</span>
-              <span className="min-w-0 text-slate-600">{detail.text}</span>
+              <span className="min-w-0 text-slate-600">
+                {detail.text}
+                {detail.evidenceId && (
+                  <span className="ml-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                    证据
+                  </span>
+                )}
+              </span>
             </div>
           ))}
         </div>
@@ -333,8 +535,299 @@ function PreDDTaskCard({ item }: { item: PreDDChecklistItem }) {
   );
 }
 
-function PreDDPanel({ workspace }: { workspace: PreDDWorkspace }) {
+function BriefClaimList({ claims }: { claims: Claim[] }) {
+  if (claims.length === 0) return <p className="text-sm text-slate-400">暂无。</p>;
+  return (
+    <ul className="space-y-1">
+      {claims.map((claim, index) => (
+        <ClaimLine key={index} claim={claim} />
+      ))}
+    </ul>
+  );
+}
+
+function formatBriefTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function materialStatusLabel(status: string) {
+  return MATERIAL_STATUS_LABELS[status] ?? status;
+}
+
+function materialTypeLabel(type?: string | null) {
+  if (!type) return "材料";
+  return MATERIAL_TYPE_LABELS[type] ?? type;
+}
+
+const MATERIAL_CATEGORY_CONFIDENCE_LABELS = {
+  high: "高",
+  medium: "中",
+  low: "低",
+} as const;
+
+function materialCategorySuggestionClassName(isBackground: boolean) {
+  return isBackground
+    ? "border-slate-200 bg-slate-50 text-slate-600"
+    : "border-amber-100 bg-amber-50 text-amber-800";
+}
+
+function DealMaterialsPanel({
+  materials,
+  showCategorySuggestion,
+  busy,
+  error,
+  onUpload,
+  searchQuery,
+  searchBusy,
+  searchError,
+  searchResults,
+  onSearchQueryChange,
+  onSearch,
+}: {
+  materials: DealMaterial[];
+  showCategorySuggestion: boolean;
+  busy: boolean;
+  error: string | null;
+  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  searchQuery: string;
+  searchBusy: boolean;
+  searchError: string | null;
+  searchResults: DealMaterialSearchResult[];
+  onSearchQueryChange: (value: string) => void;
+  onSearch: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Section title="项目材料">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label
+          className={`flex h-9 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-white ${
+            busy ? "bg-slate-300" : "bg-blue-600 hover:bg-blue-700"
+          }`}
+        >
+          <Upload className="h-4 w-4" />
+          {busy ? "上传中..." : "上传材料"}
+          <input
+            type="file"
+            disabled={busy}
+            accept=".pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.markdown"
+            onChange={onUpload}
+            className="sr-only"
+          />
+        </label>
+        {error && <span className="text-xs text-rose-500">{error}</span>}
+      </div>
+
+      <form onSubmit={onSearch} className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3">
+          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="搜索项目材料内容"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={searchBusy || !searchQuery.trim()}
+          className="h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+        >
+          {searchBusy ? "搜索中..." : "搜索"}
+        </button>
+      </form>
+
+      {(searchError || searchResults.length > 0) && (
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          {searchError ? (
+            <div className="text-xs text-rose-500">{searchError}</div>
+          ) : (
+            <div className="space-y-2">
+              {searchResults.map((item) => (
+                <div key={`${item.document_id}-${item.chunk_id}`} className="text-xs leading-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-slate-700">{item.filename}</span>
+                    {item.matched_terms.length > 0 && (
+                      <span className="text-slate-400">命中 {item.matched_terms.join("、")}</span>
+                    )}
+                    {item.evidence_id && (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        可引用
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-slate-500">{item.snippet}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {materials.length === 0 ? (
+        <div className="text-sm text-slate-400">暂无项目材料。</div>
+      ) : (
+        <div className="space-y-2">
+          {materials.map((material) => (
+            <div key={material.id} className="rounded-lg border border-slate-200 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span className="truncate text-sm font-semibold text-slate-800">
+                      {material.filename}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                    <span>{materialTypeLabel(material.doc_type)}</span>
+                    <span>{materialStatusLabel(material.parse_status)}</span>
+                    <span>{material.text_chars} 字</span>
+                    <span>{formatBriefTime(material.updated_at)}</span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {material.evidence_id && (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                      证据
+                    </span>
+                  )}
+                  {material.fmt && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                      {material.fmt}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {material.text_preview && (
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
+                  {material.text_preview}
+                </p>
+              )}
+              {showCategorySuggestion && material.material_category_suggestion && (
+                <div
+                  className={`mt-2 rounded-lg border px-3 py-2 text-xs leading-5 ${materialCategorySuggestionClassName(
+                    material.material_category_suggestion.is_background
+                  )}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">建议归类</span>
+                    <span className="rounded-full bg-white/80 px-2 py-0.5 font-semibold">
+                      {material.material_category_suggestion.title}
+                    </span>
+                    <span className="text-[11px] opacity-75">
+                      置信度 {MATERIAL_CATEGORY_CONFIDENCE_LABELS[material.material_category_suggestion.confidence]}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 opacity-80">{material.material_category_suggestion.reason}</div>
+                </div>
+              )}
+              {(material.pre_dd_task_keys ?? []).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(material.pre_dd_task_keys ?? []).slice(0, 6).map((key) => (
+                    <span
+                      key={key}
+                      className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                    >
+                      {PRE_DD_TASK_LABELS[key] ?? key}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {material.warnings.length > 0 && (
+                <div className="mt-2 text-xs text-amber-600">{material.warnings.join("；")}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: string }) {
+  const brief = report.brief;
+  if (!brief) return null;
+  return (
+    <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-bold text-slate-950">Pre-DD Brief 草稿</div>
+          <div className="mt-0.5 text-xs text-slate-500">
+            {report.company_name}
+            {updatedAt ? ` · ${formatBriefTime(updatedAt)}` : ""}
+          </div>
+        </div>
+        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-blue-700">
+          完整度 {brief.completion_score}%
+        </span>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="space-y-3">
+          <div>
+            <div className="mb-1 text-xs font-semibold text-slate-400">项目概览</div>
+            <BriefClaimList claims={[brief.project_overview]} />
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-semibold text-slate-400">机构匹配度</div>
+            <BriefClaimList claims={[brief.fit_summary]} />
+          </div>
+          <p className="text-xs leading-5 text-slate-500">{brief.completion_summary}</p>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <div className="mb-1 text-xs font-semibold text-slate-400">核心亮点</div>
+            <BriefClaimList claims={brief.key_highlights} />
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-semibold text-slate-400">Top 风险</div>
+            <BriefClaimList claims={brief.top_risks} />
+          </div>
+        </div>
+      </div>
+      {brief.priority_questions.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs font-semibold text-slate-400">待验证问题</div>
+          <ul className="ml-4 list-disc text-sm leading-6 text-slate-700">
+            {brief.priority_questions.map((question, index) => (
+              <li key={index}>{question}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="mt-3">
+        <div className="mb-1 text-xs font-semibold text-slate-400">建议下一步</div>
+        <BriefClaimList claims={brief.recommended_next_steps} />
+      </div>
+    </div>
+  );
+}
+
+function PreDDPanel({
+  workspace,
+  briefReport,
+  briefHistory,
+  briefHistoryBusy,
+  briefBusy,
+  briefError,
+  onGenerateBrief,
+}: {
+  workspace: PreDDWorkspace;
+  briefReport: DDReport | null;
+  briefHistory: PreDDBriefHistoryItem[];
+  briefHistoryBusy: boolean;
+  briefBusy: boolean;
+  briefError: string | null;
+  onGenerateBrief: () => void;
+}) {
   const { completion } = workspace;
+  const displayBriefs =
+    briefHistory.length > 0
+      ? briefHistory
+      : briefReport
+        ? [{ deliverable_id: "latest", type: "dd_report" as const, payload: briefReport, created_at: "", updated_at: "" }]
+        : [];
   return (
     <Section title="Pre-DD 资料任务树">
       <div className="mb-4 grid gap-3 md:grid-cols-[160px_1fr]">
@@ -348,6 +841,19 @@ function PreDDPanel({ workspace }: { workspace: PreDDWorkspace }) {
           <div className="rounded-lg bg-blue-50 p-2 text-blue-700">可公开补全 {completion.public_data_possible}</div>
           <div className="rounded-lg bg-rose-50 p-2 text-rose-700">未提供 {completion.missing}</div>
         </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={briefBusy}
+          onClick={onGenerateBrief}
+          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          <FileText className="h-4 w-4" />
+          {briefBusy ? "生成中..." : displayBriefs.length > 0 ? "重新生成 Pre-DD Brief" : "生成 Pre-DD Brief"}
+        </button>
+        {briefError && <span className="text-xs text-rose-500">{briefError}</span>}
       </div>
 
       <div className="grid gap-2 lg:grid-cols-2">
@@ -377,6 +883,23 @@ function PreDDPanel({ workspace }: { workspace: PreDDWorkspace }) {
                 ))}
               </ul>
             </div>
+          )}
+        </div>
+      )}
+
+      {(briefHistoryBusy || displayBriefs.length > 0) && (
+        <div className="mt-4">
+          <div className="mb-2 text-xs font-semibold text-slate-400">最近生成</div>
+          {briefHistoryBusy ? (
+            <div className="text-sm text-slate-400">加载 Brief 历史中...</div>
+          ) : (
+            displayBriefs.map((item) => (
+              <PreDDBriefCard
+                key={item.deliverable_id}
+                report={item.payload}
+                updatedAt={item.updated_at}
+              />
+            ))
           )}
         </div>
       )}
@@ -421,24 +944,165 @@ export function DealDetailPanel({
   busy,
   onTransition,
   onAction,
+  onMaterialUploaded,
 }: {
   detail: DealDetail;
   busy: boolean;
   onTransition: (to: DealStatus) => void;
   onAction: (action: DealAction) => void;
+  onMaterialUploaded?: () => Promise<void> | void;
 }) {
   const { data, company } = detail;
   const a = data.analysis;
   const fb = data.user_feedback;
-  const nextStatuses = PIPELINE_NEXT[detail.status] ?? [];
+  const [materials, setMaterials] = useState<DealMaterial[]>(detail.materials ?? []);
+  const [materialBusy, setMaterialBusy] = useState(false);
+  const [materialError, setMaterialError] = useState<string | null>(null);
+  const [materialSearchQuery, setMaterialSearchQuery] = useState("");
+  const [materialSearchResults, setMaterialSearchResults] = useState<DealMaterialSearchResult[]>([]);
+  const [materialSearchBusy, setMaterialSearchBusy] = useState(false);
+  const [materialSearchError, setMaterialSearchError] = useState<string | null>(null);
+  const [briefReport, setBriefReport] = useState<DDReport | null>(null);
+  const [briefHistory, setBriefHistory] = useState<PreDDBriefHistoryItem[]>([]);
+  const [briefHistoryBusy, setBriefHistoryBusy] = useState(false);
+  const [briefBusy, setBriefBusy] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMaterials(detail.materials ?? []);
+    setMaterialError(null);
+    setMaterialBusy(false);
+    setMaterialSearchQuery("");
+    setMaterialSearchResults([]);
+    setMaterialSearchError(null);
+    setMaterialSearchBusy(false);
+  }, [detail.id, detail.materials]);
+
+  useEffect(() => {
+    setBriefReport(null);
+    setBriefHistory([]);
+    setBriefError(null);
+    setBriefBusy(false);
+  }, [detail.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBriefHistory() {
+      setBriefHistoryBusy(true);
+      try {
+        const response = await listPreDDBriefs(detail.id);
+        if (!cancelled) setBriefHistory(response.items);
+      } catch {
+        if (!cancelled) setBriefHistory([]);
+      } finally {
+        if (!cancelled) setBriefHistoryBusy(false);
+      }
+    }
+    void loadBriefHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [detail.id]);
+
+  async function handleGenerateBrief() {
+    setBriefBusy(true);
+    setBriefError(null);
+    try {
+      const response = await generatePreDDBrief(detail.id);
+      setBriefReport(response.payload);
+      try {
+        const history = await listPreDDBriefs(detail.id);
+        setBriefHistory(history.items);
+      } catch {
+        setBriefHistory((items) => [
+          {
+            deliverable_id: response.deliverable_id,
+            type: "dd_report",
+            payload: response.payload,
+            created_at: "",
+            updated_at: "",
+          },
+          ...items,
+        ]);
+      }
+    } catch (error) {
+      setBriefError(error instanceof ApiError ? error.message : "生成 Pre-DD Brief 失败");
+    } finally {
+      setBriefBusy(false);
+    }
+  }
+
+  async function handleUploadMaterial(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setMaterialBusy(true);
+    setMaterialError(null);
+    try {
+      const material = await uploadDealMaterial(detail.id, file);
+      setMaterials((items) => [material, ...items.filter((item) => item.id !== material.id)]);
+      await onMaterialUploaded?.();
+    } catch (error) {
+      setMaterialError(error instanceof ApiError ? error.message : "上传材料失败");
+    } finally {
+      setMaterialBusy(false);
+    }
+  }
+
+  async function handleSearchMaterials(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = materialSearchQuery.trim();
+    if (!query) return;
+    setMaterialSearchBusy(true);
+    setMaterialSearchError(null);
+    try {
+      const response = await searchDealMaterials(detail.id, query);
+      setMaterialSearchResults(response.items);
+      if (response.items.length === 0) setMaterialSearchError("未找到匹配材料片段");
+    } catch (error) {
+      setMaterialSearchResults([]);
+      setMaterialSearchError(error instanceof ApiError ? error.message : "搜索材料失败");
+    } finally {
+      setMaterialSearchBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-bold text-slate-900">
-          {company?.name ?? data.extraction.company_name}
-        </h2>
-        <StatusBadge status={detail.status} />
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="min-w-0 truncate text-xl font-bold text-slate-900">
+            {company?.name ?? data.extraction.company_name}
+          </h2>
+          <button
+            type="button"
+            title={fb.is_liked ? "已关注" : "关注"}
+            aria-label={fb.is_liked ? "已关注" : "关注"}
+            disabled={busy}
+            onClick={() => onAction("follow")}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              fb.is_liked
+                ? "border-rose-200 bg-rose-50 text-rose-600"
+                : "border-slate-200 text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+            }`}
+          >
+            <Heart className={`h-4 w-4 ${fb.is_liked ? "fill-current" : ""}`} />
+          </button>
+          <button
+            type="button"
+            title={fb.is_disliked ? "已标记不感兴趣" : "不感兴趣"}
+            aria-label={fb.is_disliked ? "已标记不感兴趣" : "不感兴趣"}
+            disabled={busy}
+            onClick={() => onAction("dismiss")}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              fb.is_disliked
+                ? "border-slate-300 bg-slate-100 text-slate-700"
+                : "border-slate-200 text-slate-400 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
+            }`}
+          >
+            <ThumbsDown className={`h-4 w-4 ${fb.is_disliked ? "fill-current" : ""}`} />
+          </button>
+        </div>
         {data.source_type && (
           <span className="text-xs text-slate-400">来源：{data.source_type}</span>
         )}
@@ -447,47 +1111,7 @@ export function DealDetailPanel({
         </span>
       </div>
 
-      {/* 管线流转 + 用户反馈动作 */}
-      <div className="flex flex-wrap gap-2">
-        {nextStatuses.map((to) => (
-          <button
-            key={to}
-            disabled={busy}
-            onClick={() => onTransition(to)}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            推进至「{STATUS_META[to]?.label ?? to}」
-          </button>
-        ))}
-        {nextStatuses.length === 0 && (
-          <span className="text-xs text-slate-400">已到终态，无可推进的管线动作。</span>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {(Object.keys(ACTION_LABELS) as DealAction[]).map((action) => {
-          const active =
-            (action === "add_to_library" && fb.is_in_library) ||
-            (action === "follow" && fb.is_liked) ||
-            (action === "dismiss" && fb.is_disliked) ||
-            (action === "abandon" && fb.is_abandoned) ||
-            (action === "create_workspace" && data.workspace.created);
-          return (
-            <button
-              key={action}
-              disabled={busy}
-              onClick={() => onAction(action)}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
-                active
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {ACTION_LABELS[action]}
-              {active ? " ✓" : ""}
-            </button>
-          );
-        })}
-      </div>
+      <ProjectStatusFlow detail={detail} busy={busy} onTransition={onTransition} />
 
       <Section title="项目画像">
         <p className="text-sm text-slate-700">{a.portrait}</p>
@@ -496,13 +1120,37 @@ export function DealDetailPanel({
         )}
       </Section>
 
+      <DealMaterialsPanel
+        materials={materials}
+        showCategorySuggestion={detail.status === "screening"}
+        busy={materialBusy}
+        error={materialError}
+        onUpload={handleUploadMaterial}
+        searchQuery={materialSearchQuery}
+        searchBusy={materialSearchBusy}
+        searchError={materialSearchError}
+        searchResults={materialSearchResults}
+        onSearchQueryChange={setMaterialSearchQuery}
+        onSearch={handleSearchMaterials}
+      />
+
       {a.fit_score && (
         <Section title="机构匹配度">
           <FitScore fit={a.fit_score} />
         </Section>
       )}
 
-      {detail.pre_dd && <PreDDPanel workspace={detail.pre_dd} />}
+      {detail.pre_dd && (
+        <PreDDPanel
+          workspace={detail.pre_dd}
+          briefReport={briefReport}
+          briefHistory={briefHistory}
+          briefHistoryBusy={briefHistoryBusy}
+          briefBusy={briefBusy}
+          briefError={briefError}
+          onGenerateBrief={handleGenerateBrief}
+        />
+      )}
 
       {a.highlights.length > 0 && (
         <Section title="投资亮点">
@@ -578,6 +1226,7 @@ export default function WorkspacePage() {
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<string>("all");
+  const [listSearchQuery, setListSearchQuery] = useState("");
   const [deals, setDeals] = useState<DealSummary[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [detail, setDetail] = useState<DealDetail | null>(null);
@@ -602,13 +1251,15 @@ export default function WorkspacePage() {
         `画像：${detail.data.analysis.portrait}`,
       ].join("；");
     }
-    return `当前项目库共 ${deals.length} 个项目，筛选器：${FILTERS.find((item) => item.key === filter)?.label ?? filter}`;
-  }, [deals.length, detail, filter]);
+    const queryText = listSearchQuery.trim() ? `，搜索：${listSearchQuery.trim()}` : "";
+    return `当前项目库共 ${deals.length} 个项目，筛选器：${FILTERS.find((item) => item.key === filter)?.label ?? filter}${queryText}`;
+  }, [deals.length, detail, filter, listSearchQuery]);
 
   const refreshList = useCallback(async () => {
     const f = FILTERS.find((x) => x.key === filter);
+    const q = listSearchQuery.trim();
     try {
-      const res = await listDeals({ status: f?.status, in_library: f?.inLibrary });
+      const res = await listDeals({ status: f?.status, in_library: f?.inLibrary, q: q || undefined });
       setDeals(res.items);
       setListError(null);
     } catch (e) {
@@ -617,7 +1268,7 @@ export default function WorkspacePage() {
       );
       setDeals([]);
     }
-  }, [filter]);
+  }, [filter, listSearchQuery]);
 
   useEffect(() => {
     void refreshList();
@@ -668,6 +1319,27 @@ export default function WorkspacePage() {
       await refreshList();
     } catch (e) {
       setDetailError(e instanceof ApiError ? e.message : "操作失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteDealSummary(deal: DealSummary) {
+    const name = deal.company_name ?? "未命名项目";
+    if (!window.confirm(`确认删除「${name}」吗？删除后将从项目库中移除，但历史材料和事件仍会保留。`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await deleteDeal(deal.id);
+      if (deal.id === dealId) {
+        setDetail(null);
+        setDetailError(null);
+        navigate("/workspace");
+      }
+      await refreshList();
+    } catch (error) {
+      setListError(error instanceof ApiError ? error.message : "删除项目失败");
     } finally {
       setBusy(false);
     }
@@ -740,15 +1412,46 @@ export default function WorkspacePage() {
             </button>
           ))}
         </div>
+        <div className="border-b border-slate-200 px-3 py-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={listSearchQuery}
+              onChange={(event) => setListSearchQuery(event.target.value)}
+              placeholder="搜索项目、画像或来源"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-8 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            />
+            {listSearchQuery && (
+              <button
+                type="button"
+                aria-label="清空搜索"
+                onClick={() => setListSearchQuery("")}
+                className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto p-2">
           {listError && <div className="p-3 text-sm text-rose-500">{listError}</div>}
           {!listError && deals.length === 0 && (
-            <div className="p-3 text-sm text-slate-400">暂无项目。</div>
+            <div className="p-3 text-sm text-slate-400">
+              {listSearchQuery.trim() ? "没有匹配的项目。" : "暂无项目。"}
+            </div>
           )}
           {deals.map((d) => (
-            <button
+            <div
               key={d.id}
+              role="button"
+              tabIndex={0}
               onClick={() => navigate(`/workspace/${d.id}`)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  navigate(`/workspace/${d.id}`);
+                }
+              }}
               className={`mb-1 w-full rounded-lg border p-3 text-left transition ${
                 d.id === dealId
                   ? "border-blue-300 bg-blue-50"
@@ -759,7 +1462,22 @@ export default function WorkspacePage() {
                 <span className="truncate text-sm font-medium text-slate-900">
                   {d.company_name ?? "（未命名项目）"}
                 </span>
-                <StatusBadge status={d.status} />
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <StatusBadge status={d.status} />
+                  <button
+                    type="button"
+                    title="删除项目"
+                    aria-label={`删除${d.company_name ?? "未命名项目"}`}
+                    disabled={busy}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDeleteDealSummary(d);
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               {/* 已放弃项目按设计只展示名+时间，收起画像 */}
               {!d.is_abandoned && d.portrait && (
@@ -771,7 +1489,7 @@ export default function WorkspacePage() {
                 {d.is_liked && <span className="text-amber-500">关注</span>}
                 {d.is_abandoned && <span className="text-slate-400">已放弃</span>}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </aside>
@@ -796,6 +1514,7 @@ export default function WorkspacePage() {
               busy={busy}
               onTransition={handleTransition}
               onAction={handleAction}
+              onMaterialUploaded={() => loadDetail(dealId)}
             />
           )}
         </section>

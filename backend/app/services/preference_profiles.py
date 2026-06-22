@@ -35,6 +35,43 @@ def profile_summary(row: PreferenceProfileRow) -> dict:
     }
 
 
+def _norm_query(value: str | None) -> str:
+    compact = "".join((value or "").split())
+    return compact.replace("_", "").replace("-", "").replace("－", "").lower()
+
+
+def profile_matches_query(row: PreferenceProfileRow, query: str | None) -> bool:
+    needle = _norm_query(query)
+    if not needle:
+        return True
+    payload = row.payload or {}
+    custom_dimensions = payload.get("custom_dimensions")
+    custom_text = ""
+    if isinstance(custom_dimensions, list):
+        custom_text = "\n".join(
+            "\n".join(str(part or "") for part in (item.get("label"), *(item.get("values") or [])))
+            for item in custom_dimensions
+            if isinstance(item, dict)
+        )
+    hay = _norm_query(
+        "\n".join(
+            str(item or "")
+            for item in (
+                row.name,
+                payload.get("name"),
+                "\n".join(payload.get("sectors") or []),
+                "\n".join(payload.get("stages") or []),
+                "\n".join(payload.get("regions") or []),
+                "\n".join(payload.get("risk_levels") or []),
+                "\n".join(payload.get("check_sizes") or []),
+                payload.get("notes"),
+                custom_text,
+            )
+        )
+    )
+    return needle in hay
+
+
 def profile_detail(row: PreferenceProfileRow) -> dict:
     """详情投影（含完整 payload，经 PreferenceProfile 归一化）。"""
     return {
@@ -127,7 +164,11 @@ async def list_profile_versions(
 
 
 async def list_profiles(
-    db: AsyncSession, *, institution_id: uuid.UUID, include_archived: bool = False
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    include_archived: bool = False,
+    q: str | None = None,
 ) -> list[PreferenceProfileRow]:
     """机构下的偏好卡片列表，按最近更新倒序。默认不含已归档。"""
     stmt = select(PreferenceProfileRow).where(
@@ -136,7 +177,10 @@ async def list_profiles(
     if not include_archived:
         stmt = stmt.where(PreferenceProfileRow.archived.is_(False))
     stmt = stmt.order_by(PreferenceProfileRow.updated_at.desc())
-    return list((await db.execute(stmt)).scalars().all())
+    rows = list((await db.execute(stmt)).scalars().all())
+    if q:
+        rows = [row for row in rows if profile_matches_query(row, q)]
+    return rows
 
 
 async def get_profile(
@@ -179,5 +223,12 @@ async def update_profile(
     """整体覆盖一张已有卡片的名称与五维内容（前端提交完整内容）。"""
     row.name = profile.name
     row.payload = profile.model_dump(mode="json")
+    await db.flush()
+    return row
+
+
+async def archive_profile(db: AsyncSession, *, row: PreferenceProfileRow) -> PreferenceProfileRow:
+    """软删除一张偏好卡片。"""
+    row.archived = True
     await db.flush()
     return row

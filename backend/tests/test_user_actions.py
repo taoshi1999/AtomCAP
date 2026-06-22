@@ -2,7 +2,7 @@
 
 覆盖：
 - action_strength：polarity/weight 取自设计文档行为权重表，confidence=1.0
-- 动作映射表只含有明确偏好语义的动作（系统初筛推进/立项通过不落 UserAction）
+- 动作映射表只含有明确偏好语义的动作（系统初筛推进/进行中/退出不落 UserAction）
 - snapshot_from_deal / snapshot_from_thesis：从对象 data 抽取快照、缺字段不臆造
 - build_user_action：组装 UserAction、强度派生、标签与目标回填
 - record_user_action：user_id 为空（开发回退）时返回 None 不触库
@@ -60,9 +60,10 @@ def test_mappings_only_cover_defined_action_types():
     for m in (DEAL_FEEDBACK_ACTIONS, DEAL_TRANSITION_ACTIONS, THESIS_ACTIONS):
         for v in m.values():
             assert isinstance(v, UserActionType)
-    # 设计取舍：系统初筛推进/立项通过不落 UserAction（domain_events 仍记），故不在流转映射里
+    # 设计取舍：系统初筛推进/进行中/退出不落 UserAction（domain_events 仍记），故不在流转映射里
     assert "screening" not in DEAL_TRANSITION_ACTIONS
     assert "approved" not in DEAL_TRANSITION_ACTIONS
+    assert "exited" not in DEAL_TRANSITION_ACTIONS
     # 否决推进是负向信号
     assert action_strength(DEAL_TRANSITION_ACTIONS["rejected"]).polarity == Polarity.NEGATIVE
     # 上会是最强正向

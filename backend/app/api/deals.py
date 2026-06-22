@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
 from app.models.models import Company, Deal
+from app.objects import DeliverableType
 from app.objects.base import Claim
 from app.objects.deal import (
     DealAnalysis,
@@ -26,6 +28,7 @@ from app.objects.deal import (
     DealUserFeedback,
     DealWorkspace,
 )
+from app.objects.experience import ActionContext, UserActionType
 from app.objects.deal_list import DealSourceType
 from app.services.deals import (
     USER_ACTIONS,
@@ -35,10 +38,17 @@ from app.services.deals import (
     apply_deal_action,
     get_deal_detail,
     list_deals,
+    soft_delete_deal,
     transition_deal_status,
 )
+from app.services.deal_materials import DealMaterialTargetNotFound, save_deal_material, search_deal_materials
+from app.services.document_extract import DependencyMissingError, DocumentError
 from app.services import deal_assistant
+from app.services.deliverables import save_deliverable
 from app.services.events import record_event
+from app.services.pre_dd import build_pre_dd_workspace
+from app.services.pre_dd_brief import build_pre_dd_brief_report, list_pre_dd_briefs
+from app.services.user_actions import record_user_action, snapshot_from_deal
 
 router = APIRouter()
 
@@ -155,6 +165,7 @@ async def create_deal(
 async def get_deals(
     status: str | None = Query(default=None, description="按管线状态过滤"),
     in_library: bool | None = Query(default=None, description="按是否已加入项目库过滤"),
+    q: str | None = Query(default=None, max_length=100, description="按项目名、画像、来源或状态搜索"),
     limit: int = Query(default=100, ge=1, le=500),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -167,6 +178,7 @@ async def get_deals(
         institution_id=user.institution_id,
         status=status,
         in_library=in_library,
+        q=q,
         limit=limit,
     )
     return {"items": items, "count": len(items)}
@@ -254,6 +266,174 @@ async def get_deal(
     return detail
 
 
+@router.delete("/{deal_id}")
+async def delete_deal(
+    deal_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """软删除项目：从项目库/工作台默认列表隐藏，保留历史事件与材料。"""
+    try:
+        deal = await soft_delete_deal(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+        )
+    except DealNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+    return {"deal_id": str(deal.id), "status": deal.status, "event_recorded": True}
+
+
+@router.get("/{deal_id}/materials/search")
+async def search_materials(
+    deal_id: uuid.UUID,
+    q: str = Query(min_length=1, max_length=200, description="材料全文检索关键词"),
+    limit: int = Query(default=10, ge=1, le=20),
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """项目材料全文检索：MVP 先基于已解析 Chunk 做关键词片段召回。"""
+    try:
+        items = await search_deal_materials(
+            db,
+            institution_id=user.institution_id,
+            deal_id=deal_id,
+            query=q,
+            limit=limit,
+        )
+    except DealMaterialTargetNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+    return {"items": items, "count": len(items)}
+
+
+@router.post("/{deal_id}/materials")
+async def upload_deal_material(
+    deal_id: uuid.UUID,
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """项目工作台上传材料：解析文本并绑定到当前 Deal 的材料库。"""
+    data = await file.read()
+    try:
+        return await save_deal_material(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            filename=file.filename,
+            data=data,
+            content_type=file.content_type,
+        )
+    except DealMaterialTargetNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+    except DependencyMissingError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except DocumentError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/{deal_id}/pre-dd/brief")
+async def generate_pre_dd_brief(
+    deal_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """基于当前 DealProfile 生成结构化 Pre-DD Brief 草稿。
+
+    MVP 版本不调用长流程 Agent，只整理已有项目画像和 Pre-DD 任务树；生成结果以
+    dd_report 交付对象入库，并写事件 / UserAction 供经验沉淀 Agent 使用。
+    """
+    deal = await db.scalar(
+        select(Deal).where(
+            Deal.id == deal_id,
+            Deal.institution_id == user.institution_id,
+        )
+    )
+    if deal is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    company = await db.scalar(
+        select(Company).where(
+            Company.id == deal.company_id,
+            Company.institution_id == user.institution_id,
+        )
+    )
+    profile = DealProfile.model_validate(deal.data or {})
+    pre_dd = build_pre_dd_workspace(profile)
+    company_name = company.name if company is not None else profile.extraction.company_name
+    report = build_pre_dd_brief_report(
+        deal_id=deal.id,
+        company_name=company_name,
+        profile=profile,
+        pre_dd=pre_dd,
+    )
+    row = await save_deliverable(
+        db,
+        institution_id=user.institution_id,
+        dtype=DeliverableType.DD_REPORT,
+        payload=report.model_dump(mode="json"),
+    )
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="deal.pre_dd_brief_generated",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={
+            "deliverable_id": str(row.id),
+            "company_id": str(deal.company_id),
+            "completion_score": report.brief.completion_score if report.brief else None,
+            "track": profile.extraction.track,
+        },
+    )
+    await record_user_action(
+        db,
+        action_type=UserActionType.GENERATE_PRE_DD_BRIEF,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        target_type="deal",
+        target_id=deal.id,
+        snapshot=snapshot_from_deal(deal.data),
+        context=ActionContext(source_page="project_workspace"),
+        extra_payload={"deliverable_id": str(row.id)},
+    )
+    return {
+        "deal_id": str(deal.id),
+        "deliverable_id": str(row.id),
+        "type": DeliverableType.DD_REPORT.value,
+        "payload": row.payload,
+        "event_recorded": True,
+    }
+
+
+@router.get("/{deal_id}/pre-dd/briefs")
+async def get_pre_dd_briefs(
+    deal_id: uuid.UUID,
+    limit: int = Query(default=10, ge=1, le=20),
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """项目工作台 Brief 历史：返回当前项目最近生成的 dd_report Brief。"""
+    exists = await db.scalar(
+        select(Deal.id).where(
+            Deal.id == deal_id,
+            Deal.institution_id == user.institution_id,
+        )
+    )
+    if exists is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    items = await list_pre_dd_briefs(
+        db,
+        institution_id=user.institution_id,
+        deal_id=deal_id,
+        limit=limit,
+    )
+    return {"items": items, "count": len(items)}
+
+
 class TransitionBody(BaseModel):
     to_status: str = Field(description="目标管线状态")
 
@@ -265,7 +445,7 @@ async def transition(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """管线状态流转（sourced→screening→pre_dd→ic_ready→approved/rejected）。"""
+    """管线状态流转（sourced→screening→pre_dd→approved→exited，推进阶段可 rejected）。"""
     try:
         deal = await transition_deal_status(
             db,

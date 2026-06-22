@@ -21,13 +21,16 @@ import {
   Loader2,
   MessageSquare,
   Plus,
+  Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   ApiError,
   createDeal,
   dealAssistant,
+  deleteDeal,
   getDealDetail,
   listDeals,
   sendMessage,
@@ -41,20 +44,35 @@ import { DealDetailPanel } from "../pages/WorkspacePage";
 
 const STATUS_LABEL: Record<string, string> = {
   sourced: "已发现",
-  screening: "筛选中",
+  screening: "初筛中",
   pre_dd: "尽调中",
   ic_ready: "待上会",
-  approved: "已立项",
+  approved: "进行中",
   rejected: "已否决",
+  exited: "已退出",
+  deleted: "已删除",
 };
 
 function normTerm(s: string): string {
-  return s.replace(/\s+/g, "").toLowerCase();
+  return s.replace(/[\s_\-－]+/g, "").toLowerCase();
 }
 function matchesKeywords(d: DealSummary, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
   const hay = normTerm([d.company_name ?? "", d.portrait ?? ""].join("\n"));
   return keywords.some((k) => hay.includes(normTerm(k)));
+}
+function matchesSearch(d: DealSummary, query: string): boolean {
+  const term = normTerm(query);
+  if (!term) return true;
+  const hay = normTerm(
+    [
+      d.company_name ?? "",
+      d.portrait ?? "",
+      d.source_type ?? "",
+      STATUS_LABEL[d.status] ?? d.status,
+    ].join("\n")
+  );
+  return hay.includes(term);
 }
 
 /* ---------------------- 「AI 助手」开关按钮 ---------------------- */
@@ -73,11 +91,26 @@ function AssistantToggle({ chatOpen, onToggle }: { chatOpen: boolean; onToggle: 
 }
 
 /* ---------------------- 项目卡片 ---------------------- */
-function DealCard({ deal, onClick }: { deal: DealSummary; onClick: () => void }) {
+function DealCard({
+  deal,
+  onClick,
+  onDelete,
+}: {
+  deal: DealSummary;
+  onClick: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:shadow-sm"
     >
       <div className="flex items-center justify-between gap-2">
@@ -87,6 +120,18 @@ function DealCard({ deal, onClick }: { deal: DealSummary; onClick: () => void })
         <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
           {STATUS_LABEL[deal.status] ?? deal.status}
         </span>
+        <button
+          type="button"
+          title="删除项目"
+          aria-label={`删除项目 ${deal.company_name ?? "未命名项目"}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
       {deal.portrait && <p className="mt-1.5 line-clamp-2 text-xs text-slate-500">{deal.portrait}</p>}
       <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
@@ -95,7 +140,7 @@ function DealCard({ deal, onClick }: { deal: DealSummary; onClick: () => void })
         {deal.is_liked && <span className="text-amber-500">关注</span>}
         {deal.is_abandoned && <span className="text-slate-400">已放弃</span>}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -513,6 +558,7 @@ export default function DealManager() {
   const [chatOpen, setChatOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -563,8 +609,8 @@ export default function DealManager() {
   }, [loadDealDetail, selectedDealId]);
 
   const filtered = useMemo(
-    () => deals.filter((d) => matchesKeywords(d, filterKeywords)),
-    [deals, filterKeywords]
+    () => deals.filter((d) => matchesKeywords(d, filterKeywords) && matchesSearch(d, searchQuery)),
+    [deals, filterKeywords, searchQuery]
   );
 
   function openDeal(id: string) {
@@ -603,6 +649,22 @@ export default function DealManager() {
       setDetailError(e instanceof ApiError ? e.message : "操作失败");
     } finally {
       setDetailBusy(false);
+    }
+  }
+
+  async function handleDeleteDeal(deal: DealSummary) {
+    const name = deal.company_name ?? "未命名项目";
+    if (!window.confirm(`确认删除「${name}」吗？删除后将从项目库中移除。`)) {
+      return;
+    }
+    try {
+      await deleteDeal(deal.id);
+      if (selectedDealId === deal.id) {
+        closeDealDetail();
+      }
+      void refresh();
+    } catch (error) {
+      window.alert(error instanceof ApiError ? error.message : "删除项目失败");
     }
   }
 
@@ -648,6 +710,30 @@ export default function DealManager() {
             <button type="button" onClick={() => setFilterKeywords([])} className="ml-auto text-indigo-600 hover:underline">
               清除
             </button>
+          </div>
+        )}
+
+        {!selectedDealId && (
+          <div className="shrink-0 border-b border-slate-200 px-6 py-3">
+            <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3">
+              <Search className="h-4 w-4 shrink-0 text-slate-400" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="搜索项目名称、画像、来源或状态"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="text-slate-400 hover:text-slate-600"
+                  aria-label="清空搜索"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -707,12 +793,17 @@ export default function DealManager() {
                 </div>
               )}
               {!loading && deals.length > 0 && filtered.length === 0 && (
-                <div className="text-sm text-slate-400">没有匹配筛选条件的项目。</div>
+                <div className="text-sm text-slate-400">没有匹配搜索或筛选条件的项目。</div>
               )}
               {!loading && filtered.length > 0 && (
                 <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
                   {filtered.map((d) => (
-                    <DealCard key={d.id} deal={d} onClick={() => openDeal(d.id)} />
+                    <DealCard
+                      key={d.id}
+                      deal={d}
+                      onClick={() => openDeal(d.id)}
+                      onDelete={() => void handleDeleteDeal(d)}
+                    />
                   ))}
                 </div>
               )}

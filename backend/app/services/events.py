@@ -38,7 +38,7 @@ async def record_event(
 
 
 # 赛道前瞻 load_history 关心的事件类型：机构关注过什么赛道、生成过项目池、
-# 哪些判断被证伪、立项通过/否决——这些是"越用越准"的历史因子。
+# 哪些判断被证伪、划款进行/否决/退出——这些是"越用越准"的历史因子。
 # thesis.invalidated / deal.* 部分由后续 Phase 产生，先纳入过滤集，出现即被回放。
 THESIS_HISTORY_EVENT_TYPES: tuple[str, ...] = (
     "thesis.created",
@@ -49,6 +49,7 @@ THESIS_HISTORY_EVENT_TYPES: tuple[str, ...] = (
     "thesis.invalidated",
     "deal.approved",
     "deal.rejected",
+    "deal.exited",
 )
 
 

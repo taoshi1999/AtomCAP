@@ -220,10 +220,11 @@ function dealStatusLabel(status: string) {
   const labels: Record<string, string> = {
     sourced: "已获取",
     screening: "初筛中",
-    pre_dd: "待尽调",
+    pre_dd: "尽调中",
     ic_ready: "待上会",
-    approved: "已通过",
+    approved: "进行中",
     rejected: "已否决",
+    exited: "已退出",
   };
   return labels[status] ?? status;
 }

@@ -45,9 +45,9 @@ DEAL_FEEDBACK_ACTIONS: dict[str, UserActionType] = {
 }
 
 # 管线状态流转 → UserActionType（仅取有明确偏好信号的目标态）。
-# 说明：sourced→screening 是系统初筛推进、approved 是立项通过——前者无偏好信号、
-# 后者在 UserActionType 枚举中暂无对应类型（domain_events 的 deal.approved 仍进经验沉淀
-# 历史回放），故此二者不落 UserAction，待设计补充专用类型后再纳入。
+# 说明：sourced→screening 是系统初筛推进、approved/exited 暂无专用 UserActionType
+# （domain_events 的 deal.approved / deal.exited 仍进经验沉淀历史回放），故不落 UserAction，
+# 待设计补充专用类型后再纳入。
 DEAL_TRANSITION_ACTIONS: dict[str, UserActionType] = {
     "pre_dd": UserActionType.GENERATE_PRE_DD_BRIEF,   # 进入 Pre-DD：强正向意向 (+5)
     "ic_ready": UserActionType.PREPARE_IC,            # 准备上会：最强正向 (+6)

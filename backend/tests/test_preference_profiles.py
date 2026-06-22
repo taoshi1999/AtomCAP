@@ -170,6 +170,46 @@ def test_update_profile_overwrites_and_flushes():
     assert db.flushed == 1
 
 
+def test_archive_profile_marks_row_archived():
+    row = PreferenceProfileRow(
+        institution_id=INST,
+        name="AI 早期",
+        archived=False,
+        payload={"name": "AI 早期", "sectors": ["人工智能"]},
+    )
+    row.id = uuid.uuid4()
+    db = _FakeDb()
+
+    out = asyncio.run(profiles_service.archive_profile(db, row=row))
+
+    assert out.archived is True
+    assert db.flushed == 1
+
+
+def test_profile_matches_query_covers_core_and_custom_dimensions():
+    row = PreferenceProfileRow(
+        institution_id=INST,
+        name="AI 早期",
+        archived=False,
+        payload={
+            "name": "AI 早期",
+            "sectors": ["人工智能"],
+            "stages": ["Pre-A"],
+            "regions": ["华东"],
+            "risk_levels": ["中高风险"],
+            "check_sizes": ["1000-3000万"],
+            "custom_dimensions": [{"key": "team", "label": "团队背景", "values": ["科研背景"]}],
+            "notes": "关注硬科技上游",
+        },
+    )
+
+    assert profiles_service.profile_matches_query(row, "AI早期")
+    assert profiles_service.profile_matches_query(row, "科研背景")
+    assert profiles_service.profile_matches_query(row, "1000 3000万")
+    assert profiles_service.profile_matches_query(row, "硬科技")
+    assert not profiles_service.profile_matches_query(row, "消费连锁")
+
+
 def test_profile_projections():
     row = PreferenceProfileRow(
         institution_id=INST,

@@ -11,20 +11,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import uuid
 from types import SimpleNamespace
 
 import pytest
 
+from app.models.models import Chunk, Document, EvidenceItemRow
 from app.objects.deal import DealProfile, DealStatus
+from app.objects.dd_report import DDReport
 from app.services.deals import (
     USER_ACTIONS,
+    append_status_history,
     apply_user_action,
+    deal_matches_query,
     deal_summary,
+    soft_delete_deal,
     is_allowed_transition,
 )
-from app.services.pre_dd import build_pre_dd_workspace
+from app.services.deal_materials import project_deal_material, save_deal_material, search_material_records
+from app.services.pre_dd import build_pre_dd_workspace, infer_material_task_hits, suggest_material_category
+from app.services.pre_dd_brief import build_pre_dd_brief_report, project_pre_dd_brief
 
 
 def _valid_data(**overrides) -> dict:
@@ -44,8 +52,8 @@ def _valid_data(**overrides) -> dict:
 def test_forward_transitions_allowed():
     assert is_allowed_transition("sourced", "screening")
     assert is_allowed_transition("screening", "pre_dd")
-    assert is_allowed_transition("pre_dd", "ic_ready")
-    assert is_allowed_transition("ic_ready", "approved")
+    assert is_allowed_transition("pre_dd", "approved")
+    assert is_allowed_transition("approved", "exited")
 
 
 def test_reject_allowed_from_nonterminal():
@@ -55,8 +63,9 @@ def test_reject_allowed_from_nonterminal():
 
 
 def test_terminal_states_have_no_exit():
-    assert not is_allowed_transition("approved", "rejected")
+    assert not is_allowed_transition("exited", "rejected")
     assert not is_allowed_transition("rejected", "screening")
+    assert not is_allowed_transition("deleted", "screening")
 
 
 def test_skip_and_self_transition_rejected():
@@ -66,6 +75,14 @@ def test_skip_and_self_transition_rejected():
 
 def test_ic_ready_can_fallback_to_pre_dd():
     assert is_allowed_transition("ic_ready", "pre_dd")
+
+
+def test_status_history_records_actual_branch():
+    data = _valid_data()
+    assert append_status_history(data, "screening", "rejected") == ["screening", "rejected"]
+
+    data["status_history"] = ["screening", "pre_dd"]
+    assert append_status_history(data, "pre_dd", "rejected") == ["screening", "pre_dd", "rejected"]
 
 
 # ---------- 用户反馈动作补丁 ----------
@@ -163,7 +180,265 @@ def test_deal_summary_tolerates_missing_company():
     assert s["is_in_library"] is False
 
 
+def test_deal_matches_query_uses_name_portrait_source_and_status():
+    deal = _fake_deal(_valid_data(source_type="user_input"))
+    summary = deal_summary(deal, SimpleNamespace(name="深圳光羽智能科技有限公司"))
+
+    assert deal_matches_query(summary, "光羽智能")
+    assert deal_matches_query(summary, "AI眼镜")
+    assert deal_matches_query(summary, "user input")
+    assert deal_matches_query(summary, "screening")
+    assert not deal_matches_query(summary, "新能源电池")
+
+
+class _FakeDealDb:
+    def __init__(self, deal):
+        self.deal = deal
+        self.flushes = 0
+
+    async def scalar(self, _stmt):
+        return self.deal
+
+    async def flush(self):
+        self.flushes += 1
+
+
+def test_soft_delete_deal_marks_deleted_and_records_history(monkeypatch):
+    deal = _fake_deal(_valid_data(status_history=["screening", "pre_dd"]), status="pre_dd")
+    db = _FakeDealDb(deal)
+    events = []
+
+    async def fake_record_event(*_args, **kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr("app.services.deals.record_event", fake_record_event)
+
+    out = asyncio.run(
+        soft_delete_deal(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deal_id=deal.id,
+        )
+    )
+
+    assert out.status == "deleted"
+    assert out.data["status"] == "deleted"
+    assert out.data["status_history"] == ["screening", "pre_dd", "deleted"]
+    assert db.flushes == 1
+    assert events[0]["event_type"] == "deal.deleted"
+    assert events[0]["payload"]["from_status"] == "pre_dd"
+
+
+# ---------- 项目材料投影 ----------
+
+def test_deal_material_projection_uses_chunk_meta_and_preview():
+    now = dt.datetime(2026, 6, 22, 9, 30, 0)
+    evidence_id = uuid.uuid4()
+    document = SimpleNamespace(
+        id=uuid.uuid4(),
+        filename="光羽科技 BP.pdf",
+        doc_type="bp",
+        parse_status="completed",
+        created_at=now,
+        updated_at=now,
+    )
+    chunk = SimpleNamespace(
+        content=" 光羽科技是一家 AI 眼镜光学模组方案商。\n\n团队来自头部消费电子公司，已有头部客户订单，去年收入约 1200 万。 ",
+        meta={
+            "fmt": "pdf",
+            "source_type": "bp_upload",
+            "unit_count": 12,
+            "text_chars": 1280,
+            "warnings": ["第 3 页文字较少"],
+            "evidence_id": str(evidence_id),
+        },
+    )
+
+    item = project_deal_material(document, chunk)
+
+    assert item["id"] == str(document.id)
+    assert item["evidence_id"] == str(evidence_id)
+    assert item["filename"] == "光羽科技 BP.pdf"
+    assert item["doc_type"] == "bp"
+    assert item["parse_status"] == "completed"
+    assert item["source_type"] == "bp_upload"
+    assert item["fmt"] == "pdf"
+    assert item["unit_count"] == 12
+    assert item["text_chars"] == 1280
+    assert item["text_preview"].startswith("光羽科技是一家")
+    assert item["material_category_suggestion"]["key"] == "bp_product"
+    assert item["material_category_suggestion"]["is_background"] is False
+    assert {"financials", "customers"} <= set(item["pre_dd_task_keys"])
+    assert item["pre_dd_task_hits"][0]["filename"] == "光羽科技 BP.pdf"
+    assert item["pre_dd_task_hits"][0]["evidence_id"] == str(evidence_id)
+    assert item["warnings"] == ["第 3 页文字较少"]
+
+
+def test_material_category_suggestion_recommends_background_when_unmatched():
+    background = suggest_material_category(
+        filename="参访路线.txt",
+        text="展台照片、来访路线与接待安排记录。",
+    )
+    assert background["key"] == "background"
+    assert background["title"] == "背景材料"
+    assert background["is_background"] is True
+
+    financials = suggest_material_category(
+        filename="2025 利润表.xlsx",
+        text="本表包含营收、收入、现金流与资产负债表摘要。",
+    )
+    assert financials["key"] == "financials"
+    assert financials["title"] == "财务指标"
+    assert financials["confidence"] == "high"
+    assert {"利润表", "营收", "收入"} <= set(financials["matched_keywords"])
+
+
+class _FakeMaterialDB:
+    def __init__(self, deal):
+        self.deal = deal
+        self.added = []
+        self.flushes = 0
+
+    async def scalar(self, _stmt):
+        return self.deal
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def flush(self):
+        self.flushes += 1
+        now = dt.datetime(2026, 6, 22, 11, 0, 0)
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+            if hasattr(obj, "created_at") and getattr(obj, "created_at", None) is None:
+                obj.created_at = now
+            if hasattr(obj, "updated_at") and getattr(obj, "updated_at", None) is None:
+                obj.updated_at = now
+
+
+def test_save_deal_material_creates_private_evidence(monkeypatch):
+    deal_id = uuid.uuid4()
+    db = _FakeMaterialDB(SimpleNamespace(id=deal_id))
+    events = []
+
+    async def fake_record_event(*_args, **kwargs):
+        events.append(kwargs["payload"])
+
+    monkeypatch.setattr("app.services.deal_materials.record_event", fake_record_event)
+
+    item = asyncio.run(
+        save_deal_material(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deal_id=deal_id,
+            filename="客户访谈.txt",
+            data="客户 A 已完成试用，预计今年收入 1200 万。".encode("utf-8"),
+            content_type="text/plain",
+        )
+    )
+
+    [document] = [obj for obj in db.added if isinstance(obj, Document)]
+    [chunk] = [obj for obj in db.added if isinstance(obj, Chunk)]
+    [evidence] = [obj for obj in db.added if isinstance(obj, EvidenceItemRow)]
+    assert evidence.source_type == "private_material"
+    assert evidence.connector == "upload"
+    assert evidence.raw["deal_id"] == str(deal_id)
+    assert evidence.raw["document_id"] == str(document.id)
+    assert evidence.raw["chunk_id"] == str(chunk.id)
+    assert chunk.meta["evidence_id"] == str(evidence.id)
+    assert item["evidence_id"] == str(evidence.id)
+    assert item["material_category_suggestion"]["key"] == "customers"
+    assert events[0]["evidence_id"] == str(evidence.id)
+    assert events[0]["material_category_suggestion"]["key"] == "customers"
+
+
+def test_material_search_records_rank_and_snippet_matches():
+    now = dt.datetime(2026, 6, 22, 10, 0, 0)
+    evidence_id = uuid.uuid4()
+    document_a = SimpleNamespace(
+        id=uuid.uuid4(),
+        filename="客户访谈纪要.txt",
+        doc_type="meeting_note",
+        updated_at=now,
+    )
+    chunk_a = SimpleNamespace(
+        id=uuid.uuid4(),
+        document_id=document_a.id,
+        content="客户 A 已完成试用，预计今年收入 1200 万，后续订单仍需核实。",
+        meta={"evidence_id": str(evidence_id)},
+    )
+    document_b = SimpleNamespace(
+        id=uuid.uuid4(),
+        filename="团队介绍.txt",
+        doc_type="bp",
+        updated_at=now,
+    )
+    chunk_b = SimpleNamespace(
+        id=uuid.uuid4(),
+        document_id=document_b.id,
+        content="创始团队来自头部消费电子公司。",
+    )
+
+    results = search_material_records(
+        [(document_a, chunk_a), (document_b, chunk_b)],
+        query="客户 收入",
+        limit=5,
+    )
+
+    assert len(results) == 1
+    assert results[0]["filename"] == "客户访谈纪要.txt"
+    assert results[0]["evidence_id"] == str(evidence_id)
+    assert results[0]["matched_terms"] == ["客户", "收入"]
+    assert "收入 1200 万" in results[0]["snippet"]
+
+
+def test_material_search_records_empty_query_returns_empty():
+    assert search_material_records([], query="   ") == []
+
+
 # ---------- Pre-DD 工作台只读视图 ----------
+
+def test_pre_dd_material_hits_classify_uploaded_text_to_task_keys():
+    evidence_id = uuid.uuid4()
+    hits = infer_material_task_hits(
+        document_id=str(uuid.uuid4()),
+        filename="Founder Call 纪要.txt",
+        text="公司本轮融资 3000 万，已有头部客户订单，去年收入约 1200 万，竞争对手包括 A 与 B。",
+        doc_type="bp",
+        evidence_id=str(evidence_id),
+    )
+
+    keys = {hit["task_key"] for hit in hits}
+    assert {"financing", "customers", "financials", "competitors"} <= keys
+    assert all(hit["snippet"] for hit in hits)
+    assert all(hit["evidence_id"] == str(evidence_id) for hit in hits)
+
+
+def test_pre_dd_workspace_uses_uploaded_material_hits_as_partial_coverage():
+    profile = DealProfile.model_validate(_valid_data())
+    document_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    material_hits = [
+        {
+            "document_id": str(document_id),
+            "evidence_id": str(evidence_id),
+            "filename": "Founder Call 纪要.txt",
+            "task_key": "financials",
+            "keyword": "收入",
+            "snippet": "去年收入约 1200 万，毛利率待核实。",
+        }
+    ]
+
+    view = build_pre_dd_workspace(profile, material_hits=material_hits)
+    financials = next(item for item in view["items"] if item["key"] == "financials")
+
+    assert financials["status"] == "partial"
+    assert financials["materials"] == material_hits
+    assert view["completion"]["partial"] >= 1
+
 
 def test_pre_dd_workspace_builds_material_tree_from_profile():
     profile = DealProfile.model_validate(
@@ -207,3 +482,118 @@ def test_pre_dd_workspace_empty_profile_has_no_fake_questions_or_risks():
     assert view["priority_questions"] == []
     assert view["risk_queue"] == []
     assert all(item["status"] in {"missing", "partial", "public_data_possible", "complete"} for item in view["items"])
+
+
+def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
+    deal_id = uuid.uuid4()
+    profile = DealProfile.model_validate(
+        _valid_data(
+            extraction={
+                "company_name": "光羽科技",
+                "one_line_intro": "AI 眼镜光学模组方案商",
+                "track": "AI 硬件",
+                "sub_direction": "光学模组",
+                "product": "轻量化光学模组",
+                "funding_stage": "Pre-A",
+                "funding_amount": "3000 万元",
+                "founders": ["张三"],
+                "customers": ["头部消费电子客户"],
+            },
+            analysis={
+                "portrait": "AI 眼镜光学模组方案商",
+                "overall_fit": 88,
+                "highlights": [{"text": "切入 AI 眼镜上游核心部件", "evidence_ids": [], "inferred": True}],
+                "initial_risks": [{"text": "客户集中度待验证", "evidence_ids": [], "inferred": True}],
+                "info_gaps": ["估值与股权结构仍需补充"],
+                "open_questions": ["核心客户收入占比是多少？"],
+                "next_steps": [{"text": "安排 Founder Call", "evidence_ids": [], "inferred": True}],
+            },
+        )
+    )
+    workspace = build_pre_dd_workspace(profile)
+
+    report = build_pre_dd_brief_report(
+        deal_id=deal_id,
+        company_name="深圳光羽智能科技有限公司",
+        profile=profile,
+        pre_dd=workspace,
+    )
+    payload = report.model_dump(mode="json")
+    validated = DDReport.model_validate(payload)
+
+    assert validated.deal_id == deal_id
+    assert validated.company_name == "深圳光羽智能科技有限公司"
+    assert validated.brief is not None
+    assert validated.brief.completion_score == workspace["completion"]["score"]
+    assert "资料完整度" in validated.brief.completion_summary
+    assert validated.brief.key_highlights[0].text == "切入 AI 眼镜上游核心部件"
+    assert validated.brief.top_risks[0].text == "客户集中度待验证"
+    assert validated.brief.priority_questions == ["核心客户收入占比是多少？"]
+    assert validated.brief.recommended_next_steps[0].text == "安排 Founder Call"
+    assert len(validated.checklist) == workspace["completion"]["total"]
+
+    material_evidence_id = uuid.uuid4()
+    material_workspace = build_pre_dd_workspace(
+        DealProfile.model_validate(_valid_data()),
+        material_hits=[
+            {
+                "document_id": str(uuid.uuid4()),
+                "evidence_id": str(material_evidence_id),
+                "filename": "BP.pdf",
+                "task_key": "financials",
+                "keyword": "收入",
+                "snippet": "收入约 1200 万",
+            }
+        ],
+    )
+    material_report = build_pre_dd_brief_report(
+        deal_id=uuid.uuid4(),
+        company_name="光羽科技",
+        profile=DealProfile.model_validate(_valid_data()),
+        pre_dd=material_workspace,
+    )
+    financial_check = next(item for item in material_report.checklist if item.question == "财务指标")
+    assert financial_check.answer is not None
+    assert "相关材料" in financial_check.answer.text
+    assert financial_check.answer.evidence_ids == [material_evidence_id]
+    assert financial_check.answer.inferred is False
+
+
+def test_pre_dd_brief_projection_filters_by_deal_and_requires_brief():
+    deal_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    now = dt.datetime(2026, 6, 21, 12, 0, 0)
+    report = build_pre_dd_brief_report(
+        deal_id=deal_id,
+        company_name="光羽科技",
+        profile=DealProfile.model_validate(_valid_data()),
+        pre_dd=build_pre_dd_workspace(DealProfile.model_validate(_valid_data())),
+    )
+    row = SimpleNamespace(
+        id=uuid.uuid4(),
+        payload=report.model_dump(mode="json"),
+        created_at=now,
+        updated_at=now,
+    )
+
+    item = project_pre_dd_brief(row, deal_id=deal_id)
+    assert item is not None
+    assert item["deliverable_id"] == str(row.id)
+    assert item["payload"]["deal_id"] == str(deal_id)
+    assert item["payload"]["brief"]["completion_score"] >= 0
+
+    assert project_pre_dd_brief(row, deal_id=other_id) is None
+
+    legacy = SimpleNamespace(
+        id=uuid.uuid4(),
+        payload={
+            "deal_id": str(deal_id),
+            "company_name": "光羽科技",
+            "checklist": [],
+            "sections": [],
+            "open_questions": [],
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    assert project_pre_dd_brief(legacy, deal_id=deal_id) is None

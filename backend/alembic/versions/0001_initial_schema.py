@@ -203,7 +203,7 @@ def upgrade() -> None:
             sa.ForeignKey("companies.id"),
             nullable=False,
         ),
-        # 状态机：sourced → screening → pre_dd → ic_ready → approved/rejected
+        # 状态机：sourced → screening → pre_dd → approved → exited；推进阶段可 rejected
         sa.Column("status", sa.String(30), server_default=sa.text("'sourced'"), nullable=False),
         sa.Column("data", postgresql.JSONB(), nullable=False),
         *_ts(),

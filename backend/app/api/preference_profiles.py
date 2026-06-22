@@ -37,12 +37,13 @@ def _dimension_summary(profile: PreferenceProfile) -> dict:
 @router.get("")
 async def list_preference_profiles(
     include_archived: bool = Query(False),
+    q: str | None = Query(None, max_length=100, description="按偏好名称、维度取值或备注搜索"),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """机构下的偏好卡片列表（投资偏好界面渲染卡片用）。"""
     rows = await profiles_service.list_profiles(
-        db, institution_id=user.institution_id, include_archived=include_archived
+        db, institution_id=user.institution_id, include_archived=include_archived, q=q
     )
     return {"items": [profiles_service.profile_summary(r) for r in rows], "count": len(rows)}
 
@@ -255,3 +256,29 @@ async def update_preference_profile(
         payload=_dimension_summary(body),
     )
     return profiles_service.profile_detail(row)
+
+
+@router.delete("/{profile_id}")
+async def delete_preference_profile(
+    profile_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """删除一张投资偏好卡片（软删除：归档并从默认列表隐藏）。"""
+    row = await profiles_service.get_profile(
+        db, institution_id=user.institution_id, profile_id=profile_id
+    )
+    if row is None or row.archived:
+        raise HTTPException(status_code=404, detail="偏好不存在")
+    profile = PreferenceProfile.model_validate(row.payload or {})
+    row = await profiles_service.archive_profile(db, row=row)
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        event_type="preference_profile.deleted",
+        subject_type="preference_profile",
+        subject_id=row.id,
+        user_id=user.user_id,
+        payload=_dimension_summary(profile),
+    )
+    return {"profile_id": str(row.id), "archived": True, "event_recorded": True}

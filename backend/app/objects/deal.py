@@ -34,8 +34,10 @@ class DealStatus(StrEnum):
     SCREENING = "screening"    # 待初筛（Deal Intake 带入的项目初始态）
     PRE_DD = "pre_dd"
     IC_READY = "ic_ready"
-    APPROVED = "approved"
+    APPROVED = "approved"      # 进行中（已划款）
     REJECTED = "rejected"
+    EXITED = "exited"
+    DELETED = "deleted"
 
 
 class DealExtraction(BaseModel):
@@ -108,6 +110,10 @@ class DealProfile(BaseModel):
         default=DealSourceType.USER_INPUT, description="项目来源：BP上传/用户输入/FA推荐/内部表"
     )
     status: DealStatus = Field(default=DealStatus.SCREENING)
+    status_history: list[DealStatus] = Field(
+        default_factory=list,
+        description="项目状态流转路径；用于前端还原状态变迁图，尤其区分不同阶段的否决。",
+    )
     extraction: DealExtraction
     analysis: DealAnalysis
     created_from_conversation: str | None = Field(default=None)

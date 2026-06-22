@@ -114,7 +114,9 @@ export type DealStatus =
   | "pre_dd"
   | "ic_ready"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "exited"
+  | "deleted";
 
 // 与 backend DealSourceType 对齐（项目来源）
 export type DealSourceType =
@@ -211,6 +213,7 @@ export interface PreDDChecklistItem {
   status: PreDDTaskStatus;
   provided: string[];
   missing: string[];
+  materials: PreDDMaterialHit[];
   gaps: string[];
   questions: string[];
 }
@@ -224,6 +227,15 @@ export interface PreDDCompletion {
   public_data_possible: number;
 }
 
+export interface PreDDMaterialHit {
+  document_id: string;
+  evidence_id?: string | null;
+  filename: string;
+  task_key: string;
+  keyword: string;
+  snippet: string;
+}
+
 export interface PreDDWorkspace {
   completion: PreDDCompletion;
   items: PreDDChecklistItem[];
@@ -232,11 +244,43 @@ export interface PreDDWorkspace {
   next_steps: string[];
 }
 
+export interface PreDDBrief {
+  project_overview: Claim;
+  fit_summary: Claim;
+  completion_score: number;
+  completion_summary: string;
+  key_highlights: Claim[];
+  top_risks: Claim[];
+  priority_questions: string[];
+  recommended_next_steps: Claim[];
+}
+
+export interface DDReport {
+  schema_version: number;
+  created_from_conversation?: string | null;
+  deal_id: string;
+  company_name: string;
+  brief?: PreDDBrief | null;
+  checklist: Array<{
+    dimension: string;
+    question: string;
+    filled: boolean;
+    answer?: Claim | null;
+  }>;
+  sections: Array<{
+    title: string;
+    dimension: string;
+    findings: Claim[];
+  }>;
+  open_questions: string[];
+}
+
 // deals.data 完整契约（DealProfile）
 export interface DealProfile {
   schema_version: number;
   source_type: DealSourceType;
   status: DealStatus;
+  status_history: DealStatus[];
   extraction: DealExtraction;
   analysis: DealAnalysis;
   created_from_conversation?: string | null;
@@ -268,6 +312,48 @@ export interface DealCompany {
   profile?: Record<string, unknown> | null;
 }
 
+export type DealMaterialCategoryConfidence = "high" | "medium" | "low";
+
+export interface DealMaterialCategorySuggestion {
+  key: string;
+  title: string;
+  confidence: DealMaterialCategoryConfidence;
+  matched_keywords: string[];
+  is_background: boolean;
+  reason: string;
+}
+
+export interface DealMaterial {
+  id: string;
+  evidence_id?: string | null;
+  filename: string;
+  doc_type?: string | null;
+  parse_status: string;
+  source_type?: string | null;
+  fmt?: string | null;
+  unit_count?: number | null;
+  text_chars: number;
+  text_preview?: string | null;
+  material_category_suggestion?: DealMaterialCategorySuggestion | null;
+  pre_dd_task_keys: string[];
+  pre_dd_task_hits: PreDDMaterialHit[];
+  warnings: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DealMaterialSearchResult {
+  document_id: string;
+  chunk_id: string;
+  evidence_id?: string | null;
+  filename: string;
+  doc_type?: string | null;
+  score: number;
+  matched_terms: string[];
+  snippet: string;
+  updated_at: string;
+}
+
 export interface DealDetail {
   id: string;
   company_id: string;
@@ -275,6 +361,7 @@ export interface DealDetail {
   data: DealProfile;
   company: DealCompany | null;
   pre_dd?: PreDDWorkspace | null;
+  materials: DealMaterial[];
   created_at: string;
   updated_at: string;
 }

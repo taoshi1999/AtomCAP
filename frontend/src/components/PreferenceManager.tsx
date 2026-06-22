@@ -18,13 +18,16 @@ import {
   Loader2,
   MessageSquare,
   Plus,
+  Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   ApiError,
   applyPreferenceProfile,
   createPreferenceProfile,
+  deletePreferenceProfile,
   getPreferenceProfile,
   getPreferenceRecommendations,
   listPreferenceProfileVersions,
@@ -60,7 +63,7 @@ const EMPTY_FORM: PreferenceProfileContent = {
 
 /* 关键词匹配（空格无关、大小写无关），供右侧栏按助手返回的关键词过滤 */
 function normTerm(s: string): string {
-  return s.replace(/\s+/g, "").toLowerCase();
+  return s.replace(/[\s_\-－]+/g, "").toLowerCase();
 }
 function matchesKeywords(p: PreferenceProfileSummary, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
@@ -79,6 +82,25 @@ function matchesKeywords(p: PreferenceProfileSummary, keywords: string[]): boole
     ].join("\n")
   );
   return keywords.some((k) => hay.includes(normTerm(k)));
+}
+function matchesSearch(p: PreferenceProfileSummary, query: string): boolean {
+  const term = normTerm(query);
+  if (!term) return true;
+  const customText = (p.custom_dimensions ?? [])
+    .flatMap((item) => [item.label, ...item.values])
+    .join("\n");
+  const hay = normTerm(
+    [
+      p.name,
+      ...p.sectors,
+      ...p.stages,
+      ...p.regions,
+      ...p.risk_levels,
+      ...p.check_sizes,
+      customText,
+    ].join("\n")
+  );
+  return hay.includes(term);
 }
 
 function makeCustomDimensionKey(label: string) {
@@ -574,12 +596,14 @@ function PreferenceCard({
   onClick,
   onHistory,
   onApply,
+  onDelete,
 }: {
   profile: PreferenceProfileSummary;
   applying?: boolean;
   onClick: () => void;
   onHistory: () => void;
   onApply: () => void;
+  onDelete: () => void;
 }) {
   const chips = summaryChips(profile);
   return (
@@ -628,6 +652,18 @@ function PreferenceCard({
         >
           {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
           应用此偏好
+        </button>
+        <button
+          type="button"
+          title="删除偏好"
+          aria-label={`删除偏好 ${profile.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -786,31 +822,37 @@ function CardList({
   loading,
   error,
   filterKeywords,
+  searchQuery,
   chatOpen,
   applyingId,
   onToggleChat,
   onClearFilter,
+  onSearchQueryChange,
   onOpen,
   onHistory,
   onApply,
+  onDelete,
   onCreate,
 }: {
   items: PreferenceProfileSummary[];
   loading: boolean;
   error: string | null;
   filterKeywords: string[];
+  searchQuery: string;
   chatOpen: boolean;
   applyingId: string | null;
   onToggleChat: () => void;
   onClearFilter: () => void;
+  onSearchQueryChange: (query: string) => void;
   onOpen: (id: string) => void;
   onHistory: (profile: PreferenceProfileSummary) => void;
   onApply: (profile: PreferenceProfileSummary) => void;
+  onDelete: (profile: PreferenceProfileSummary) => void;
   onCreate: () => void;
 }) {
   const filtered = useMemo(
-    () => items.filter((p) => matchesKeywords(p, filterKeywords)),
-    [items, filterKeywords]
+    () => items.filter((p) => matchesKeywords(p, filterKeywords) && matchesSearch(p, searchQuery)),
+    [items, filterKeywords, searchQuery]
   );
   return (
     <>
@@ -836,6 +878,27 @@ function CardList({
           </button>
         </div>
       )}
+      <div className="shrink-0 border-b border-slate-200 px-6 py-3">
+        <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3">
+          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="搜索偏好名称、赛道、阶段、地域或备注"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => onSearchQueryChange("")}
+              className="text-slate-400 hover:text-slate-600"
+              aria-label="清空搜索"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {loading && (
           <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -858,7 +921,7 @@ function CardList({
           </div>
         )}
         {!loading && items.length > 0 && filtered.length === 0 && (
-          <div className="text-sm text-slate-400">没有匹配筛选条件的偏好。</div>
+          <div className="text-sm text-slate-400">没有匹配搜索或筛选条件的偏好。</div>
         )}
         {!loading && filtered.length > 0 && (
           <div className={`grid grid-cols-1 gap-4 ${chatOpen ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3"}`}>
@@ -870,6 +933,7 @@ function CardList({
                 onClick={() => onOpen(p.id)}
                 onHistory={() => onHistory(p)}
                 onApply={() => onApply(p)}
+                onDelete={() => onDelete(p)}
               />
             ))}
           </div>
@@ -1013,6 +1077,7 @@ export default function PreferenceManager({
   const [createOpen, setCreateOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<{
@@ -1084,6 +1149,21 @@ export default function PreferenceManager({
     }
   }
 
+  async function deleteProfile(profile: PreferenceProfileSummary) {
+    if (!window.confirm(`确认删除「${profile.name}」吗？删除后将从投资偏好列表中移除。`)) {
+      return;
+    }
+    setNotice(null);
+    try {
+      await deletePreferenceProfile(profile.id);
+      if (selectedId === profile.id) setSelectedId(null);
+      setNotice(`已删除「${profile.name}」`);
+      void refresh();
+    } catch (error) {
+      setNotice(error instanceof ApiError ? error.message : "删除偏好失败");
+    }
+  }
+
   const selectedSummary = selectedId ? items.find((item) => item.id === selectedId) : null;
 
   return (
@@ -1125,13 +1205,16 @@ export default function PreferenceManager({
             loading={loading}
             error={error}
             filterKeywords={filterKeywords}
+            searchQuery={searchQuery}
             chatOpen={chatOpen}
             applyingId={applyingId}
             onToggleChat={() => setChatOpen((v) => !v)}
             onClearFilter={() => setFilterKeywords([])}
+            onSearchQueryChange={setSearchQuery}
             onOpen={(id) => setSelectedId(id)}
             onHistory={(profile) => void openHistory(profile)}
             onApply={(profile) => void applyProfile(profile)}
+            onDelete={(profile) => void deleteProfile(profile)}
             onCreate={() => setCreateOpen(true)}
           />
         )}

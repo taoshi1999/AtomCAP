@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -222,14 +222,19 @@ async def track_assistant_endpoint(
 
 
 async def _get_owned(
-    db: AsyncSession, deliverable_id: uuid.UUID, user: CurrentUser
+    db: AsyncSession,
+    deliverable_id: uuid.UUID,
+    user: CurrentUser,
+    *,
+    include_deleted: bool = False,
 ) -> Deliverable:
-    row = await db.scalar(
-        select(Deliverable).where(
-            Deliverable.id == deliverable_id,
-            Deliverable.institution_id == user.institution_id,  # 租户行级隔离
-        )
+    stmt = select(Deliverable).where(
+        Deliverable.id == deliverable_id,
+        Deliverable.institution_id == user.institution_id,  # 租户行级隔离
     )
+    if not include_deleted:
+        stmt = stmt.where(or_(Deliverable.status.is_(None), Deliverable.status != ThesisStatus.DELETED.value))
+    row = await db.scalar(stmt)
     if row is None:
         raise HTTPException(status_code=404, detail="对象不存在")
     return row
@@ -251,6 +256,35 @@ async def get_deliverable(
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
     }
+
+
+@router.delete("/{deliverable_id}")
+async def delete_deliverable(
+    deliverable_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """删除赛道库中的赛道（软删除 thesis，保留审计事件与历史引用）。"""
+    row = await _get_owned(db, deliverable_id, user, include_deleted=True)
+    if row.type != DeliverableType.THESIS.value:
+        raise HTTPException(status_code=422, detail="仅支持删除赛道对象")
+    if row.status == ThesisStatus.DELETED.value:
+        raise HTTPException(status_code=404, detail="对象不存在")
+    payload = dict(row.payload or {})
+    payload["status"] = ThesisStatus.DELETED.value
+    row.payload = payload
+    row.status = ThesisStatus.DELETED.value
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="thesis.deleted",
+        subject_type=DeliverableType.THESIS.value,
+        subject_id=row.id,
+        payload={"track": payload.get("thesis_name")},
+    )
+    await db.flush()
+    return {"deliverable_id": str(row.id), "status": row.status, "event_recorded": True}
 
 
 @router.post("/{deliverable_id}/actions/{action}")

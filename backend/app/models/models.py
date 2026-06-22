@@ -146,7 +146,7 @@ class Deal(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = pk()
     institution_id: Mapped[uuid.UUID] = tenant_fk()
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"))
-    # 状态机：sourced → screening → pre_dd → ic_ready → approved/rejected
+    # 状态机：sourced → screening → pre_dd → approved → exited；推进阶段可 rejected
     # 状态流转由系统管控并写 domain_events
     status: Mapped[str] = mapped_column(String(30), default="sourced", index=True)
     data: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -198,7 +198,7 @@ class Document(Base, TimestampMixin):
     __tablename__ = "documents"
     id: Mapped[uuid.UUID] = pk()
     institution_id: Mapped[uuid.UUID] = tenant_fk()
-    deal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    deal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     filename: Mapped[str] = mapped_column(String(255))
     doc_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # bp / 财报 / 访谈纪要
     parse_status: Mapped[str] = mapped_column(String(20), default="pending")

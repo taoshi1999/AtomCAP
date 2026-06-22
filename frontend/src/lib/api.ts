@@ -7,8 +7,11 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
   DealAction,
   DealDetail,
+  DealMaterial,
+  DealMaterialSearchResult,
   DealStatus,
   DealSummary,
+  DDReport,
   Deliverable,
   ThesisAction,
 } from "./types";
@@ -378,8 +381,11 @@ export interface ApplyPreferenceProfileResponse {
 }
 
 // GET /api/preference-profiles —— 卡片列表
-export async function listPreferenceProfiles(): Promise<PreferenceProfileListResponse> {
-  return apiJson<PreferenceProfileListResponse>("/api/preference-profiles");
+export async function listPreferenceProfiles(params: { q?: string } = {}): Promise<PreferenceProfileListResponse> {
+  const qs = new URLSearchParams();
+  if (params.q?.trim()) qs.set("q", params.q.trim());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiJson<PreferenceProfileListResponse>(`/api/preference-profiles${suffix}`);
 }
 
 // GET /api/preference-profiles/{id} —— 卡片详情
@@ -425,6 +431,14 @@ export async function updatePreferenceProfile(
     method: "PUT",
     body: JSON.stringify(content),
   });
+}
+
+// DELETE /api/preference-profiles/{id} —— 归档/删除偏好卡片
+export async function deletePreferenceProfile(id: string): Promise<{ profile_id: string; archived: boolean; event_recorded: boolean }> {
+  return apiJson<{ profile_id: string; archived: boolean; event_recorded: boolean }>(
+    `/api/preference-profiles/${id}`,
+    { method: "DELETE" }
+  );
 }
 
 export interface DimensionRecommendationResponse {
@@ -536,6 +550,15 @@ export async function register(payload: RegisterPayload): Promise<AuthTokenRespo
 // GET /api/deliverables/{id}
 export async function getDeliverable(deliverableId: string): Promise<Deliverable> {
   return apiJson<Deliverable>(`/api/deliverables/${deliverableId}`);
+}
+
+export async function deleteDeliverable(
+  deliverableId: string
+): Promise<{ deliverable_id: string; status: string; event_recorded: boolean }> {
+  return apiJson<{ deliverable_id: string; status: string; event_recorded: boolean }>(
+    `/api/deliverables/${deliverableId}`,
+    { method: "DELETE" }
+  );
 }
 
 export interface CreateThesisPayload {
@@ -697,6 +720,7 @@ export interface DealListResponse {
 export interface DealListParams {
   status?: DealStatus;
   in_library?: boolean;
+  q?: string;
   limit?: number;
 }
 
@@ -705,6 +729,7 @@ export async function listDeals(params: DealListParams = {}): Promise<DealListRe
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
   if (params.in_library !== undefined) qs.set("in_library", String(params.in_library));
+  if (params.q?.trim()) qs.set("q", params.q.trim());
   if (params.limit !== undefined) qs.set("limit", String(params.limit));
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiJson<DealListResponse>(`/api/deals${suffix}`);
@@ -713,6 +738,54 @@ export async function listDeals(params: DealListParams = {}): Promise<DealListRe
 // GET /api/deals/{id}
 export async function getDealDetail(dealId: string): Promise<DealDetail> {
   return apiJson<DealDetail>(`/api/deals/${dealId}`);
+}
+
+export async function deleteDeal(
+  dealId: string
+): Promise<{ deal_id: string; status: DealStatus; event_recorded: boolean }> {
+  return apiJson<{ deal_id: string; status: DealStatus; event_recorded: boolean }>(
+    `/api/deals/${dealId}`,
+    { method: "DELETE" }
+  );
+}
+
+// POST /api/deals/{id}/materials
+export async function uploadDealMaterial(dealId: string, file: File): Promise<DealMaterial> {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api/deals/${dealId}/materials`, {
+    method: "POST",
+    headers: authHeaders(),
+    body,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const errorBody = await res.json();
+      if (errorBody && typeof errorBody.detail === "string") detail = errorBody.detail;
+    } catch {
+      /* 非 JSON 错误体，沿用 statusText */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return (await res.json()) as DealMaterial;
+}
+
+export interface DealMaterialSearchResponse {
+  items: DealMaterialSearchResult[];
+  count: number;
+}
+
+// GET /api/deals/{id}/materials/search
+export async function searchDealMaterials(
+  dealId: string,
+  query: string,
+  limit = 10
+): Promise<DealMaterialSearchResponse> {
+  const qs = new URLSearchParams({ q: query, limit: String(limit) });
+  return apiJson<DealMaterialSearchResponse>(
+    `/api/deals/${dealId}/materials/search?${qs.toString()}`
+  );
 }
 
 export interface CreateDealPayload {
@@ -765,4 +838,38 @@ export async function triggerDealAction(
   return apiJson<DealActionResponse>(`/api/deals/${dealId}/actions/${action}`, {
     method: "POST",
   });
+}
+
+export interface PreDDBriefResponse {
+  deal_id: string;
+  deliverable_id: string;
+  type: "dd_report";
+  payload: DDReport;
+  event_recorded: boolean;
+}
+
+export interface PreDDBriefHistoryItem {
+  deliverable_id: string;
+  type: "dd_report";
+  payload: DDReport;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PreDDBriefHistoryResponse {
+  items: PreDDBriefHistoryItem[];
+  count: number;
+}
+
+// POST /api/deals/{id}/pre-dd/brief
+export async function generatePreDDBrief(dealId: string): Promise<PreDDBriefResponse> {
+  return apiJson<PreDDBriefResponse>(`/api/deals/${dealId}/pre-dd/brief`, {
+    method: "POST",
+  });
+}
+
+// GET /api/deals/{id}/pre-dd/briefs
+export async function listPreDDBriefs(dealId: string, limit = 10): Promise<PreDDBriefHistoryResponse> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  return apiJson<PreDDBriefHistoryResponse>(`/api/deals/${dealId}/pre-dd/briefs?${qs.toString()}`);
 }

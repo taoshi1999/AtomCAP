@@ -6,9 +6,9 @@
 - 设计字段 10「项目状态」、11「用户反馈」、12「项目工作台」。
 
 两层职责分离，避免破坏既有约定：
-- `deals.status` 列承载**管线状态机**（DealStatus：sourced→screening→pre_dd→ic_ready→approved/rejected），
+- `deals.status` 列承载**管线状态机**（DealStatus：sourced→screening→pre_dd→approved→exited，任意推进阶段可 rejected），
   状态流转由系统管控并写 domain_events（约定 4）。流转事件名 `deal.{to_status}`，
-  其中 deal.approved / deal.rejected 已在 events 历史回放白名单中，供经验沉淀 Agent 使用。
+  其中 deal.approved / deal.rejected / deal.exited 已在 events 历史回放白名单中，供经验沉淀 Agent 使用。
 - **用户反馈动作**（加入项目库 / 关注 / 不感兴趣 / 放弃 / 创建工作台）不挪动管线状态，
   而是更新 `deals.data` 的 user_feedback / workspace 块并各写一条 domain_event。
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Company, Deal
@@ -35,21 +35,25 @@ from app.services.user_actions import (
     snapshot_from_deal,
 )
 from app.services.pre_dd import build_pre_dd_workspace
+from app.services.deal_materials import list_deal_materials
 
 # ---------- 管线状态机：允许的前向流转 ----------
 
-# 设计「待尽调 / 立项」等管线推进；reject 可从任意非终态触发（尽调否决/放弃推进）。
+# 工作台主链路：初筛中 -> 尽调中 -> 进行中 -> 已退出；否决可从推进阶段触发。
+# ic_ready 是旧版“可上会”状态，保留兼容已有数据，但新 UI 不再主动进入。
 PIPELINE_TRANSITIONS: dict[str, set[str]] = {
     DealStatus.SOURCED.value: {DealStatus.SCREENING.value, DealStatus.REJECTED.value},
     DealStatus.SCREENING.value: {DealStatus.PRE_DD.value, DealStatus.REJECTED.value},
-    DealStatus.PRE_DD.value: {DealStatus.IC_READY.value, DealStatus.REJECTED.value},
+    DealStatus.PRE_DD.value: {DealStatus.APPROVED.value, DealStatus.REJECTED.value},
     DealStatus.IC_READY.value: {
         DealStatus.APPROVED.value,
         DealStatus.REJECTED.value,
         DealStatus.PRE_DD.value,  # 立项会要求补尽调，回退
     },
-    DealStatus.APPROVED.value: set(),   # 终态
+    DealStatus.APPROVED.value: {DealStatus.EXITED.value},
+    DealStatus.EXITED.value: set(),     # 终态
     DealStatus.REJECTED.value: set(),   # 终态
+    DealStatus.DELETED.value: set(),    # 软删除终态
 }
 
 
@@ -58,6 +62,19 @@ def is_allowed_transition(current: str, to: str) -> bool:
     if current == to:
         return False
     return to in PIPELINE_TRANSITIONS.get(current, set())
+
+
+def append_status_history(data: dict, from_status: str, to_status: str) -> list[str]:
+    """补齐并追加状态路径，用于前端还原实际变迁图。"""
+    known = {s.value for s in DealStatus}
+    history = [str(s) for s in (data.get("status_history") or []) if str(s) in known]
+    if not history:
+        history = [from_status]
+    elif history[-1] != from_status:
+        history.append(from_status)
+    if history[-1] != to_status:
+        history.append(to_status)
+    return history
 
 
 # ---------- 用户反馈动作 → (事件后缀, data.user_feedback / workspace 补丁) ----------
@@ -140,6 +157,29 @@ def deal_summary(deal: Deal, company: Company | None) -> dict:
     }
 
 
+def _norm_query(value: str | None) -> str:
+    compact = "".join((value or "").split())
+    return compact.replace("_", "").replace("-", "").replace("－", "").lower()
+
+
+def deal_matches_query(summary: dict, query: str | None) -> bool:
+    needle = _norm_query(query)
+    if not needle:
+        return True
+    hay = _norm_query(
+        "\n".join(
+            str(item or "")
+            for item in (
+                summary.get("company_name"),
+                summary.get("portrait"),
+                summary.get("source_type"),
+                summary.get("status"),
+            )
+        )
+    )
+    return needle in hay
+
+
 # ---------- async DB 编排（全部租户过滤） ----------
 
 async def _get_owned(
@@ -159,15 +199,17 @@ async def list_deals(
     institution_id: uuid.UUID,
     status: str | None = None,
     in_library: bool | None = None,
+    q: str | None = None,
+    include_deleted: bool = False,
     limit: int | None = 100,
 ) -> list[dict]:
     """项目库列表：租户过滤，可按管线状态过滤；附公司名（一次性批量取，免 N+1）。"""
     stmt = select(Deal).where(Deal.institution_id == institution_id)
     if status is not None:
         stmt = stmt.where(Deal.status == status)
+    elif not include_deleted:
+        stmt = stmt.where(or_(Deal.status.is_(None), Deal.status != DealStatus.DELETED.value))
     stmt = stmt.order_by(Deal.created_at.desc())
-    if limit is not None:
-        stmt = stmt.limit(limit)
     deals = (await db.execute(stmt)).scalars().all()
 
     if in_library is not None:
@@ -188,7 +230,10 @@ async def list_deals(
             )
         ).scalars().all()
         companies = {c.id: c for c in rows}
-    return [deal_summary(d, companies.get(d.company_id)) for d in deals]
+    summaries = [deal_summary(d, companies.get(d.company_id)) for d in deals]
+    if q:
+        summaries = [item for item in summaries if deal_matches_query(item, q)]
+    return summaries if limit is None else summaries[:limit]
 
 
 async def get_deal_detail(
@@ -196,7 +241,7 @@ async def get_deal_detail(
 ) -> dict | None:
     """项目工作台详情：完整 deals.data + 关联 Company 客观信息。"""
     deal = await _get_owned(db, institution_id=institution_id, deal_id=deal_id)
-    if deal is None:
+    if deal is None or deal.status == DealStatus.DELETED.value:
         return None
     company = await db.scalar(
         select(Company).where(
@@ -205,12 +250,23 @@ async def get_deal_detail(
         )
     )
     profile = DealProfile.model_validate(deal.data or {})
+    materials = await list_deal_materials(
+        db,
+        institution_id=institution_id,
+        deal_id=deal.id,
+    )
+    material_hits = [
+        hit
+        for material in materials
+        for hit in material.get("pre_dd_task_hits", [])
+    ]
     return {
         "id": str(deal.id),
         "company_id": str(deal.company_id),
         "status": deal.status,
         "data": profile.model_dump(mode="json"),
-        "pre_dd": build_pre_dd_workspace(profile),
+        "pre_dd": build_pre_dd_workspace(profile, material_hits=material_hits),
+        "materials": materials,
         "company": (
             {
                 "id": str(company.id),
@@ -234,6 +290,37 @@ class InvalidTransition(Exception):
     """非法的管线状态流转。"""
 
 
+async def soft_delete_deal(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    deal_id: uuid.UUID,
+) -> Deal:
+    """软删除项目：隐藏出项目库，并保留审计事件与历史材料。"""
+    deal = await _get_owned(db, institution_id=institution_id, deal_id=deal_id)
+    if deal is None or deal.status == DealStatus.DELETED.value:
+        raise DealNotFound(str(deal_id))
+    previous_status = deal.status
+    data = dict(deal.data or {})
+    data["status"] = DealStatus.DELETED.value
+    data["status_history"] = append_status_history(data, previous_status, DealStatus.DELETED.value)
+    DealProfile.model_validate(data)
+    deal.status = DealStatus.DELETED.value
+    deal.data = data
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="deal.deleted",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={"from_status": previous_status, "to_status": DealStatus.DELETED.value},
+    )
+    await db.flush()
+    return deal
+
+
 async def transition_deal_status(
     db: AsyncSession,
     *,
@@ -255,7 +342,8 @@ async def transition_deal_status(
     deal.status = to_status
     data = dict(deal.data or {})
     data["status"] = to_status
-    deal.data = data
+    data["status_history"] = append_status_history(data, from_status, to_status)
+    deal.data = DealProfile.model_validate(data).model_dump(mode="json")
     await db.flush()
 
     await record_event(

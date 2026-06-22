@@ -33,9 +33,27 @@ class DDSection(BaseModel):
     findings: list[Claim] = Field(default_factory=list)
 
 
+class PreDDBrief(BaseModel):
+    """立项会前简报草稿。
+
+    MVP 版本只从当前 DealProfile 与 Pre-DD 任务树确定性组装，不调用 LLM，
+    因此所有新增判断都会经 Claim 自动标记为 inferred，避免伪造证据。
+    """
+
+    project_overview: Claim = Field(description="项目概览")
+    fit_summary: Claim = Field(description="机构匹配度摘要")
+    completion_score: int = Field(ge=0, le=100, description="资料完整度评分")
+    completion_summary: str = Field(description="资料完整度摘要")
+    key_highlights: list[Claim] = Field(default_factory=list, description="核心亮点")
+    top_risks: list[Claim] = Field(default_factory=list, description="Top 风险")
+    priority_questions: list[str] = Field(default_factory=list, description="待验证问题")
+    recommended_next_steps: list[Claim] = Field(default_factory=list, description="建议下一步")
+
+
 class DDReport(BaseDeliverable):
     deal_id: uuid.UUID
     company_name: str
+    brief: PreDDBrief | None = Field(default=None, description="Pre-DD Brief 草稿")
     checklist: list[ChecklistItem] = Field(default_factory=list)
     sections: list[DDSection] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list, description="仍未补全的缺口")
