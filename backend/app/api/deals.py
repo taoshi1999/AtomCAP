@@ -27,12 +27,14 @@ from app.objects.deal import (
     DealStatus,
     DealUserFeedback,
     DealWorkspace,
+    PreDDMaterialCollectionStatus,
 )
 from app.objects.experience import ActionContext, UserActionType
 from app.objects.deal_list import DealSourceType
 from app.services.deals import (
     USER_ACTIONS,
     DealNotFound,
+    InvalidPreDDMaterialStatus,
     InvalidTransition,
     deal_summary,
     apply_deal_action,
@@ -40,7 +42,9 @@ from app.services.deals import (
     list_deals,
     soft_delete_deal,
     transition_deal_status,
+    update_pre_dd_material_status,
 )
+from app.services.deal_market_signals import DealSignalTargetNotFound, collect_deal_market_signals
 from app.services.deal_materials import DealMaterialTargetNotFound, save_deal_material, search_deal_materials
 from app.services.document_extract import DependencyMissingError, DocumentError
 from app.services import deal_assistant
@@ -285,6 +289,25 @@ async def delete_deal(
     return {"deal_id": str(deal.id), "status": deal.status, "event_recorded": True}
 
 
+@router.post("/{deal_id}/market-signals/collect")
+async def collect_market_signals(
+    deal_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """收集项目近期市场信号：财经新闻、工商信息、专利、论文和人事变动。"""
+    try:
+        return await collect_deal_market_signals(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            allow_overseas=user.allow_overseas_models,
+        )
+    except DealSignalTargetNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+
+
 @router.get("/{deal_id}/materials/search")
 async def search_materials(
     deal_id: uuid.UUID,
@@ -432,6 +455,40 @@ async def get_pre_dd_briefs(
         limit=limit,
     )
     return {"items": items, "count": len(items)}
+
+
+class PreDDMaterialStatusBody(BaseModel):
+    collection_status: PreDDMaterialCollectionStatus = Field(description="资料项人工状态：已收集或待收集")
+
+
+@router.post("/{deal_id}/pre-dd/materials/{task_key}/status")
+async def set_pre_dd_material_status(
+    deal_id: uuid.UUID,
+    task_key: str,
+    body: PreDDMaterialStatusBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """手动切换 Pre-DD 14 类资料项的已收集/待收集状态。"""
+    try:
+        deal = await update_pre_dd_material_status(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            task_key=task_key,
+            collection_status=body.collection_status,
+        )
+    except DealNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+    except InvalidPreDDMaterialStatus as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {
+        "deal_id": str(deal.id),
+        "task_key": task_key,
+        "collection_status": body.collection_status.value,
+        "event_recorded": True,
+    }
 
 
 class TransitionBody(BaseModel):

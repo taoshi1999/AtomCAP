@@ -19,17 +19,21 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.models import Chunk, Document, EvidenceItemRow
-from app.objects.deal import DealProfile, DealStatus
+from app.connectors.base import Source
+from app.objects.deal import DealMarketSignalCategory, DealProfile, DealStatus, PreDDMaterialCollectionStatus
 from app.objects.dd_report import DDReport
+from app.services import deal_market_signals
 from app.services.deals import (
     USER_ACTIONS,
     append_status_history,
     apply_user_action,
     deal_matches_query,
     deal_summary,
+    update_pre_dd_material_status,
     soft_delete_deal,
     is_allowed_transition,
 )
+from app.services.deal_market_signals import collect_deal_market_signals, deal_market_signal_queries
 from app.services.deal_materials import project_deal_material, save_deal_material, search_material_records
 from app.services.pre_dd import build_pre_dd_workspace, infer_material_task_hits, suggest_material_category
 from app.services.pre_dd_brief import build_pre_dd_brief_report, project_pre_dd_brief
@@ -147,6 +151,39 @@ def test_default_status_screening():
     assert profile.status == DealStatus.SCREENING
 
 
+def test_legacy_data_defaults_empty_market_signals():
+    profile = DealProfile.model_validate(_valid_data())
+    assert profile.market_signals == []
+
+
+def test_legacy_data_defaults_empty_pre_dd_material_statuses():
+    profile = DealProfile.model_validate(_valid_data())
+    assert profile.pre_dd_material_statuses == {}
+
+
+def test_deal_market_signal_queries_cover_five_categories():
+    profile = DealProfile.model_validate(
+        _valid_data(
+            extraction={
+                "company_name": "光羽科技",
+                "aliases": ["LightWing"],
+                "track": "AI 硬件",
+                "product": "光学模组",
+                "founders": ["张三"],
+            }
+        )
+    )
+
+    queries = deal_market_signal_queries(profile)
+
+    assert set(queries) == set(DealMarketSignalCategory)
+    assert "光羽科技" in queries[DealMarketSignalCategory.BUSINESS_REGISTRY]
+    assert any("融资" in item for item in queries[DealMarketSignalCategory.FINANCE_NEWS])
+    assert any("专利" in item for item in queries[DealMarketSignalCategory.PATENT])
+    assert any("论文" in item for item in queries[DealMarketSignalCategory.PAPER])
+    assert any("张三" in item for item in queries[DealMarketSignalCategory.PERSONNEL])
+
+
 # ---------- summary 投影 ----------
 
 def _fake_deal(data: dict, status: str = "screening"):
@@ -228,6 +265,114 @@ def test_soft_delete_deal_marks_deleted_and_records_history(monkeypatch):
     assert db.flushes == 1
     assert events[0]["event_type"] == "deal.deleted"
     assert events[0]["payload"]["from_status"] == "pre_dd"
+
+
+def test_update_pre_dd_material_status_persists_manual_override(monkeypatch):
+    deal = _fake_deal(_valid_data())
+    db = _FakeDealDb(deal)
+    events = []
+
+    async def fake_record_event(*_args, **kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr("app.services.deals.record_event", fake_record_event)
+
+    out = asyncio.run(
+        update_pre_dd_material_status(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deal_id=deal.id,
+            task_key="financials",
+            collection_status=PreDDMaterialCollectionStatus.COLLECTED,
+        )
+    )
+
+    assert out.data["pre_dd_material_statuses"]["financials"] == "collected"
+    assert DealProfile.model_validate(out.data).pre_dd_material_statuses["financials"] == PreDDMaterialCollectionStatus.COLLECTED
+    assert db.flushes == 1
+    assert events[0]["event_type"] == "deal.pre_dd_material_status_updated"
+    assert events[0]["payload"]["task_key"] == "financials"
+
+
+class _FakeMarketSignalDb:
+    def __init__(self, deal):
+        self.deal = deal
+        self.added = []
+        self.flushes = 0
+
+    async def scalar(self, _stmt):
+        return self.deal
+
+    def add_all(self, objs):
+        self.added.extend(objs)
+
+    async def flush(self):
+        self.flushes += 1
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+
+
+def test_collect_deal_market_signals_saves_evidence_and_updates_profile(monkeypatch):
+    deal = _fake_deal(_valid_data())
+    db = _FakeMarketSignalDb(deal)
+    events = []
+
+    async def fake_sources(profile, *, deal_id, allow_overseas):
+        assert profile.extraction.company_name == "光羽科技"
+        assert deal_id == deal.id
+        assert allow_overseas is False
+        return {
+            DealMarketSignalCategory.FINANCE_NEWS: [
+                Source(
+                    source_type="web_search",
+                    title="光羽科技完成新一轮融资",
+                    url="https://example.com/news",
+                    snippet="公司获得产业资本投资。",
+                    published_at="2026-06-20",
+                    connector="fake",
+                    raw={"deal_id": str(deal.id), "market_signal_category": "finance_news"},
+                )
+            ],
+            DealMarketSignalCategory.BUSINESS_REGISTRY: [
+                Source(
+                    source_type="company_registry",
+                    title="光羽科技工商照面",
+                    snippet="成立日期：2025-01-01",
+                    published_at="2025-01-01",
+                    connector="qcc",
+                    raw={"deal_id": str(deal.id), "market_signal_category": "business_registry"},
+                )
+            ],
+            DealMarketSignalCategory.PATENT: [],
+            DealMarketSignalCategory.PAPER: [],
+            DealMarketSignalCategory.PERSONNEL: [],
+        }
+
+    async def fake_record_event(*_args, **kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr(deal_market_signals, "collect_deal_market_signal_sources", fake_sources)
+    monkeypatch.setattr(deal_market_signals, "record_event", fake_record_event)
+
+    result = asyncio.run(
+        collect_deal_market_signals(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deal_id=deal.id,
+            allow_overseas=False,
+        )
+    )
+
+    assert result["count"] == 2
+    assert len([obj for obj in db.added if isinstance(obj, EvidenceItemRow)]) == 2
+    assert deal.data["market_signals"][0]["category"] == "finance_news"
+    assert deal.data["market_signals"][0]["evidence_id"]
+    assert DealProfile.model_validate(deal.data).market_signals[1].category == DealMarketSignalCategory.BUSINESS_REGISTRY
+    assert events[0]["event_type"] == "deal.market_signals_collected"
+    assert events[0]["payload"]["by_category"]["finance_news"] == 1
 
 
 # ---------- 项目材料投影 ----------
@@ -436,8 +581,13 @@ def test_pre_dd_workspace_uses_uploaded_material_hits_as_partial_coverage():
     financials = next(item for item in view["items"] if item["key"] == "financials")
 
     assert financials["status"] == "partial"
+    assert financials["collection_status"] == "collected"
     assert financials["materials"] == material_hits
+    assert financials["collected_materials"][0]["kind"] == "机构材料"
+    assert financials["collected_materials"][0]["evidence_id"] == str(evidence_id)
+    assert any("收入" in suggestion or "继续补充" in suggestion for suggestion in financials["suggestions"])
     assert view["completion"]["partial"] >= 1
+    assert view["completion"]["collected"] >= 1
 
 
 def test_pre_dd_workspace_builds_material_tree_from_profile():
@@ -468,11 +618,31 @@ def test_pre_dd_workspace_builds_material_tree_from_profile():
     assert view["completion"]["score"] > 0
     bp = next(item for item in view["items"] if item["key"] == "bp_product")
     assert bp["status"] == "complete"
+    assert bp["collection_status"] == "collected"
+    assert "最新版 BP" in bp["intro"]
+    assert bp["suggestions"] == ["材料收集完成"]
     assert any("产品方案" in item for item in bp["provided"])
+    assert any(item["kind"] == "系统捕获" for item in bp["collected_materials"])
     equity = next(item for item in view["items"] if item["key"] == "equity")
     assert equity["status"] in {"partial", "public_data_possible"}
+    assert equity["collection_status"] == "pending"
+    assert equity["suggestions"]
     assert view["priority_questions"] == ["核心客户收入占比是多少？"]
     assert view["risk_queue"] == ["客户集中度待验证"]
+
+
+def test_pre_dd_workspace_manual_collection_status_overrides_group_only():
+    profile = DealProfile.model_validate(
+        _valid_data(pre_dd_material_statuses={"equity": "collected", "bp_product": "pending"})
+    )
+    view = build_pre_dd_workspace(profile)
+    equity = next(item for item in view["items"] if item["key"] == "equity")
+    bp = next(item for item in view["items"] if item["key"] == "bp_product")
+
+    assert equity["collection_status"] == "collected"
+    assert equity["status"] == "public_data_possible"
+    assert bp["collection_status"] == "pending"
+    assert view["completion"]["collected"] + view["completion"]["pending"] == 14
 
 
 def test_pre_dd_workspace_empty_profile_has_no_fake_questions_or_risks():

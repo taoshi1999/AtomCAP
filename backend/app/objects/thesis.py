@@ -40,11 +40,20 @@ class SignalKind(StrEnum):
     STRUCTURAL = "structural"  # 结构性信号：成本下降、技术成熟、政策窗口……说明“可能值得投”
 
 
+class MarketSignalCategory(StrEnum):
+    FINANCE_NEWS = "finance_news"
+    BUSINESS_REGISTRY = "business_registry"
+    PATENT = "patent"
+    PAPER = "paper"
+    PERSONNEL = "personnel"
+
+
 class MarketSignal(BaseModel):
     kind: SignalKind
     title: str
     summary: Claim = Field(description="信号内容，必须可展开证据链")
     signal_date: str | None = Field(default=None, description="信号发生时间 YYYY-MM-DD")
+    category: MarketSignalCategory | None = Field(default=None, description="近期市场信号的五类分类")
 
 
 class FitScoreBreakdown(BaseModel):

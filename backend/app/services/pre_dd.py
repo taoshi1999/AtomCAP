@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.objects.base import Claim
-from app.objects.deal import DealProfile
+from app.objects.deal import DealProfile, PreDDMaterialCollectionStatus
 
 
 TaskStatus = str
@@ -21,6 +21,7 @@ TaskStatus = str
 class MaterialSpec:
     key: str
     title: str
+    intro: str
     fields: tuple[str, ...]
     required: tuple[str, ...]
     public_hint: bool = False
@@ -33,20 +34,32 @@ class MaterialKeywordSpec:
 
 
 MATERIAL_SPECS: tuple[MaterialSpec, ...] = (
-    MaterialSpec("bp_product", "BP / 产品宣传材料", ("one_line_intro", "product", "tech_route"), ("one_line_intro", "product")),
-    MaterialSpec("equity", "股东与股权结构", ("uscc",), ("uscc",), public_hint=True),
-    MaterialSpec("organization", "组织架构与核心人员", ("founders",), ("founders",)),
-    MaterialSpec("business_model", "业务模式", ("business_model",), ("business_model",)),
-    MaterialSpec("sales_model", "营销模式", ("customers",), ("customers",)),
-    MaterialSpec("profit_model", "盈利模式", ("business_model", "revenue"), ("business_model", "revenue")),
-    MaterialSpec("financials", "财务指标", ("revenue", "valuation", "funding_amount"), ("revenue",)),
-    MaterialSpec("suppliers", "上游供应商", tuple(), tuple(), public_hint=True),
-    MaterialSpec("customers", "下游客户", ("customers",), ("customers",)),
-    MaterialSpec("competitors", "竞争对手", ("competitors",), ("competitors",), public_hint=True),
-    MaterialSpec("market", "市场规模与增长", ("market_size",), ("market_size",), public_hint=True),
-    MaterialSpec("team", "核心管理团队", ("founders",), ("founders",)),
-    MaterialSpec("financing", "融资与估值", ("funding_stage", "funding_amount", "valuation"), ("funding_stage", "funding_amount")),
-    MaterialSpec("development", "未来发展方向 / 合作诉求", ("contact",), ("contact",)),
+    MaterialSpec(
+        "bp_product",
+        "BP / 产品宣传材料",
+        "公司对外融资 BP、产品或业务宣传册，优先提供最新版 BP。",
+        ("one_line_intro", "product", "tech_route"),
+        ("one_line_intro", "product"),
+    ),
+    MaterialSpec("equity", "股东与股权结构", "股东名单、持股比例、股权结构和历史变动说明。", ("uscc",), ("uscc",), public_hint=True),
+    MaterialSpec("organization", "组织架构与核心人员", "组织架构图、部门职能划分和主要部门负责人背景或简历。", ("founders",), ("founders",)),
+    MaterialSpec("business_model", "业务模式", "业务结构、商业逻辑、近年变化及变化原因说明。", ("business_model",), ("business_model",)),
+    MaterialSpec("sales_model", "营销模式", "客户获取方式、获客成本、营销团队构成和激励机制说明。", ("customers",), ("customers",)),
+    MaterialSpec("profit_model", "盈利模式", "收入来源与构成、毛利拆分、成本费用控制情况。", ("business_model", "revenue"), ("business_model", "revenue")),
+    MaterialSpec("financials", "财务指标", "三年一期财务报表、审计报告、纳税报表及关键业务指标。", ("revenue", "valuation", "funding_amount"), ("revenue",)),
+    MaterialSpec("suppliers", "上游供应商", "重要供应商、采购信息、采购模式及成本变动情况。", tuple(), tuple(), public_hint=True),
+    MaterialSpec("customers", "下游客户", "前五大客户构成、销售模式和近年合作稳定性说明。", ("customers",), ("customers",)),
+    MaterialSpec("competitors", "竞争对手", "主要竞争对手、替代方案及竞争格局说明。", ("competitors",), ("competitors",), public_hint=True),
+    MaterialSpec("market", "市场规模与增长", "目标市场规模、增长率、驱动因素和可服务市场空间说明。", ("market_size",), ("market_size",), public_hint=True),
+    MaterialSpec("team", "核心管理团队", "核心管理团队简历、职责分工和员工花名册。", ("founders",), ("founders",)),
+    MaterialSpec(
+        "financing",
+        "融资与估值",
+        "历史融资、本轮投前估值、本轮融资金额比例及资金用途说明。",
+        ("funding_stage", "funding_amount", "valuation"),
+        ("funding_stage", "funding_amount"),
+    ),
+    MaterialSpec("development", "未来发展方向 / 合作诉求", "公司未来发展方向、里程碑计划或合作诉求说明。", ("contact",), ("contact",)),
 )
 
 
@@ -265,6 +278,85 @@ def _claim_texts(claims: list[Claim], *, limit: int | None = None) -> list[str]:
     return items if limit is None else items[:limit]
 
 
+def _collection_status(
+    profile: DealProfile,
+    *,
+    task_key: str,
+    system_status: TaskStatus,
+    has_collected_evidence: bool,
+) -> str:
+    manual = profile.pre_dd_material_statuses.get(task_key)
+    if manual is not None:
+        return manual.value
+    if system_status == "complete" or has_collected_evidence:
+        return PreDDMaterialCollectionStatus.COLLECTED.value
+    return PreDDMaterialCollectionStatus.PENDING.value
+
+
+def _collected_materials(
+    *,
+    provided: list[str],
+    materials: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = [
+        {
+            "kind": "系统捕获",
+            "title": text,
+            "detail": None,
+            "document_id": None,
+            "evidence_id": None,
+        }
+        for text in provided
+    ]
+    for material in materials:
+        collected.append(
+            {
+                "kind": "机构材料",
+                "title": str(material.get("filename") or "未命名材料"),
+                "detail": str(material.get("snippet") or material.get("keyword") or "").strip() or None,
+                "document_id": material.get("document_id"),
+                "evidence_id": material.get("evidence_id"),
+            }
+        )
+    return collected
+
+
+def _dedup_texts(items: list[str], *, limit: int = 6) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        text = _normalize_text(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _collection_suggestions(
+    *,
+    spec: MaterialSpec,
+    status: TaskStatus,
+    missing_fields: list[str],
+    gaps: list[str],
+    questions: list[str],
+) -> list[str]:
+    if status == "complete" and not gaps and not questions:
+        return ["材料收集完成"]
+
+    suggestions: list[str] = []
+    suggestions.extend(f"补充{field}相关材料。" for field in missing_fields)
+    suggestions.extend(f"补充信息缺口：{gap}" for gap in gaps)
+    suggestions.extend(f"回应待验证问题：{question}" for question in questions)
+    if not suggestions and status == "public_data_possible":
+        suggestions.append(f"优先通过公开渠道补充{spec.title}。")
+    if not suggestions:
+        suggestions.append(f"继续补充{spec.intro}")
+    return _dedup_texts(suggestions)
+
+
 def build_pre_dd_workspace(
     profile: DealProfile,
     material_hits: list[dict[str, Any]] | None = None,
@@ -285,6 +377,10 @@ def build_pre_dd_workspace(
         "partial": 0,
         "missing": 0,
         "public_data_possible": 0,
+    }
+    collection_counts: dict[str, int] = {
+        PreDDMaterialCollectionStatus.COLLECTED.value: 0,
+        PreDDMaterialCollectionStatus.PENDING.value: 0,
     }
     hits_by_key: dict[str, list[dict[str, Any]]] = {}
     for hit in material_hits or []:
@@ -318,18 +414,39 @@ def build_pre_dd_workspace(
             status = "missing"
 
         counts[status] += 1
+        provided = [
+            f"{FIELD_LABELS.get(field, field)}：{_stringify(_field_value(profile, field))}"
+            for field in provided_fields
+            if _stringify(_field_value(profile, field))
+        ]
+        collection_status = _collection_status(
+            profile,
+            task_key=spec.key,
+            system_status=status,
+            has_collected_evidence=bool(provided or related_materials),
+        )
+        collection_counts[collection_status] += 1
         items.append(
             {
                 "key": spec.key,
                 "title": spec.title,
+                "intro": spec.intro,
                 "status": status,
-                "provided": [
-                    f"{FIELD_LABELS.get(field, field)}：{_stringify(_field_value(profile, field))}"
-                    for field in provided_fields
-                    if _stringify(_field_value(profile, field))
-                ],
+                "collection_status": collection_status,
+                "provided": provided,
                 "missing": missing_fields,
                 "materials": related_materials,
+                "collected_materials": _collected_materials(
+                    provided=provided,
+                    materials=related_materials,
+                ),
+                "suggestions": _collection_suggestions(
+                    spec=spec,
+                    status=status,
+                    missing_fields=missing_fields,
+                    gaps=related_gaps,
+                    questions=related_questions,
+                ),
                 "gaps": related_gaps,
                 "questions": related_questions,
             }
@@ -350,6 +467,7 @@ def build_pre_dd_workspace(
             "score": score,
             "total": len(MATERIAL_SPECS),
             **counts,
+            **collection_counts,
         },
         "items": items,
         "priority_questions": questions[:8],

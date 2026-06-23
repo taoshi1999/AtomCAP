@@ -7,8 +7,10 @@ import json
 import uuid
 
 import httpx
+from sqlalchemy.dialects import postgresql
 
 import app.agents.thesis_scout.nodes as nodes
+import app.services.thesis_market_signals as thesis_market_signals
 from app.config import settings
 from app.connectors.base import Source
 from app.connectors.bocha import BochaConnector
@@ -19,7 +21,12 @@ from app.evidence.service import (
     save_collected,
 )
 from app.models.models import EvidenceItemRow
+from app.objects import DeliverableType
 from app.objects.base import Claim
+from app.objects.thesis import MarketSignalCategory, Thesis
+from app.services.evidence_projection import evidence_items_for_payload, project_evidence_item
+from app.services.thesis_market_signals import collect_thesis_market_signals, thesis_market_signal_queries
+from tests.test_agent_runner import thesis_payload
 
 
 def _src(title, url=None, date=None):
@@ -136,6 +143,109 @@ def test_collect_signals_no_connectors_is_empty_path(monkeypatch):
     assert out["raw_signals"] == [] and out["evidence_sources"] == []
 
 
+def test_thesis_market_signal_queries_cover_five_categories():
+    thesis = Thesis.model_validate(thesis_payload())
+
+    queries = thesis_market_signal_queries(thesis)
+
+    assert set(queries) == set(MarketSignalCategory)
+    assert any("融资" in item for item in queries[MarketSignalCategory.FINANCE_NEWS])
+    assert any("工商" in item for item in queries[MarketSignalCategory.BUSINESS_REGISTRY])
+    assert any("专利" in item for item in queries[MarketSignalCategory.PATENT])
+    assert any("论文" in item for item in queries[MarketSignalCategory.PAPER])
+    assert any("高管" in item for item in queries[MarketSignalCategory.PERSONNEL])
+
+
+class _FakeThesisMarketSignalDb:
+    def __init__(self, row):
+        self.row = row
+        self.added = []
+        self.flushes = 0
+
+    async def scalar(self, _stmt):
+        return self.row
+
+    def add_all(self, objs):
+        self.added.extend(objs)
+
+    async def flush(self):
+        self.flushes += 1
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+
+
+def test_collect_thesis_market_signals_saves_evidence_and_updates_payload(monkeypatch):
+    deliverable = type(
+        "DeliverableStub",
+        (),
+        {
+            "id": uuid.uuid4(),
+            "type": DeliverableType.THESIS.value,
+            "status": "draft",
+            "payload": thesis_payload(),
+        },
+    )()
+    db = _FakeThesisMarketSignalDb(deliverable)
+    events = []
+
+    async def fake_sources(thesis, *, deliverable_id, allow_overseas):
+        assert thesis.thesis_name == "AI 硬件"
+        assert deliverable_id == deliverable.id
+        assert allow_overseas is False
+        return {
+            MarketSignalCategory.FINANCE_NEWS: [
+                Source(
+                    source_type="web_search",
+                    title="AI 硬件融资升温",
+                    url="https://example.com/news",
+                    snippet="多家 AI 硬件公司获得融资。",
+                    published_at="2026-06-20",
+                    connector="fake",
+                    raw={"market_signal_category": "finance_news"},
+                )
+            ],
+            MarketSignalCategory.BUSINESS_REGISTRY: [],
+            MarketSignalCategory.PATENT: [
+                Source(
+                    source_type="web_search",
+                    title="端侧推理专利公开",
+                    url="https://example.com/patent",
+                    snippet="端侧推理相关专利持续公开。",
+                    published_at="2026-06-18",
+                    connector="fake",
+                    raw={"market_signal_category": "patent"},
+                )
+            ],
+            MarketSignalCategory.PAPER: [],
+            MarketSignalCategory.PERSONNEL: [],
+        }
+
+    async def fake_record_event(*_args, **kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr(thesis_market_signals, "collect_thesis_market_signal_sources", fake_sources)
+    monkeypatch.setattr(thesis_market_signals, "record_event", fake_record_event)
+
+    result = asyncio.run(
+        collect_thesis_market_signals(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deliverable_id=deliverable.id,
+            allow_overseas=False,
+        )
+    )
+
+    assert result["count"] == 2
+    assert len([obj for obj in db.added if isinstance(obj, EvidenceItemRow)]) == 2
+    assert deliverable.payload["recent_signals"][0]["category"] == "finance_news"
+    assert deliverable.payload["recent_signals"][0]["summary"]["evidence_ids"]
+    assert Thesis.model_validate(deliverable.payload).recent_signals[1].category == MarketSignalCategory.PATENT
+    assert events[0]["event_type"] == "thesis.market_signals_collected"
+    assert events[0]["payload"]["by_category"]["patent"] == 1
+
+
 def test_bocha_request_and_defensive_parsing(monkeypatch):
     monkeypatch.setattr(settings, "bocha_api_key", "test-key")
     seen = {}
@@ -210,3 +320,94 @@ def test_referenced_evidence_ids_walks_nested_payload():
                "sub": [{"reasons": [{"evidence_ids": [str(b), "not-a-uuid"]}]}],
                "evidence_ids": "不是列表，应忽略"}
     assert referenced_evidence_ids(payload) == {a, b}
+
+
+class _ProjectionResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return list(self._rows)
+
+
+class _ProjectionSession:
+    def __init__(self, rows, *, institution_id, evidence_ids):
+        self.rows = rows
+        self.institution_id = institution_id
+        self.evidence_ids = set(evidence_ids)
+        self.sql = ""
+
+    async def execute(self, stmt):
+        self.sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": False}))
+        rows = [
+            row
+            for row in self.rows
+            if row.institution_id == self.institution_id and row.id in self.evidence_ids
+        ]
+        # Simulate a DB returning rows in arbitrary order; the service should still stabilize it.
+        return _ProjectionResult(list(reversed(rows)))
+
+
+def _evidence_row(evidence_id, *, institution_id, title):
+    row = EvidenceItemRow(
+        institution_id=institution_id,
+        source_type="web_search",
+        title=title,
+        url=f"https://example.com/{title}",
+        snippet=f"{title} 摘要",
+        published_at="2026-06-01",
+        connector="fake",
+        raw={},
+    )
+    row.id = evidence_id
+    return row
+
+
+def test_evidence_items_for_payload_filters_referenced_owned_rows():
+    inst = uuid.uuid4()
+    other_inst = uuid.uuid4()
+    first = uuid.uuid4()
+    second = uuid.uuid4()
+    unreferenced = uuid.uuid4()
+
+    rows = [
+        _evidence_row(second, institution_id=inst, title="第二条"),
+        _evidence_row(first, institution_id=inst, title="第一条"),
+        _evidence_row(unreferenced, institution_id=inst, title="无关条"),
+        _evidence_row(first, institution_id=other_inst, title="其他机构"),
+    ]
+    payload = {
+        "risk": {"evidence_ids": [str(second), str(first)]},
+        "noise": {"evidence_ids": [str(uuid.uuid4())]},
+    }
+    db = _ProjectionSession(rows, institution_id=inst, evidence_ids={first, second})
+
+    items = asyncio.run(evidence_items_for_payload(db, institution_id=inst, payload=payload))
+
+    assert [item["id"] for item in items] == [str(eid) for eid in sorted([first, second], key=str)]
+    assert {item["title"] for item in items} == {"第一条", "第二条"}
+    assert "evidence_items.institution_id" in db.sql and "evidence_items.id IN" in db.sql
+
+
+def test_project_evidence_item_exposes_url_and_raw_locator():
+    row = EvidenceItemRow(
+        institution_id=uuid.uuid4(),
+        source_type="web_search",
+        title="AI 眼镜供应链新闻",
+        url="https://example.com/news",
+        snippet="上游光学模组订单增长。",
+        published_at="2026-06-01",
+        connector="bocha",
+        raw={"deal_id": str(uuid.uuid4()), "document_id": str(uuid.uuid4())},
+    )
+    row.id = uuid.uuid4()
+
+    item = project_evidence_item(row)
+
+    assert item["id"] == str(row.id)
+    assert item["title"] == "AI 眼镜供应链新闻"
+    assert item["url"] == "https://example.com/news"
+    assert item["raw"]["document_id"] == row.raw["document_id"]

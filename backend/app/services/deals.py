@@ -25,7 +25,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Company, Deal
-from app.objects.deal import DealProfile, DealStatus
+from app.objects.deal import DealProfile, DealStatus, PreDDMaterialCollectionStatus
 from app.objects.experience import ActionContext
 from app.services.events import record_event
 from app.services.user_actions import (
@@ -34,7 +34,7 @@ from app.services.user_actions import (
     record_user_action,
     snapshot_from_deal,
 )
-from app.services.pre_dd import build_pre_dd_workspace
+from app.services.pre_dd import MATERIAL_SPEC_BY_KEY, build_pre_dd_workspace
 from app.services.deal_materials import list_deal_materials
 
 # ---------- 管线状态机：允许的前向流转 ----------
@@ -290,6 +290,10 @@ class InvalidTransition(Exception):
     """非法的管线状态流转。"""
 
 
+class InvalidPreDDMaterialStatus(Exception):
+    """非法的 Pre-DD 资料项或资料状态。"""
+
+
 async def soft_delete_deal(
     db: AsyncSession,
     *,
@@ -318,6 +322,49 @@ async def soft_delete_deal(
         payload={"from_status": previous_status, "to_status": DealStatus.DELETED.value},
     )
     await db.flush()
+    return deal
+
+
+async def update_pre_dd_material_status(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    deal_id: uuid.UUID,
+    task_key: str,
+    collection_status: PreDDMaterialCollectionStatus,
+) -> Deal:
+    """人工切换 Pre-DD 资料项的已收集/待收集状态。
+
+    系统完整度仍由 `build_pre_dd_workspace` 根据画像与材料命中计算；这里仅记录用户在工作台
+    对 14 类资料整理状态的显式覆盖，避免把“手动勾选”误当作尽调已完成。
+    """
+    if task_key not in MATERIAL_SPEC_BY_KEY:
+        raise InvalidPreDDMaterialStatus(f"未知 Pre-DD 资料项: {task_key}")
+    deal = await _get_owned(db, institution_id=institution_id, deal_id=deal_id)
+    if deal is None or deal.status == DealStatus.DELETED.value:
+        raise DealNotFound(str(deal_id))
+
+    data = dict(deal.data or {})
+    statuses = dict(data.get("pre_dd_material_statuses") or {})
+    statuses[task_key] = collection_status.value
+    data["pre_dd_material_statuses"] = statuses
+    deal.data = DealProfile.model_validate(data).model_dump(mode="json")
+    await db.flush()
+
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="deal.pre_dd_material_status_updated",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={
+            "task_key": task_key,
+            "collection_status": collection_status.value,
+            "company_id": str(deal.company_id),
+        },
+    )
     return deal
 
 

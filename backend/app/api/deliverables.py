@@ -29,9 +29,11 @@ from app.objects.thesis import (
 )
 from app.services.conversations import ensure_conversation, save_message, text_blocks
 from app.services.deliverables import save_deliverable
+from app.services.evidence_projection import evidence_items_for_payload
 from app.services.events import record_event
 from app.services import track_assistant
 from app.services.thesis_context import thesis_context_from_payload
+from app.services.thesis_market_signals import ThesisSignalTargetNotFound, collect_thesis_market_signals
 from app.services.user_actions import (
     THESIS_ACTIONS,
     record_user_action,
@@ -247,15 +249,48 @@ async def get_deliverable(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     row = await _get_owned(db, deliverable_id, user)
+    evidence_items = await evidence_items_for_payload(
+        db,
+        institution_id=user.institution_id,
+        payload=row.payload,
+    )
     return {
         "id": str(row.id),
         "type": row.type,
         "schema_version": row.schema_version,
         "status": row.status,
         "payload": row.payload,
+        "evidence_items": evidence_items,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
     }
+
+
+@router.post("/{deliverable_id}/market-signals/collect")
+async def collect_deliverable_market_signals(
+    deliverable_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await _get_owned(db, deliverable_id, user)
+    if row.type != DeliverableType.THESIS.value:
+        raise HTTPException(status_code=422, detail="仅 Thesis 对象支持收集近期市场信号")
+    try:
+        result = await collect_thesis_market_signals(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deliverable_id=deliverable_id,
+            allow_overseas=user.allow_overseas_models,
+        )
+    except ThesisSignalTargetNotFound as exc:
+        raise HTTPException(status_code=404, detail="对象不存在") from exc
+    evidence_items = await evidence_items_for_payload(
+        db,
+        institution_id=user.institution_id,
+        payload=result["payload"],
+    )
+    return {**result, "evidence_items": evidence_items}
 
 
 @router.delete("/{deliverable_id}")

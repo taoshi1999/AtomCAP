@@ -1,34 +1,41 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, FileText, Loader2, Search, X } from "lucide-react";
+import EvidencePanel from "../EvidencePanel";
+import MarketSignalsPanel, { type MarketSignalViewItem } from "../MarketSignalsPanel";
 import {
   ApiError,
+  collectThesisMarketSignals,
   generateDealPool,
   triggerDeliverableAction,
 } from "../../lib/api";
+import {
+  PREFERENCE_HREF,
+  argumentFromEvidence,
+  evidenceIds,
+  evidenceTarget,
+} from "../../lib/evidence";
+import type { EvidenceArgument, EvidenceDialogState, EvidenceTarget } from "../../lib/evidence";
 import type {
   Claim,
+  EvidenceItem,
   MarketSignal,
+  MarketSignalCategory,
   SubDirection,
   Thesis,
   ThesisAction,
   ValueChainSegment,
 } from "../../lib/types";
 
-type EvidenceRow = {
-  point: string;
-  arguments: string[];
-};
-
-type EvidenceDialogState = {
-  title: string;
-  rows: EvidenceRow[];
-};
-
 type SegmentDialogState = {
   stage: string;
   segment: ValueChainSegment;
-  relatedSignals: MarketSignal[];
-  thesisName: string;
+  materials: SegmentMaterial[];
+};
+
+type SegmentMaterial = {
+  title: string;
+  detail?: string;
+  target: EvidenceTarget;
 };
 
 type ActionNotice = {
@@ -42,6 +49,8 @@ const SUB_ACTIONS: Array<{ action: ThesisAction; label: string; tone?: "primary"
   { action: "join_project_library", label: "加入项目库" },
   { action: "dismiss_track", label: "不感兴趣", tone: "danger" },
 ];
+
+const EMPTY_EVIDENCE_ITEMS: EvidenceItem[] = [];
 
 function compactError(error: unknown): string {
   if (error instanceof ApiError) return error.message;
@@ -65,14 +74,13 @@ function signalText(signal: MarketSignal): string {
   return `${signal.title} ${signal.summary?.text ?? ""}`;
 }
 
-function evidenceIds(claim: Claim | undefined): string[] {
-  return claim?.evidence_ids ?? [];
-}
-
-function hasEvidenceOverlap(claim: Claim, signal: MarketSignal): boolean {
-  const ids = new Set(evidenceIds(claim));
-  if (ids.size === 0) return false;
-  return evidenceIds(signal.summary).some((id) => ids.has(id));
+function primarySignalEvidence(
+  signal: MarketSignal,
+  evidenceById: Map<string, EvidenceItem>
+): EvidenceItem | undefined {
+  return evidenceIds(signal.summary)
+    .map((id) => evidenceById.get(id))
+    .find((item): item is EvidenceItem => Boolean(item));
 }
 
 function extractTerms(text: string): string[] {
@@ -85,17 +93,6 @@ function extractTerms(text: string): string[] {
   const compact = normalized.replace(/\s+/g, "").toLowerCase();
   if (compact.length >= 4) return [compact.slice(0, 4)];
   return compact ? [compact] : [];
-}
-
-function looselyMatches(claim: Claim, signal: MarketSignal): boolean {
-  const hay = signalText(signal).toLowerCase();
-  return extractTerms(claim.text).some((term) => hay.includes(term));
-}
-
-function relatedSignalsForClaim(claim: Claim, thesis: Thesis): MarketSignal[] {
-  const direct = thesis.recent_signals.filter((signal) => hasEvidenceOverlap(claim, signal));
-  if (direct.length > 0) return direct.slice(0, 4);
-  return thesis.recent_signals.filter((signal) => looselyMatches(claim, signal)).slice(0, 3);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -156,25 +153,110 @@ function preferenceEvidence(preference?: Record<string, unknown>): string[] {
     });
 }
 
+function preferenceEvidenceArguments(preference?: Record<string, unknown>): EvidenceArgument[] {
+  return preferenceEvidence(preference).map((row) => ({
+    title: row,
+    href: PREFERENCE_HREF,
+    external: false,
+    kind: "preference",
+  }));
+}
+
+function argumentsForClaim(
+  claim: Claim,
+  evidenceById: Map<string, EvidenceItem>,
+  options: {
+    preference?: Record<string, unknown>;
+    includePreference?: boolean;
+  } = {}
+): EvidenceArgument[] {
+  const { preference, includePreference = false } = options;
+  const ids = evidenceIds(claim);
+  if (ids.length > 0) {
+    return ids.map((id) => {
+      const evidence = evidenceById.get(id);
+      if (evidence) return argumentFromEvidence(evidence);
+      return {
+        title: `证据 ${id} 尚未返回来源详情`,
+        detail: "请刷新交付物详情或检查证据是否仍属于当前机构。",
+        kind: "inferred",
+      };
+    });
+  }
+
+  if (includePreference) {
+    const prefArgs = preferenceEvidenceArguments(preference);
+    if (prefArgs.length > 0) return prefArgs;
+  }
+
+  return [
+    {
+      title: claim.inferred ? "该论点当前为模型推断" : "该论点当前未绑定可追溯证据",
+      detail: "未展示无关市场信号或投资偏好，避免论据与论点错配。",
+      kind: "inferred",
+    },
+  ];
+}
+
 function buildEvidenceRows(
   title: string,
   claims: Claim[],
-  thesis: Thesis,
-  preference?: Record<string, unknown>
+  evidenceById: Map<string, EvidenceItem>,
+  preference?: Record<string, unknown>,
+  options: { includePreference?: boolean } = {}
 ): EvidenceDialogState {
-  const prefEvidence = preferenceEvidence(preference);
   const sourceClaims = claims.length > 0 ? claims : [syntheticClaim(title)];
-  const rows = sourceClaims.map((claim) => {
-    const signalArguments = relatedSignalsForClaim(claim, thesis).map(
-      (signal) => `${signalKindLabel(signal)}信号: ${signal.title} - ${signal.summary.text}`
-    );
-    const args = [...signalArguments, ...prefEvidence.slice(0, 4)];
-    return {
-      point: claim.text,
-      arguments: args.length > 0 ? args : ["当前交付物中暂无可用市场信号或投资偏好论据。"],
-    };
-  });
+  const rows = sourceClaims.map((claim) => ({
+    point: claim.text,
+    arguments: argumentsForClaim(claim, evidenceById, {
+      preference,
+      includePreference: options.includePreference,
+    }),
+  }));
   return { title, rows };
+}
+
+function buildSignalEvidenceRows(
+  signal: MarketSignal,
+  evidenceById: Map<string, EvidenceItem>
+): EvidenceDialogState {
+  const ids = evidenceIds(signal.summary);
+  if (ids.length === 0) {
+    return {
+      title: signal.title,
+      rows: [
+        {
+          point: signal.summary.text,
+          arguments: [
+            {
+              title: "该市场信号尚未绑定具体来源",
+              detail: "未展示搜索结果，避免把关键词搜索误当成证据来源。",
+              kind: "inferred",
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  return {
+    title: signal.title,
+    rows: ids.map((id) => {
+      const evidence = evidenceById.get(id);
+      return {
+        point: signal.summary.text,
+        arguments: evidence
+          ? [argumentFromEvidence(evidence)]
+          : [
+              {
+                title: `证据 ${id} 尚未返回来源详情`,
+                detail: "请刷新交付物详情或检查证据是否仍属于当前机构。",
+                kind: "inferred",
+              },
+            ],
+      };
+    }),
+  };
 }
 
 function relatedSignalsForSegment(segment: ValueChainSegment, thesis: Thesis): MarketSignal[] {
@@ -186,6 +268,32 @@ function relatedSignalsForSegment(segment: ValueChainSegment, thesis: Thesis): M
       return terms.some((term) => hay.includes(term));
     })
     .slice(0, 4);
+}
+
+function segmentMaterialsForSegment(
+  segment: ValueChainSegment,
+  thesis: Thesis,
+  evidenceById: Map<string, EvidenceItem>
+): SegmentMaterial[] {
+  const materials: SegmentMaterial[] = [];
+  const seen = new Set<string>();
+
+  for (const signal of relatedSignalsForSegment(segment, thesis)) {
+    for (const id of evidenceIds(signal.summary)) {
+      const evidence = evidenceById.get(id);
+      const target = evidenceTarget(evidence);
+      if (!evidence || !target || seen.has(target.href)) continue;
+
+      seen.add(target.href);
+      materials.push({
+        title: evidence.title || signal.title,
+        detail: evidence.snippet || signal.summary.text,
+        target,
+      });
+    }
+  }
+
+  return materials;
 }
 
 function InfoModule({
@@ -216,57 +324,7 @@ function InfoModule({
   );
 }
 
-function EvidenceDialog({ state, onClose }: { state: EvidenceDialogState; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 py-10">
-      <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
-          <h2 className="text-base font-bold text-slate-900">{state.title} · 证据链</h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600" title="关闭">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="max-h-[70vh] overflow-y-auto p-5">
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <div className="grid grid-cols-[1.1fr_1.5fr] bg-slate-50 text-xs font-bold text-slate-500">
-              <div className="border-r border-slate-200 px-4 py-3">论点</div>
-              <div className="px-4 py-3">论据</div>
-            </div>
-            {state.rows.map((row, index) => (
-              <div key={`${row.point}-${index}`} className="grid grid-cols-[1.1fr_1.5fr] border-t border-slate-200 text-sm">
-                <div className="border-r border-slate-200 px-4 py-3 font-medium leading-6 text-slate-800">
-                  {row.point}
-                </div>
-                <div className="space-y-2 px-4 py-3">
-                  {row.arguments.map((argument, i) => (
-                    <div key={`${argument}-${i}`} className="rounded-md bg-slate-50 px-3 py-2 leading-6 text-slate-700">
-                      {argument}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SegmentDialog({ state, onClose }: { state: SegmentDialogState; onClose: () => void }) {
-  const materials =
-    state.relatedSignals.length > 0
-      ? state.relatedSignals.map((signal) => ({
-          title: signal.title,
-          href: publicSearchUrl(`${state.thesisName} ${signal.title}`),
-        }))
-      : [
-          {
-            title: `${state.thesisName} ${state.segment.name} 公开资料`,
-            href: publicSearchUrl(`${state.thesisName} ${state.segment.name} 行业 资料`),
-          },
-        ];
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 py-10">
       <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl">
@@ -293,18 +351,30 @@ function SegmentDialog({ state, onClose }: { state: SegmentDialogState; onClose:
           <div>
             <h3 className="text-sm font-bold text-slate-900">相关资料</h3>
             <div className="mt-2 space-y-2">
-              {materials.map((item) => (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:border-indigo-200 hover:bg-indigo-50"
-                >
-                  <span className="line-clamp-1">{item.title}</span>
-                  <ExternalLink className="h-4 w-4 shrink-0 text-indigo-600" />
-                </a>
-              ))}
+              {state.materials.length > 0 ? (
+                state.materials.map((item) => (
+                  <a
+                    key={`${item.target.href}-${item.title}`}
+                    href={item.target.href}
+                    target={item.target.external ? "_blank" : undefined}
+                    rel={item.target.external ? "noreferrer" : undefined}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:border-indigo-200 hover:bg-indigo-50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{item.title}</span>
+                      {item.detail && <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-slate-500">{item.detail}</span>}
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-indigo-700">
+                      {item.target.label}
+                      <ExternalLink className="h-4 w-4 text-indigo-600" />
+                    </span>
+                  </a>
+                ))
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm leading-6 text-slate-500">
+                  当前环节暂无已绑定网页或项目材料来源。
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -313,60 +383,13 @@ function SegmentDialog({ state, onClose }: { state: SegmentDialogState; onClose:
   );
 }
 
-function MarketSignalsSection({ thesis }: { thesis: Thesis }) {
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-bold text-slate-900">近期市场信号</h3>
-        <span className="text-xs text-slate-400">{thesis.recent_signals.length} 条</span>
-      </div>
-      <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-        {thesis.recent_signals.length === 0 && (
-          <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-400">
-            当前 Thesis 暂无近期市场信号。
-          </div>
-        )}
-        {thesis.recent_signals.map((signal, index) => (
-          <div key={`${signal.title}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={
-                      signal.kind === "structural"
-                        ? "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700"
-                        : "rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700"
-                    }
-                  >
-                    {signalKindLabel(signal)}
-                  </span>
-                  {signal.signal_date && <span className="text-xs text-slate-400">{signal.signal_date}</span>}
-                </div>
-                <div className="mt-1 font-semibold text-slate-900">{signal.title}</div>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{signal.summary.text}</p>
-              </div>
-              <a
-                href={publicSearchUrl(`${thesis.thesis_name} ${signal.title}`)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-              >
-                查看详情
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function ValueChainSection({
   thesis,
+  evidenceById,
   onOpenSegment,
 }: {
   thesis: Thesis;
+  evidenceById: Map<string, EvidenceItem>;
   onOpenSegment: (state: SegmentDialogState) => void;
 }) {
   const groups: Array<{ label: string; items: ValueChainSegment[] }> = [
@@ -395,8 +418,7 @@ function ValueChainSection({
                       onOpenSegment({
                         stage: group.label,
                         segment,
-                        relatedSignals: relatedSignalsForSegment(segment, thesis),
-                        thesisName: thesis.thesis_name,
+                        materials: segmentMaterialsForSegment(segment, thesis, evidenceById),
                       })
                     }
                     className="rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50"
@@ -450,11 +472,13 @@ function actionButtonClass(tone?: "primary" | "danger"): string {
 export default function ThesisView({
   thesis,
   deliverableId,
+  evidenceItems = EMPTY_EVIDENCE_ITEMS,
   currentPreference,
   onActionComplete,
 }: {
   thesis: Thesis;
   deliverableId?: string;
+  evidenceItems?: EvidenceItem[];
   currentPreference?: Record<string, unknown>;
   onActionComplete?: () => void;
 }) {
@@ -462,10 +486,99 @@ export default function ThesisView({
   const [segmentDialog, setSegmentDialog] = useState<SegmentDialogState | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<ActionNotice | null>(null);
+  const [marketSignals, setMarketSignals] = useState<MarketSignal[]>(thesis.recent_signals ?? []);
+  const [marketSignalCategory, setMarketSignalCategory] = useState<MarketSignalCategory | "all">("all");
+  const [marketSignalBusy, setMarketSignalBusy] = useState(false);
+  const [marketSignalError, setMarketSignalError] = useState<string | null>(null);
+  const [marketSignalCollectedAt, setMarketSignalCollectedAt] = useState<string | null>(null);
+  const [localEvidenceItems, setLocalEvidenceItems] = useState<EvidenceItem[]>(evidenceItems);
+  const autoMarketSignalDeliverableRef = useRef<string | null>(null);
   const preferenceRows = useMemo(() => preferenceEvidence(currentPreference), [currentPreference]);
+  const displayedThesis = useMemo<Thesis>(
+    () => ({ ...thesis, recent_signals: marketSignals }),
+    [thesis, marketSignals]
+  );
+  const evidenceById = useMemo(
+    () => new Map(localEvidenceItems.map((item) => [item.id, item])),
+    [localEvidenceItems]
+  );
+  const marketSignalViewItems = useMemo<MarketSignalViewItem[]>(
+    () =>
+      marketSignals.map((signal, index) => {
+        const target = evidenceTarget(primarySignalEvidence(signal, evidenceById));
+        return {
+          id: evidenceIds(signal.summary)[0] ?? `${signal.title}-${index}`,
+          title: signal.title,
+          summary: signal.summary.text,
+          category: signal.category,
+          date: signal.signal_date,
+          href: target?.href,
+          hrefLabel: target?.label,
+          external: target?.external,
+          badges: [{ label: signalKindLabel(signal), tone: signal.kind }],
+          action: target
+            ? undefined
+            : {
+                label: "查看证据",
+                icon: <FileText className="h-3.5 w-3.5" />,
+                onClick: () => setEvidenceDialog(buildSignalEvidenceRows(signal, evidenceById)),
+              },
+        };
+      }),
+    [evidenceById, marketSignals]
+  );
 
-  function openEvidence(title: string, claims: Claim[]) {
-    setEvidenceDialog(buildEvidenceRows(title, claims, thesis, currentPreference));
+  const handleCollectMarketSignals = useCallback(async (options: { auto?: boolean } = {}) => {
+    if (!deliverableId) {
+      if (!options.auto) setMarketSignalError("当前对象缺少 deliverable_id，无法收集市场信号。");
+      return;
+    }
+    setMarketSignalBusy(true);
+    if (!options.auto) setMarketSignalError(null);
+    try {
+      const response = await collectThesisMarketSignals(deliverableId);
+      setMarketSignals(response.payload.recent_signals ?? response.items ?? []);
+      setLocalEvidenceItems(response.evidence_items ?? []);
+      setMarketSignalCollectedAt(response.collected_at);
+      setMarketSignalError(null);
+    } catch (error) {
+      if (!options.auto) {
+        setMarketSignalError(error instanceof ApiError ? error.message : "收集市场信号失败");
+      }
+    } finally {
+      setMarketSignalBusy(false);
+    }
+  }, [deliverableId]);
+
+  useEffect(() => {
+    setMarketSignals(thesis.recent_signals ?? []);
+    setMarketSignalCategory("all");
+    setMarketSignalError(null);
+    setMarketSignalBusy(false);
+    setMarketSignalCollectedAt(null);
+    setLocalEvidenceItems(evidenceItems);
+  }, [deliverableId, evidenceItems, thesis.recent_signals]);
+
+  useEffect(() => {
+    if (!deliverableId) return;
+    const hasExistingSignals = (thesis.recent_signals ?? []).length > 0;
+    if (hasExistingSignals) {
+      autoMarketSignalDeliverableRef.current = deliverableId;
+      return;
+    }
+    if (autoMarketSignalDeliverableRef.current === deliverableId) return;
+    autoMarketSignalDeliverableRef.current = deliverableId;
+    void handleCollectMarketSignals({ auto: true });
+  }, [deliverableId, thesis.recent_signals, handleCollectMarketSignals]);
+
+  function openEvidence(
+    title: string,
+    claims: Claim[],
+    options: { includePreference?: boolean } = {}
+  ) {
+    setEvidenceDialog(
+      buildEvidenceRows(title, claims, evidenceById, currentPreference, options)
+    );
   }
 
   async function runSubAction(action: ThesisAction, sub: SubDirection) {
@@ -539,21 +652,32 @@ export default function ThesisView({
             onEvidence={() =>
               openEvidence("与本机构匹配度", [
                 syntheticClaim(`匹配度 ${Math.round(thesis.institution_fit_score.total)} 分：${thesis.institution_fit_score.rationale}`),
-              ])
+              ], { includePreference: true })
             }
           />
           <InfoModule
             label="建议"
             value={thesis.advice}
             description={preferenceRows.length > 0 ? preferenceRows[0] : "结合当前偏好和市场信号给出。"}
-            onEvidence={() => openEvidence("建议", [syntheticClaim(thesis.advice)])}
+            onEvidence={() => openEvidence("建议", [syntheticClaim(thesis.advice)], { includePreference: true })}
           />
         </div>
       </section>
 
-      <MarketSignalsSection thesis={thesis} />
+      <MarketSignalsPanel
+        signals={marketSignalViewItems}
+        selectedCategory={marketSignalCategory}
+        busy={marketSignalBusy}
+        error={marketSignalError}
+        lastCollectedAt={marketSignalCollectedAt}
+        onCategoryChange={setMarketSignalCategory}
+        onRefresh={() => void handleCollectMarketSignals()}
+        busyText="正在收集赛道相关市场信号..."
+        itemContainerClassName="max-h-72 space-y-2 overflow-y-auto pr-1"
+        itemClassName="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-left"
+      />
 
-      <ValueChainSection thesis={thesis} onOpenSegment={setSegmentDialog} />
+      <ValueChainSection thesis={displayedThesis} evidenceById={evidenceById} onOpenSegment={setSegmentDialog} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
@@ -654,7 +778,7 @@ export default function ThesisView({
         </div>
       </section>
 
-      {evidenceDialog && <EvidenceDialog state={evidenceDialog} onClose={() => setEvidenceDialog(null)} />}
+      {evidenceDialog && <EvidencePanel state={evidenceDialog} onClose={() => setEvidenceDialog(null)} />}
       {segmentDialog && <SegmentDialog state={segmentDialog} onClose={() => setSegmentDialog(null)} />}
     </div>
   );

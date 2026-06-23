@@ -682,6 +682,7 @@ export default function TrackManager({
                 <ThesisView
                   thesis={selectedDeliverable.payload}
                   deliverableId={selectedDeliverable.id}
+                  evidenceItems={selectedDeliverable.evidence_items}
                   currentPreference={currentPreference}
                   onActionComplete={refreshAfterDetailAction}
                 />

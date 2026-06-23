@@ -11,11 +11,19 @@ export interface Claim {
 
 export type SignalKind = "heat" | "structural";
 
+export type MarketSignalCategory =
+  | "finance_news"
+  | "business_registry"
+  | "patent"
+  | "paper"
+  | "personnel";
+
 export interface MarketSignal {
   kind: SignalKind;
   title: string;
   summary: Claim;
   signal_date?: string | null;
+  category?: MarketSignalCategory | null;
 }
 
 export interface FitScoreBreakdown {
@@ -95,10 +103,22 @@ export interface Thesis {
 
 export type DeliverableType = "thesis" | "deal_list" | "dd_report" | "briefing" | "lp_report";
 
+export interface EvidenceItem {
+  id: string;
+  source_type: string;
+  title: string;
+  url?: string | null;
+  snippet: string;
+  published_at?: string | null;
+  connector?: string | null;
+  raw?: Record<string, unknown> | null;
+}
+
 export interface Deliverable<T = unknown> {
   id: string;
   type: DeliverableType;
   payload: T;
+  evidence_items?: EvidenceItem[];
 }
 
 /* ============================================================================
@@ -205,15 +225,42 @@ export interface DealWorkspace {
   conversation_id?: string | null;
 }
 
+export type DealMarketSignalCategory = MarketSignalCategory;
+
+export interface DealMarketSignal {
+  evidence_id: string;
+  category: DealMarketSignalCategory;
+  title: string;
+  summary: string;
+  url?: string | null;
+  source_type: string;
+  connector?: string | null;
+  published_at?: string | null;
+  collected_at: string;
+}
+
 export type PreDDTaskStatus = "complete" | "partial" | "missing" | "public_data_possible";
+export type PreDDMaterialCollectionStatus = "collected" | "pending";
+
+export interface PreDDCollectedMaterial {
+  kind: string;
+  title: string;
+  detail?: string | null;
+  document_id?: string | null;
+  evidence_id?: string | null;
+}
 
 export interface PreDDChecklistItem {
   key: string;
   title: string;
+  intro: string;
   status: PreDDTaskStatus;
+  collection_status: PreDDMaterialCollectionStatus;
   provided: string[];
   missing: string[];
   materials: PreDDMaterialHit[];
+  collected_materials: PreDDCollectedMaterial[];
+  suggestions: string[];
   gaps: string[];
   questions: string[];
 }
@@ -225,6 +272,8 @@ export interface PreDDCompletion {
   partial: number;
   missing: number;
   public_data_possible: number;
+  collected: number;
+  pending: number;
 }
 
 export interface PreDDMaterialHit {
@@ -286,6 +335,8 @@ export interface DealProfile {
   created_from_conversation?: string | null;
   user_feedback: DealUserFeedback;
   workspace: DealWorkspace;
+  market_signals: DealMarketSignal[];
+  pre_dd_material_statuses: Record<string, PreDDMaterialCollectionStatus>;
 }
 
 // GET /api/deals 列表行投影（services.deal_summary）

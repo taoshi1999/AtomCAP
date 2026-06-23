@@ -7,12 +7,17 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
   DealAction,
   DealDetail,
+  EvidenceItem,
+  DealMarketSignal,
   DealMaterial,
   DealMaterialSearchResult,
+  PreDDMaterialCollectionStatus,
   DealStatus,
   DealSummary,
   DDReport,
   Deliverable,
+  MarketSignal,
+  Thesis,
   ThesisAction,
 } from "./types";
 
@@ -749,6 +754,35 @@ export async function deleteDeal(
   );
 }
 
+export interface DealMarketSignalsResponse {
+  items: DealMarketSignal[];
+  count: number;
+  collected_at: string;
+}
+
+// POST /api/deals/{id}/market-signals/collect
+export async function collectDealMarketSignals(dealId: string): Promise<DealMarketSignalsResponse> {
+  return apiJson<DealMarketSignalsResponse>(`/api/deals/${dealId}/market-signals/collect`, {
+    method: "POST",
+  });
+}
+
+export interface ThesisMarketSignalsResponse {
+  deliverable_id: string;
+  payload: Thesis;
+  evidence_items: EvidenceItem[];
+  items: MarketSignal[];
+  count: number;
+  collected_at: string;
+}
+
+// POST /api/deliverables/{id}/market-signals/collect
+export async function collectThesisMarketSignals(deliverableId: string): Promise<ThesisMarketSignalsResponse> {
+  return apiJson<ThesisMarketSignalsResponse>(`/api/deliverables/${deliverableId}/market-signals/collect`, {
+    method: "POST",
+  });
+}
+
 // POST /api/deals/{id}/materials
 export async function uploadDealMaterial(dealId: string, file: File): Promise<DealMaterial> {
   const body = new FormData();
@@ -838,6 +872,28 @@ export async function triggerDealAction(
   return apiJson<DealActionResponse>(`/api/deals/${dealId}/actions/${action}`, {
     method: "POST",
   });
+}
+
+export interface PreDDMaterialStatusResponse {
+  deal_id: string;
+  task_key: string;
+  collection_status: PreDDMaterialCollectionStatus;
+  event_recorded: boolean;
+}
+
+// POST /api/deals/{id}/pre-dd/materials/{task_key}/status
+export async function updatePreDDMaterialStatus(
+  dealId: string,
+  taskKey: string,
+  collectionStatus: PreDDMaterialCollectionStatus
+): Promise<PreDDMaterialStatusResponse> {
+  return apiJson<PreDDMaterialStatusResponse>(
+    `/api/deals/${dealId}/pre-dd/materials/${encodeURIComponent(taskKey)}/status`,
+    {
+      method: "POST",
+      body: JSON.stringify({ collection_status: collectionStatus }),
+    }
+  );
 }
 
 export interface PreDDBriefResponse {
