@@ -9,12 +9,13 @@
  *   POST /transition（管线流转）、POST /actions/{action}（用户反馈）。
  * token 注入待登录页，开发期依赖后端 AUTH_DEV_FALLBACK。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, FileText, Heart, Plus, Search, ThumbsDown, Trash2, Upload } from "lucide-react";
 import {
   ApiError,
+  collectDealMarketSignals,
   createDeal,
   deleteDeal,
   generatePreDDBrief,
@@ -24,22 +25,26 @@ import {
   transitionDeal,
   triggerDealAction,
   searchDealMaterials,
+  updatePreDDMaterialStatus,
   uploadDealMaterial,
   type PreDDBriefHistoryItem,
 } from "../lib/api";
+import MarketSignalsPanel, { type MarketSignalViewItem } from "../components/MarketSignalsPanel";
 import PageAssistant from "../components/PageAssistant";
 import type {
   Claim,
   DDReport,
   DealAction,
   DealDetail,
+  DealMarketSignal,
+  DealMarketSignalCategory,
   DealMaterial,
   DealMaterialSearchResult,
   DealStatus,
   DealSummary,
   FitScoreBreakdown,
   PreDDChecklistItem,
-  PreDDTaskStatus,
+  PreDDMaterialCollectionStatus,
   PreDDWorkspace,
 } from "../lib/types";
 
@@ -89,13 +94,6 @@ const FILTERS: { key: string; label: string; status?: DealStatus; inLibrary?: bo
   { key: "exited", label: "已退出", status: "exited" },
 ];
 
-const PRE_DD_STATUS_META: Record<PreDDTaskStatus, { label: string; className: string }> = {
-  complete: { label: "已提供", className: "bg-emerald-50 text-emerald-700" },
-  partial: { label: "部分提供", className: "bg-amber-50 text-amber-700" },
-  missing: { label: "未提供", className: "bg-rose-50 text-rose-700" },
-  public_data_possible: { label: "可公开补全", className: "bg-blue-50 text-blue-700" },
-};
-
 const MATERIAL_STATUS_LABELS: Record<string, string> = {
   completed: "已解析",
   pending: "解析中",
@@ -124,19 +122,15 @@ const PRE_DD_TASK_LABELS: Record<string, string> = {
   development: "发展",
 };
 
+const PRE_DD_COLLECTION_META: Record<PreDDMaterialCollectionStatus, { label: string; className: string }> = {
+  collected: { label: "已收集", className: "bg-emerald-50 text-emerald-700" },
+  pending: { label: "待收集", className: "bg-amber-50 text-amber-700" },
+};
+
 function StatusBadge({ status }: { status: DealStatus }) {
   const meta = STATUS_META[status] ?? { label: status, badge: "bg-slate-100 text-slate-600" };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.badge}`}>
-      {meta.label}
-    </span>
-  );
-}
-
-function PreDDStatusBadge({ status }: { status: PreDDTaskStatus }) {
-  const meta = PRE_DD_STATUS_META[status] ?? PRE_DD_STATUS_META.missing;
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}>
       {meta.label}
     </span>
   );
@@ -495,42 +489,101 @@ function FitScore({ fit }: { fit: FitScoreBreakdown }) {
   );
 }
 
-function PreDDTaskCard({ item }: { item: PreDDChecklistItem }) {
-  const details: { kind: string; text: string; evidenceId?: string | null }[] = [
-    ...item.provided.map((text) => ({ kind: "已有", text })),
-    ...(item.materials ?? []).map((hit) => ({
-      kind: "材料",
-      text: `《${hit.filename}》${hit.snippet}`,
-      evidenceId: hit.evidence_id,
-    })),
-    ...item.missing.map((text) => ({ kind: "缺失", text })),
-    ...item.gaps.map((text) => ({ kind: "缺口", text })),
-    ...item.questions.map((text) => ({ kind: "问题", text })),
-  ].slice(0, 5);
+function PreDDTaskCard({
+  item,
+  busy,
+  onStatusChange,
+}: {
+  item: PreDDChecklistItem;
+  busy: boolean;
+  onStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
+}) {
+  const statusMeta = PRE_DD_COLLECTION_META[item.collection_status] ?? PRE_DD_COLLECTION_META.pending;
+  const collectedMaterials = item.collected_materials ?? [];
+  const suggestions = item.suggestions?.length ? item.suggestions : ["继续补充相关资料。"];
+  const collectionOptions: PreDDMaterialCollectionStatus[] = ["collected", "pending"];
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 text-sm font-semibold text-slate-800">{item.title}</div>
-        <PreDDStatusBadge status={item.status} />
-      </div>
-      {details.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {details.map((detail, index) => (
-            <div key={`${detail.kind}-${index}`} className="grid grid-cols-[34px_1fr] gap-2 text-xs leading-5">
-              <span className="text-slate-400">{detail.kind}</span>
-              <span className="min-w-0 text-slate-600">
-                {detail.text}
-                {detail.evidenceId && (
-                  <span className="ml-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                    证据
-                  </span>
-                )}
-              </span>
-            </div>
-          ))}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-900">{item.title}</div>
+          <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusMeta.className}`}>
+            {statusMeta.label}
+          </span>
         </div>
-      )}
+        <div className="flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          {collectionOptions.map((status) => {
+            const active = item.collection_status === status;
+            return (
+              <button
+                key={status}
+                type="button"
+                disabled={busy || active}
+                onClick={() => onStatusChange(item.key, status)}
+                className={`h-7 rounded-md px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed ${
+                  active
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:bg-white hover:text-slate-800"
+                }`}
+              >
+                {PRE_DD_COLLECTION_META[status].label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        <div>
+          <div className="mb-1 text-xs font-semibold text-slate-400">简介</div>
+          <p className="text-xs leading-5 text-slate-600">{item.intro}</p>
+        </div>
+
+        <div>
+          <div className="mb-1 text-xs font-semibold text-slate-400">已收集材料</div>
+          {collectedMaterials.length === 0 ? (
+            <p className="text-xs text-slate-400">暂无已收集材料。</p>
+          ) : (
+            <div className="space-y-1.5">
+              {collectedMaterials.slice(0, 6).map((material, index) => (
+                <div
+                  key={`${material.kind}-${material.document_id ?? material.title}-${index}`}
+                  className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                      {material.kind}
+                    </span>
+                    <span className="min-w-0 font-medium text-slate-700">{material.title}</span>
+                    {material.evidence_id && (
+                      <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                        证据
+                      </span>
+                    )}
+                  </div>
+                  {material.detail && <p className="mt-0.5 text-slate-500">{material.detail}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="mb-1 text-xs font-semibold text-slate-400">待收集建议</div>
+          {suggestions.length === 1 && suggestions[0] === "材料收集完成" ? (
+            <p className="rounded-lg bg-emerald-50 px-2.5 py-2 text-xs font-semibold text-emerald-700">
+              材料收集完成
+            </p>
+          ) : (
+            <ul className="ml-4 list-disc text-xs leading-5 text-slate-600">
+              {suggestions.map((suggestion, index) => (
+                <li key={index}>{suggestion}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -671,7 +724,11 @@ function DealMaterialsPanel({
       ) : (
         <div className="space-y-2">
           {materials.map((material) => (
-            <div key={material.id} className="rounded-lg border border-slate-200 bg-white p-3">
+            <div
+              key={material.id}
+              id={`material-${material.id}`}
+              className="rounded-lg border border-slate-200 bg-white p-3 scroll-mt-6"
+            >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
@@ -746,6 +803,53 @@ function DealMaterialsPanel({
   );
 }
 
+function DealMarketSignalsPanel({
+  signals,
+  selectedCategory,
+  busy,
+  error,
+  onCategoryChange,
+  onRefresh,
+}: {
+  signals: DealMarketSignal[];
+  selectedCategory: DealMarketSignalCategory | "all";
+  busy: boolean;
+  error: string | null;
+  onCategoryChange: (category: DealMarketSignalCategory | "all") => void;
+  onRefresh: () => void;
+}) {
+  const viewSignals = useMemo<MarketSignalViewItem[]>(
+    () =>
+      signals.map((signal) => ({
+        id: signal.evidence_id,
+        title: signal.title,
+        summary: signal.summary,
+        category: signal.category,
+        date: signal.published_at,
+        connector: signal.connector,
+        collectedAt: signal.collected_at,
+        href: signal.url,
+        hrefLabel: "查看来源",
+        external: true,
+      })),
+    [signals]
+  );
+
+  return (
+    <MarketSignalsPanel
+      signals={viewSignals}
+      selectedCategory={selectedCategory}
+      busy={busy}
+      error={error}
+      onCategoryChange={onCategoryChange}
+      onRefresh={onRefresh}
+      busyText="正在收集项目相关市场信号..."
+      countClassName="bg-blue-600 text-white"
+      itemClassName="rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
+    />
+  );
+}
+
 function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: string }) {
   const brief = report.brief;
   if (!brief) return null;
@@ -811,7 +915,9 @@ function PreDDPanel({
   briefHistoryBusy,
   briefBusy,
   briefError,
+  materialStatusBusyKey,
   onGenerateBrief,
+  onMaterialStatusChange,
 }: {
   workspace: PreDDWorkspace;
   briefReport: DDReport | null;
@@ -819,27 +925,64 @@ function PreDDPanel({
   briefHistoryBusy: boolean;
   briefBusy: boolean;
   briefError: string | null;
+  materialStatusBusyKey: string | null;
   onGenerateBrief: () => void;
+  onMaterialStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
 }) {
   const { completion } = workspace;
+  const collectedItems = workspace.items.filter((item) => item.collection_status === "collected");
+  const pendingItems = workspace.items.filter((item) => item.collection_status === "pending");
   const displayBriefs =
     briefHistory.length > 0
       ? briefHistory
       : briefReport
         ? [{ deliverable_id: "latest", type: "dd_report" as const, payload: briefReport, created_at: "", updated_at: "" }]
         : [];
+  const renderMaterialGroup = (
+    title: string,
+    items: PreDDChecklistItem[],
+    emptyText: string
+  ) => (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-sm font-bold text-slate-900">{title}</div>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+          {items.length}
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-400">
+          {emptyText}
+        </div>
+      ) : (
+        <div className="grid gap-2 lg:grid-cols-2">
+          {items.map((item) => (
+            <PreDDTaskCard
+              key={item.key}
+              item={item}
+              busy={materialStatusBusyKey !== null}
+              onStatusChange={onMaterialStatusChange}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <Section title="Pre-DD 资料任务树">
+    <Section title="Pre-DD 资料">
       <div className="mb-4 grid gap-3 md:grid-cols-[160px_1fr]">
         <div className="rounded-lg bg-slate-50 p-3">
           <div className="text-3xl font-black text-slate-950">{completion.score}%</div>
           <div className="mt-1 text-xs font-medium text-slate-400">资料完整度</div>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">已提供 {completion.complete}</div>
-          <div className="rounded-lg bg-amber-50 p-2 text-amber-700">部分提供 {completion.partial}</div>
-          <div className="rounded-lg bg-blue-50 p-2 text-blue-700">可公开补全 {completion.public_data_possible}</div>
-          <div className="rounded-lg bg-rose-50 p-2 text-rose-700">未提供 {completion.missing}</div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-lg bg-emerald-50 p-3 text-emerald-700">
+            已收集 {completion.collected ?? collectedItems.length}
+          </div>
+          <div className="rounded-lg bg-amber-50 p-3 text-amber-700">
+            待收集 {completion.pending ?? pendingItems.length}
+          </div>
         </div>
       </div>
 
@@ -856,10 +999,9 @@ function PreDDPanel({
         {briefError && <span className="text-xs text-rose-500">{briefError}</span>}
       </div>
 
-      <div className="grid gap-2 lg:grid-cols-2">
-        {workspace.items.map((item) => (
-          <PreDDTaskCard key={item.key} item={item} />
-        ))}
+      <div className="space-y-4">
+        {renderMaterialGroup("已收集", collectedItems, "暂无已收集的 Pre-DD 资料项。")}
+        {renderMaterialGroup("待收集", pendingItems, "暂无待收集的 Pre-DD 资料项。")}
       </div>
 
       {(workspace.priority_questions.length > 0 || workspace.risk_queue.length > 0) && (
@@ -945,17 +1087,25 @@ export function DealDetailPanel({
   onTransition,
   onAction,
   onMaterialUploaded,
+  onPreDDMaterialStatusChange,
+  preDDMaterialStatusBusyKey,
 }: {
   detail: DealDetail;
   busy: boolean;
   onTransition: (to: DealStatus) => void;
   onAction: (action: DealAction) => void;
   onMaterialUploaded?: () => Promise<void> | void;
+  onPreDDMaterialStatusChange?: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
+  preDDMaterialStatusBusyKey?: string | null;
 }) {
   const { data, company } = detail;
   const a = data.analysis;
   const fb = data.user_feedback;
   const [materials, setMaterials] = useState<DealMaterial[]>(detail.materials ?? []);
+  const [marketSignals, setMarketSignals] = useState<DealMarketSignal[]>(detail.data.market_signals ?? []);
+  const [marketSignalCategory, setMarketSignalCategory] = useState<DealMarketSignalCategory | "all">("all");
+  const [marketSignalBusy, setMarketSignalBusy] = useState(false);
+  const [marketSignalError, setMarketSignalError] = useState<string | null>(null);
   const [materialBusy, setMaterialBusy] = useState(false);
   const [materialError, setMaterialError] = useState<string | null>(null);
   const [materialSearchQuery, setMaterialSearchQuery] = useState("");
@@ -967,16 +1117,48 @@ export function DealDetailPanel({
   const [briefHistoryBusy, setBriefHistoryBusy] = useState(false);
   const [briefBusy, setBriefBusy] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
+  const autoMarketSignalDealRef = useRef<string | null>(null);
+
+  const handleCollectMarketSignals = useCallback(async (options: { auto?: boolean } = {}) => {
+    setMarketSignalBusy(true);
+    if (!options.auto) setMarketSignalError(null);
+    try {
+      const response = await collectDealMarketSignals(detail.id);
+      setMarketSignals(response.items);
+      setMarketSignalError(null);
+    } catch (error) {
+      if (!options.auto) {
+        setMarketSignalError(error instanceof ApiError ? error.message : "收集市场信号失败");
+      }
+    } finally {
+      setMarketSignalBusy(false);
+    }
+  }, [detail.id]);
 
   useEffect(() => {
     setMaterials(detail.materials ?? []);
+    setMarketSignals(detail.data.market_signals ?? []);
+    setMarketSignalCategory("all");
+    setMarketSignalError(null);
+    setMarketSignalBusy(false);
     setMaterialError(null);
     setMaterialBusy(false);
     setMaterialSearchQuery("");
     setMaterialSearchResults([]);
     setMaterialSearchError(null);
     setMaterialSearchBusy(false);
-  }, [detail.id, detail.materials]);
+  }, [detail.id, detail.materials, detail.data.market_signals]);
+
+  useEffect(() => {
+    const hasExistingSignals = (detail.data.market_signals ?? []).length > 0;
+    if (hasExistingSignals) {
+      autoMarketSignalDealRef.current = detail.id;
+      return;
+    }
+    if (autoMarketSignalDealRef.current === detail.id) return;
+    autoMarketSignalDealRef.current = detail.id;
+    void handleCollectMarketSignals({ auto: true });
+  }, [detail.id, detail.data.market_signals, handleCollectMarketSignals]);
 
   useEffect(() => {
     setBriefReport(null);
@@ -1134,6 +1316,15 @@ export function DealDetailPanel({
         onSearch={handleSearchMaterials}
       />
 
+      <DealMarketSignalsPanel
+        signals={marketSignals}
+        selectedCategory={marketSignalCategory}
+        busy={marketSignalBusy}
+        error={marketSignalError}
+        onCategoryChange={setMarketSignalCategory}
+        onRefresh={() => void handleCollectMarketSignals()}
+      />
+
       {a.fit_score && (
         <Section title="机构匹配度">
           <FitScore fit={a.fit_score} />
@@ -1148,7 +1339,9 @@ export function DealDetailPanel({
           briefHistoryBusy={briefHistoryBusy}
           briefBusy={briefBusy}
           briefError={briefError}
+          materialStatusBusyKey={preDDMaterialStatusBusyKey ?? null}
           onGenerateBrief={handleGenerateBrief}
+          onMaterialStatusChange={onPreDDMaterialStatusChange ?? (() => undefined)}
         />
       )}
 
@@ -1224,6 +1417,7 @@ export function DealDetailPanel({
 export default function WorkspacePage() {
   const { dealId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [filter, setFilter] = useState<string>("all");
   const [listSearchQuery, setListSearchQuery] = useState("");
@@ -1232,6 +1426,7 @@ export default function WorkspacePage() {
   const [detail, setDetail] = useState<DealDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [preDDMaterialStatusBusyKey, setPreDDMaterialStatusBusyKey] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createDraft, setCreateDraft] = useState({
@@ -1296,6 +1491,14 @@ export default function WorkspacePage() {
     else setDetail(null);
   }, [dealId, loadDetail]);
 
+  useEffect(() => {
+    if (!detail || !location.hash.startsWith("#material-")) return;
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      target?.scrollIntoView({ block: "center" });
+    });
+  }, [detail, location.hash]);
+
   async function handleTransition(to: DealStatus) {
     if (!dealId) return;
     setBusy(true);
@@ -1321,6 +1524,22 @@ export default function WorkspacePage() {
       setDetailError(e instanceof ApiError ? e.message : "操作失败");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handlePreDDMaterialStatusChange(
+    taskKey: string,
+    status: PreDDMaterialCollectionStatus
+  ) {
+    if (!dealId) return;
+    setPreDDMaterialStatusBusyKey(taskKey);
+    try {
+      await updatePreDDMaterialStatus(dealId, taskKey, status);
+      await loadDetail(dealId);
+    } catch (e) {
+      setDetailError(e instanceof ApiError ? e.message : "更新 Pre-DD 资料状态失败");
+    } finally {
+      setPreDDMaterialStatusBusyKey(null);
     }
   }
 
@@ -1515,6 +1734,8 @@ export default function WorkspacePage() {
               onTransition={handleTransition}
               onAction={handleAction}
               onMaterialUploaded={() => loadDetail(dealId)}
+              onPreDDMaterialStatusChange={handlePreDDMaterialStatusChange}
+              preDDMaterialStatusBusyKey={preDDMaterialStatusBusyKey}
             />
           )}
         </section>

@@ -22,6 +22,7 @@ export function DeliverableView({
         <ThesisView
           thesis={deliverable.payload as Thesis}
           deliverableId={deliverable.id}
+          evidenceItems={deliverable.evidence_items}
           currentPreference={currentPreference}
         />
       );

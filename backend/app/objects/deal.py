@@ -102,6 +102,37 @@ class DealWorkspace(BaseModel):
     conversation_id: str | None = Field(default=None, description="承载工作台对话的会话 id")
 
 
+class PreDDMaterialCollectionStatus(StrEnum):
+    """项目工作台 Pre-DD 资料项的人工整理状态。"""
+
+    COLLECTED = "collected"
+    PENDING = "pending"
+
+
+class DealMarketSignalCategory(StrEnum):
+    """项目工作台近期市场信号五类信息。"""
+
+    FINANCE_NEWS = "finance_news"
+    BUSINESS_REGISTRY = "business_registry"
+    PATENT = "patent"
+    PAPER = "paper"
+    PERSONNEL = "personnel"
+
+
+class DealMarketSignal(BaseModel):
+    """项目级市场信号视图，来源必须能回溯到 EvidenceItem。"""
+
+    evidence_id: str = Field(description="对应 evidence_items.id")
+    category: DealMarketSignalCategory
+    title: str
+    summary: str = Field(default="")
+    url: str | None = Field(default=None)
+    source_type: str = Field(default="web_search")
+    connector: str | None = Field(default=None)
+    published_at: str | None = Field(default=None)
+    collected_at: str = Field(description="本次收集时间 ISO8601")
+
+
 class DealProfile(BaseModel):
     """deals.data 的完整契约：材料抽取 + 初步分析 + 来源/状态元信息。"""
 
@@ -120,3 +151,8 @@ class DealProfile(BaseModel):
     # 以下为可选元信息块，默认值保证既有 deals.data 仍校验通过（向后兼容增量）
     user_feedback: DealUserFeedback = Field(default_factory=DealUserFeedback)
     workspace: DealWorkspace = Field(default_factory=DealWorkspace)
+    market_signals: list[DealMarketSignal] = Field(default_factory=list, description="项目工作台近期市场信号")
+    pre_dd_material_statuses: dict[str, PreDDMaterialCollectionStatus] = Field(
+        default_factory=dict,
+        description="Pre-DD 14 类资料项的人工状态覆盖；未覆盖时由系统完整度推导。",
+    )
