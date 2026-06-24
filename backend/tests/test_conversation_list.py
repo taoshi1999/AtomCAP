@@ -17,6 +17,7 @@ from app.services.conversations import (
     CONVERSATION_TITLE_FALLBACK,
     ConversationRecord,
     list_conversation_summaries,
+    initial_conversation_title,
     normalize_conversation_type,
     preview_from_content,
     project_conversations,
@@ -124,6 +125,14 @@ def test_normalize_conversation_type_keeps_only_two_durable_types():
     assert normalize_conversation_type("deal_workspace") == "project_workspace"
     assert normalize_conversation_type("track_workspace") == "normal"
     assert normalize_conversation_type("unexpected") == "normal"
+
+
+def test_normal_conversation_does_not_use_first_message_as_title():
+    assert initial_conversation_title("normal", "帮我看看新能源行业") is None
+    assert (
+        initial_conversation_title("project_workspace", "项目工作台 · 光羽科技")
+        == "项目工作台 · 光羽科技"
+    )
 
 
 def test_query_filters_case_insensitive_on_title_and_preview():

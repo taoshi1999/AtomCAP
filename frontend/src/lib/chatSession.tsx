@@ -65,11 +65,6 @@ function compactError(error: unknown) {
   return "请求失败，请确认服务已启动。";
 }
 
-function conversationTitleFromContent(content: string) {
-  const compact = content.replace(/\s+/g, " ").trim();
-  return compact ? compact.slice(0, 50) : "新对话";
-}
-
 export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const [conversationId, setConversationId] = useState(() => makeId());
   const [sessions, setSessions] = useState<Record<string, ChatSession>>({});
@@ -157,7 +152,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     runningRef.current.add(id);
     upsertRecentConversation({
       id,
-      title: conversationTitleFromContent(userContent),
+      title: "未命名对话",
       preview: userContent,
       updated_at: new Date().toISOString(),
       conversation_type: "normal",

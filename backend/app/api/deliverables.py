@@ -28,6 +28,7 @@ from app.objects.thesis import (
     ValueChain,
 )
 from app.services.conversations import ensure_conversation, save_message, text_blocks
+from app.services.conversation_titles import refresh_conversation_title
 from app.services.deliverables import save_deliverable
 from app.services.evidence_projection import evidence_items_for_payload
 from app.services.events import record_event
@@ -486,11 +487,7 @@ async def generate_deal_pool(
                 institution_id=institution_id,
                 user_id=user_id,
                 conversation_id=conversation_id,
-                title_hint=(
-                    f"{thesis_name} · {source_sub_direction} 项目池"
-                    if source_sub_direction
-                    else f"{thesis_name} 项目池"
-                ),
+                title_hint=None,
             )
             await save_message(
                 wdb,
@@ -527,6 +524,12 @@ async def generate_deal_pool(
         ):
             yield ev
 
+        await refresh_conversation_title(
+            institution_id=institution_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            allow_overseas=allow_overseas,
+        )
         yield {"event": "done", "data": ""}
 
     return EventSourceResponse(event_stream())

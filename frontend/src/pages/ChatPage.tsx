@@ -400,30 +400,6 @@ export default function ChatPage() {
       .slice(0, 5);
   }, [home, recentConversationOverrides]);
 
-  const suggested = useMemo(() => {
-    const [sector] = preferenceList(home, "sectors");
-    const [stage] = preferenceList(home, "stages");
-    if (sector) {
-      return [
-        `帮我梳理 ${sector} 最近值得关注的方向`,
-        `基于我的偏好，找一批 ${sector} 相关项目`,
-        `扫描一个 ${sector} 项目的关键风险`,
-      ];
-    }
-    if (stage) {
-      return [
-        `帮我找一些 ${stage} 阶段的优质项目`,
-        "帮我梳理一个新赛道的机会和风险",
-        "粘贴项目材料后帮我做初步分析",
-      ];
-    }
-    return [
-      "帮我梳理一个新赛道的机会和风险",
-      "帮我发现一批匹配机构偏好的项目",
-      "粘贴项目材料后帮我做初步分析",
-    ];
-  }, [home]);
-
   const userName = home?.user.name || "你好";
   const userSubtitle = home?.user.email || home?.institution.name || "";
   const newConversationActive = mode === "chat" && messages.length === 0;
@@ -743,7 +719,6 @@ export default function ChatPage() {
               value={input}
               progress={progress}
               isSending={isSending}
-              suggested={suggested}
               models={modelOptions}
               modelTier={modelTier}
               onModelChange={setModelTier}
@@ -751,7 +726,6 @@ export default function ChatPage() {
               onKeyDown={handleComposerKeyDown}
               onUploadClick={() => fileInputRef.current?.click()}
               onSend={() => void handleSend(input)}
-              onSuggested={(text) => void handleSend(text)}
             />
           </section>
         ) : (
@@ -772,7 +746,6 @@ export default function ChatPage() {
                 value={input}
                 progress={progress}
                 isSending={isSending}
-                suggested={suggested}
                 compact
                 models={modelOptions}
                 modelTier={modelTier}
@@ -781,7 +754,6 @@ export default function ChatPage() {
                 onKeyDown={handleComposerKeyDown}
                 onUploadClick={() => fileInputRef.current?.click()}
                 onSend={() => void handleSend(input)}
-                onSuggested={(text) => void handleSend(text)}
               />
             </div>
           </>
@@ -1195,7 +1167,6 @@ function Composer({
   value,
   progress,
   isSending,
-  suggested,
   compact,
   models,
   modelTier,
@@ -1204,12 +1175,10 @@ function Composer({
   onKeyDown,
   onUploadClick,
   onSend,
-  onSuggested,
 }: {
   value: string;
   progress: string | null;
   isSending: boolean;
-  suggested: string[];
   compact?: boolean;
   models?: ModelOption[];
   modelTier?: string;
@@ -1218,25 +1187,9 @@ function Composer({
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onUploadClick: () => void;
   onSend: () => void;
-  onSuggested: (value: string) => void;
 }) {
   return (
     <div className="shrink-0 rounded-lg border border-indigo-300 bg-white p-4 shadow-sm">
-      {!compact && (
-        <div className="mb-3 grid max-w-xl gap-2">
-          {suggested.map((item) => (
-            <button
-              type="button"
-              key={item}
-              onClick={() => onSuggested(item)}
-              className="min-h-11 rounded-lg border border-slate-200 bg-white px-4 text-left text-sm font-semibold text-slate-800 transition hover:border-indigo-200 hover:bg-indigo-50"
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      )}
-
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}

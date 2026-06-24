@@ -52,6 +52,7 @@ from app.services.conversations import (
     to_llm_messages,
 )
 from app.services import preferences as preferences_service
+from app.services.conversation_titles import refresh_conversation_title
 from app.services.thesis_context import thesis_context_from_payload
 
 router = APIRouter()
@@ -304,7 +305,7 @@ async def send_message(
             title_hint = (
                 f"项目工作台 · {workspace_deal_name}"
                 if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE
-                else body.content
+                else None
             )
 
             try:
@@ -555,6 +556,13 @@ async def send_message(
                         },
                     )
 
+        if conversation_type != CONVERSATION_TYPE_PROJECT_WORKSPACE:
+            await refresh_conversation_title(
+                institution_id=user.institution_id,
+                user_id=user.user_id,
+                conversation_id=conversation_id,
+                allow_overseas=user.allow_overseas_models,
+            )
         yield {"event": "done", "data": ""}
 
     return EventSourceResponse(event_stream())
@@ -593,7 +601,7 @@ async def upload_material(
                 institution_id=user.institution_id,
                 user_id=user.user_id,
                 conversation_id=conversation_id,
-                title_hint=file.filename or "上传项目材料",
+                title_hint=None,
             )
             await save_message(
                 db,
@@ -619,6 +627,12 @@ async def upload_material(
         ):
             yield ev
 
+        await refresh_conversation_title(
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            conversation_id=conversation_id,
+            allow_overseas=user.allow_overseas_models,
+        )
         yield {"event": "done", "data": ""}
 
     return EventSourceResponse(event_stream())

@@ -47,6 +47,13 @@ def normalize_conversation_type(value: str | None) -> str:
         return raw
     return CONVERSATION_TYPE_NORMAL
 
+
+def initial_conversation_title(conversation_type: str, title_hint: str | None) -> str | None:
+    """普通会话等待模型摘要命名；项目工作台使用稳定的对象标题。"""
+    if normalize_conversation_type(conversation_type) != CONVERSATION_TYPE_PROJECT_WORKSPACE:
+        return None
+    return (title_hint or "")[:50] or None
+
 # 通用对话默认带的最近历史条数（防 token 膨胀，Phase 1 再做摘要压缩）
 HISTORY_LIMIT = 20
 
@@ -161,7 +168,8 @@ async def ensure_conversation(
         id=conversation_id,
         institution_id=institution_id,
         user_id=user_id,
-        title=(title_hint or "")[:50] or None,
+        # 普通会话由回答完成后的模型摘要命名；项目工作台保留稳定的业务对象标题。
+        title=initial_conversation_title(normalized_type, title_hint),
         conversation_type=normalized_type,
         source_deal_id=source_deal_id,
     )
