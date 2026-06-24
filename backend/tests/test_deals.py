@@ -18,7 +18,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.api.deals as deals_api
 from app.models.models import Chunk, Document, EvidenceItemRow
+from app.api.deps import CurrentUser
 from app.connectors.base import Source
 from app.objects.deal import DealMarketSignalCategory, DealProfile, DealStatus, PreDDMaterialCollectionStatus
 from app.objects.dd_report import DDReport
@@ -501,6 +503,36 @@ def test_save_deal_material_creates_private_evidence(monkeypatch):
     assert events[0]["material_category_suggestion"]["key"] == "customers"
 
 
+def test_save_deal_material_honors_pre_dd_card_category(monkeypatch):
+    deal_id = uuid.uuid4()
+    db = _FakeMaterialDB(SimpleNamespace(id=deal_id))
+
+    async def fake_record_event(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.deal_materials.record_event", fake_record_event)
+
+    item = asyncio.run(
+        save_deal_material(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deal_id=deal_id,
+            filename="补充说明.txt",
+            data="这是一份由用户主动上传并指定归档位置的材料。".encode("utf-8"),
+            content_type="text/plain",
+            pre_dd_task_key="financials",
+        )
+    )
+
+    [chunk] = [obj for obj in db.added if isinstance(obj, Chunk)]
+    assert chunk.meta["assigned_pre_dd_task_key"] == "financials"
+    assert item["pre_dd_task_keys"][0] == "financials"
+    assert item["pre_dd_task_hits"][0]["keyword"] == "用户指定"
+    assert item["material_category_suggestion"]["key"] == "financials"
+    assert item["material_category_suggestion"]["confidence"] == "high"
+
+
 def test_material_search_records_rank_and_snippet_matches():
     now = dt.datetime(2026, 6, 22, 10, 0, 0)
     evidence_id = uuid.uuid4()
@@ -582,13 +614,14 @@ def test_pre_dd_workspace_uses_uploaded_material_hits_as_partial_coverage():
     financials = next(item for item in view["items"] if item["key"] == "financials")
 
     assert financials["status"] == "partial"
-    assert financials["collection_status"] == "collected"
+    assert financials["collection_status"] == "pending"
     assert financials["materials"] == material_hits
     assert financials["collected_materials"][0]["kind"] == "机构材料"
     assert financials["collected_materials"][0]["evidence_id"] == str(evidence_id)
     assert any("收入" in suggestion or "继续补充" in suggestion for suggestion in financials["suggestions"])
     assert view["completion"]["partial"] >= 1
-    assert view["completion"]["collected"] >= 1
+    assert view["completion"]["collected"] == 0
+    assert view["completion"]["pending"] == 14
 
 
 def test_pre_dd_workspace_builds_material_tree_from_profile():
@@ -619,7 +652,7 @@ def test_pre_dd_workspace_builds_material_tree_from_profile():
     assert view["completion"]["score"] > 0
     bp = next(item for item in view["items"] if item["key"] == "bp_product")
     assert bp["status"] == "complete"
-    assert bp["collection_status"] == "collected"
+    assert bp["collection_status"] == "pending"
     assert "最新版 BP" in bp["intro"]
     assert bp["suggestions"] == ["材料收集完成"]
     assert any("产品方案" in item for item in bp["provided"])
@@ -652,6 +685,7 @@ def test_pre_dd_workspace_empty_profile_has_no_fake_questions_or_risks():
     assert view["completion"]["total"] == 14
     assert view["priority_questions"] == []
     assert view["risk_queue"] == []
+    assert all(item["collection_status"] == "pending" for item in view["items"])
     assert all(item["status"] in {"missing", "partial", "public_data_possible", "complete"} for item in view["items"])
 
 
@@ -768,3 +802,64 @@ def test_pre_dd_brief_projection_filters_by_deal_and_requires_brief():
         updated_at=now,
     )
     assert project_pre_dd_brief(legacy, deal_id=deal_id) is None
+
+
+def test_generate_pre_dd_brief_reads_current_uploaded_materials(monkeypatch):
+    deal_id = uuid.uuid4()
+    company_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    deal = SimpleNamespace(
+        id=deal_id,
+        company_id=company_id,
+        data=_valid_data(),
+    )
+    company = SimpleNamespace(id=company_id, name="光羽科技")
+
+    class FakeDb:
+        def __init__(self):
+            self.scalar_calls = 0
+
+        async def scalar(self, _stmt):
+            self.scalar_calls += 1
+            return deal if self.scalar_calls == 1 else company
+
+    async def fake_list_materials(*_args, **_kwargs):
+        return [
+            {
+                "pre_dd_task_hits": [
+                    {
+                        "document_id": str(uuid.uuid4()),
+                        "evidence_id": str(evidence_id),
+                        "filename": "财务报表.xlsx",
+                        "task_key": "financials",
+                        "keyword": "用户指定",
+                        "snippet": "2025 年收入与现金流数据",
+                    }
+                ]
+            }
+        ]
+
+    async def fake_save_deliverable(*_args, payload, **_kwargs):
+        return SimpleNamespace(id=uuid.uuid4(), payload=payload)
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(deals_api, "list_deal_materials", fake_list_materials)
+    monkeypatch.setattr(deals_api, "save_deliverable", fake_save_deliverable)
+    monkeypatch.setattr(deals_api, "record_event", noop)
+    monkeypatch.setattr(deals_api, "record_user_action", noop)
+
+    result = asyncio.run(
+        deals_api.generate_pre_dd_brief(
+            deal_id,
+            user=CurrentUser(user_id=uuid.uuid4(), institution_id=uuid.uuid4()),
+            db=FakeDb(),
+        )
+    )
+
+    financials = next(
+        item for item in result["payload"]["checklist"] if item["question"] == "财务指标"
+    )
+    assert financials["answer"]["evidence_ids"] == [str(evidence_id)]
+    assert "财务报表.xlsx" in financials["answer"]["text"]

@@ -492,11 +492,17 @@ function FitScore({ fit }: { fit: FitScoreBreakdown }) {
 function PreDDTaskCard({
   item,
   busy,
+  uploadBusy,
+  uploadDisabled,
   onStatusChange,
+  onUpload,
 }: {
   item: PreDDChecklistItem;
   busy: boolean;
+  uploadBusy: boolean;
+  uploadDisabled: boolean;
   onStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
+  onUpload: (taskKey: string, file: File) => void;
 }) {
   const statusMeta = PRE_DD_COLLECTION_META[item.collection_status] ?? PRE_DD_COLLECTION_META.pending;
   const collectedMaterials = item.collected_materials ?? [];
@@ -512,25 +518,48 @@ function PreDDTaskCard({
             {statusMeta.label}
           </span>
         </div>
-        <div className="flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-          {collectionOptions.map((status) => {
-            const active = item.collection_status === status;
-            return (
-              <button
-                key={status}
-                type="button"
-                disabled={busy || active}
-                onClick={() => onStatusChange(item.key, status)}
-                className={`h-7 rounded-md px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed ${
-                  active
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:bg-white hover:text-slate-800"
-                }`}
-              >
-                {PRE_DD_COLLECTION_META[status].label}
-              </button>
-            );
-          })}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <label
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-semibold transition ${
+              uploadDisabled
+                ? "cursor-not-allowed border-slate-200 text-slate-300"
+                : "cursor-pointer border-blue-200 text-blue-700 hover:bg-blue-50"
+            }`}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {uploadBusy ? "上传中..." : "上传资料"}
+            <input
+              type="file"
+              disabled={uploadDisabled}
+              accept=".pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.markdown"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onUpload(item.key, file);
+              }}
+              className="sr-only"
+            />
+          </label>
+          <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            {collectionOptions.map((status) => {
+              const active = item.collection_status === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  disabled={busy || active}
+                  onClick={() => onStatusChange(item.key, status)}
+                  className={`h-7 rounded-md px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed ${
+                    active
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:bg-white hover:text-slate-800"
+                  }`}
+                >
+                  {PRE_DD_COLLECTION_META[status].label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -858,15 +887,12 @@ function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: s
     <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-bold text-slate-950">Pre-DD Brief 草稿</div>
+          <div className="text-sm font-bold text-slate-950">Pre-DD Breif</div>
           <div className="mt-0.5 text-xs text-slate-500">
             {report.company_name}
             {updatedAt ? ` · ${formatBriefTime(updatedAt)}` : ""}
           </div>
         </div>
-        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-blue-700">
-          完整度 {brief.completion_score}%
-        </span>
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="space-y-3">
@@ -878,7 +904,6 @@ function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: s
             <div className="mb-1 text-xs font-semibold text-slate-400">机构匹配度</div>
             <BriefClaimList claims={[brief.fit_summary]} />
           </div>
-          <p className="text-xs leading-5 text-slate-500">{brief.completion_summary}</p>
         </div>
         <div className="space-y-3">
           <div>
@@ -911,34 +936,21 @@ function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: s
 
 function PreDDPanel({
   workspace,
-  briefReport,
-  briefHistory,
-  briefHistoryBusy,
-  briefBusy,
-  briefError,
+  materialUploadError,
   materialStatusBusyKey,
-  onGenerateBrief,
+  materialUploadBusyKey,
   onMaterialStatusChange,
+  onMaterialUpload,
 }: {
   workspace: PreDDWorkspace;
-  briefReport: DDReport | null;
-  briefHistory: PreDDBriefHistoryItem[];
-  briefHistoryBusy: boolean;
-  briefBusy: boolean;
-  briefError: string | null;
+  materialUploadError: string | null;
   materialStatusBusyKey: string | null;
-  onGenerateBrief: () => void;
+  materialUploadBusyKey: string | null;
   onMaterialStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
+  onMaterialUpload: (taskKey: string, file: File) => void;
 }) {
-  const { completion } = workspace;
   const collectedItems = workspace.items.filter((item) => item.collection_status === "collected");
   const pendingItems = workspace.items.filter((item) => item.collection_status === "pending");
-  const displayBriefs =
-    briefHistory.length > 0
-      ? briefHistory
-      : briefReport
-        ? [{ deliverable_id: "latest", type: "dd_report" as const, payload: briefReport, created_at: "", updated_at: "" }]
-        : [];
   const renderMaterialGroup = (
     title: string,
     items: PreDDChecklistItem[],
@@ -947,9 +959,6 @@ function PreDDPanel({
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-sm font-bold text-slate-900">{title}</div>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
-          {items.length}
-        </span>
       </div>
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-400">
@@ -962,7 +971,10 @@ function PreDDPanel({
               key={item.key}
               item={item}
               busy={materialStatusBusyKey !== null}
+              uploadBusy={materialUploadBusyKey === item.key}
+              uploadDisabled={materialUploadBusyKey !== null}
               onStatusChange={onMaterialStatusChange}
+              onUpload={onMaterialUpload}
             />
           ))}
         </div>
@@ -972,22 +984,57 @@ function PreDDPanel({
 
   return (
     <Section title="Pre-DD 资料">
-      <div className="mb-4 grid gap-3 md:grid-cols-[160px_1fr]">
-        <div className="rounded-lg bg-slate-50 p-3">
-          <div className="text-3xl font-black text-slate-950">{completion.score}%</div>
-          <div className="mt-1 text-xs font-medium text-slate-400">资料完整度</div>
+      {materialUploadError && (
+        <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600">
+          {materialUploadError}
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-lg bg-emerald-50 p-3 text-emerald-700">
-            已收集 {completion.collected ?? collectedItems.length}
-          </div>
-          <div className="rounded-lg bg-amber-50 p-3 text-amber-700">
-            待收集 {completion.pending ?? pendingItems.length}
-          </div>
-        </div>
-      </div>
+      )}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="space-y-4">
+        {renderMaterialGroup("已收集", collectedItems, "暂无已收集的 Pre-DD 资料项。")}
+        {renderMaterialGroup("待收集", pendingItems, "暂无待收集的 Pre-DD 资料项。")}
+      </div>
+    </Section>
+  );
+}
+
+function PreDDBriefPanel({
+  briefReport,
+  briefHistory,
+  briefHistoryBusy,
+  briefBusy,
+  briefError,
+  selectedBriefId,
+  onSelectedBriefChange,
+  onGenerateBrief,
+}: {
+  briefReport: DDReport | null;
+  briefHistory: PreDDBriefHistoryItem[];
+  briefHistoryBusy: boolean;
+  briefBusy: boolean;
+  briefError: string | null;
+  selectedBriefId: string | null;
+  onSelectedBriefChange: (deliverableId: string) => void;
+  onGenerateBrief: () => void;
+}) {
+  const briefs =
+    briefHistory.length > 0
+      ? briefHistory
+      : briefReport
+        ? [{
+            deliverable_id: "latest",
+            type: "dd_report" as const,
+            payload: briefReport,
+            created_at: "",
+            updated_at: "",
+          }]
+        : [];
+  const selectedBrief =
+    briefs.find((item) => item.deliverable_id === selectedBriefId) ?? briefs[0] ?? null;
+
+  return (
+    <Section title="Pre-DD Breif">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={briefBusy}
@@ -995,90 +1042,55 @@ function PreDDPanel({
           className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           <FileText className="h-4 w-4" />
-          {briefBusy ? "生成中..." : displayBriefs.length > 0 ? "重新生成 Pre-DD Brief" : "生成 Pre-DD Brief"}
+          {briefBusy ? "生成中..." : "生成 Pre-DD Breif"}
         </button>
         {briefError && <span className="text-xs text-rose-500">{briefError}</span>}
       </div>
 
-      <div className="space-y-4">
-        {renderMaterialGroup("已收集", collectedItems, "暂无已收集的 Pre-DD 资料项。")}
-        {renderMaterialGroup("待收集", pendingItems, "暂无待收集的 Pre-DD 资料项。")}
-      </div>
-
-      {(workspace.priority_questions.length > 0 || workspace.risk_queue.length > 0) && (
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          {workspace.priority_questions.length > 0 && (
-            <div>
-              <div className="mb-1 text-xs font-semibold text-slate-400">待验证问题</div>
-              <ul className="ml-4 list-disc text-sm leading-6 text-slate-700">
-                {workspace.priority_questions.map((question, index) => (
-                  <li key={index}>{question}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {workspace.risk_queue.length > 0 && (
-            <div>
-              <div className="mb-1 text-xs font-semibold text-slate-400">风险扫描队列</div>
-              <ul className="ml-4 list-disc text-sm leading-6 text-slate-700">
-                {workspace.risk_queue.map((risk, index) => (
-                  <li key={index}>{risk}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {briefHistoryBusy ? (
+        <div className="mt-4 text-sm text-slate-400">加载 Breif 历史中...</div>
+      ) : briefs.length === 0 ? (
+        <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
+          暂无已生成的 Pre-DD Breif。
         </div>
-      )}
-
-      {(briefHistoryBusy || displayBriefs.length > 0) && (
-        <div className="mt-4">
-          <div className="mb-2 text-xs font-semibold text-slate-400">最近生成</div>
-          {briefHistoryBusy ? (
-            <div className="text-sm text-slate-400">加载 Brief 历史中...</div>
-          ) : (
-            displayBriefs.map((item) => (
-              <PreDDBriefCard
-                key={item.deliverable_id}
-                report={item.payload}
-                updatedAt={item.updated_at}
-              />
-            ))
+      ) : (
+        <>
+          <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Pre-DD Breif 版本">
+            {briefs.map((item, index) => {
+              const active = item.deliverable_id === selectedBrief?.deliverable_id;
+              const versionNumber = briefs.length - index;
+              return (
+                <button
+                  key={item.deliverable_id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => onSelectedBriefChange(item.deliverable_id)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition ${
+                    active
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  <span>版本 {versionNumber}</span>
+                  {item.updated_at && (
+                    <span className="ml-2 font-normal text-slate-400">
+                      {formatBriefTime(item.updated_at)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {selectedBrief && (
+            <PreDDBriefCard
+              report={selectedBrief.payload}
+              updatedAt={selectedBrief.updated_at}
+            />
           )}
-        </div>
+        </>
       )}
     </Section>
-  );
-}
-
-function Facts({ detail }: { detail: DealDetail }) {
-  const e = detail.data.extraction;
-  const rows: [string, string | null | undefined][] = [
-    ["赛道", e.track],
-    ["子方向", e.sub_direction],
-    ["产品", e.product],
-    ["技术路线", e.tech_route],
-    ["创始团队", e.founders.join("、") || null],
-    ["融资阶段", e.funding_stage],
-    ["融资金额", e.funding_amount],
-    ["估值", e.valuation],
-    ["收入", e.revenue],
-    ["商业模式", e.business_model],
-    ["市场空间", e.market_size],
-    ["主要客户", e.customers.join("、") || null],
-    ["竞争对手", e.competitors.join("、") || null],
-    ["官网", e.official_website],
-  ];
-  const visible = rows.filter(([, v]) => v);
-  if (visible.length === 0) return <p className="text-sm text-slate-400">材料未提供结构化事实。</p>;
-  return (
-    <dl className="grid grid-cols-1 gap-y-1 text-sm sm:grid-cols-2">
-      {visible.map(([k, v]) => (
-        <div key={k} className="flex gap-2">
-          <dt className="shrink-0 text-slate-400">{k}</dt>
-          <dd className="text-slate-700">{v}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 
@@ -1108,7 +1120,9 @@ export function DealDetailPanel({
   const [marketSignalBusy, setMarketSignalBusy] = useState(false);
   const [marketSignalError, setMarketSignalError] = useState<string | null>(null);
   const [materialBusy, setMaterialBusy] = useState(false);
+  const [preDDMaterialUploadBusyKey, setPreDDMaterialUploadBusyKey] = useState<string | null>(null);
   const [materialError, setMaterialError] = useState<string | null>(null);
+  const [preDDMaterialUploadError, setPreDDMaterialUploadError] = useState<string | null>(null);
   const [materialSearchQuery, setMaterialSearchQuery] = useState("");
   const [materialSearchResults, setMaterialSearchResults] = useState<DealMaterialSearchResult[]>([]);
   const [materialSearchBusy, setMaterialSearchBusy] = useState(false);
@@ -1118,6 +1132,7 @@ export function DealDetailPanel({
   const [briefHistoryBusy, setBriefHistoryBusy] = useState(false);
   const [briefBusy, setBriefBusy] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
+  const [selectedBriefId, setSelectedBriefId] = useState<string | null>(null);
   const autoMarketSignalDealRef = useRef<string | null>(null);
 
   const handleCollectMarketSignals = useCallback(async (options: { auto?: boolean } = {}) => {
@@ -1143,7 +1158,9 @@ export function DealDetailPanel({
     setMarketSignalError(null);
     setMarketSignalBusy(false);
     setMaterialError(null);
+    setPreDDMaterialUploadError(null);
     setMaterialBusy(false);
+    setPreDDMaterialUploadBusyKey(null);
     setMaterialSearchQuery("");
     setMaterialSearchResults([]);
     setMaterialSearchError(null);
@@ -1166,6 +1183,7 @@ export function DealDetailPanel({
     setBriefHistory([]);
     setBriefError(null);
     setBriefBusy(false);
+    setSelectedBriefId(null);
   }, [detail.id]);
 
   useEffect(() => {
@@ -1174,9 +1192,19 @@ export function DealDetailPanel({
       setBriefHistoryBusy(true);
       try {
         const response = await listPreDDBriefs(detail.id);
-        if (!cancelled) setBriefHistory(response.items);
+        if (!cancelled) {
+          setBriefHistory(response.items);
+          setSelectedBriefId((current) =>
+            current && response.items.some((item) => item.deliverable_id === current)
+              ? current
+              : response.items[0]?.deliverable_id ?? null
+          );
+        }
       } catch {
-        if (!cancelled) setBriefHistory([]);
+        if (!cancelled) {
+          setBriefHistory([]);
+          setSelectedBriefId(null);
+        }
       } finally {
         if (!cancelled) setBriefHistoryBusy(false);
       }
@@ -1196,7 +1224,13 @@ export function DealDetailPanel({
       try {
         const history = await listPreDDBriefs(detail.id);
         setBriefHistory(history.items);
+        setSelectedBriefId(
+          history.items.some((item) => item.deliverable_id === response.deliverable_id)
+            ? response.deliverable_id
+            : history.items[0]?.deliverable_id ?? response.deliverable_id
+        );
       } catch {
+        setSelectedBriefId(response.deliverable_id);
         setBriefHistory((items) => [
           {
             deliverable_id: response.deliverable_id,
@@ -1209,7 +1243,7 @@ export function DealDetailPanel({
         ]);
       }
     } catch (error) {
-      setBriefError(error instanceof ApiError ? error.message : "生成 Pre-DD Brief 失败");
+      setBriefError(error instanceof ApiError ? error.message : "生成 Pre-DD Breif 失败");
     } finally {
       setBriefBusy(false);
     }
@@ -1229,6 +1263,20 @@ export function DealDetailPanel({
       setMaterialError(error instanceof ApiError ? error.message : "上传材料失败");
     } finally {
       setMaterialBusy(false);
+    }
+  }
+
+  async function handleUploadPreDDMaterial(taskKey: string, file: File) {
+    setPreDDMaterialUploadBusyKey(taskKey);
+    setPreDDMaterialUploadError(null);
+    try {
+      const material = await uploadDealMaterial(detail.id, file, taskKey);
+      setMaterials((items) => [material, ...items.filter((item) => item.id !== material.id)]);
+      await onMaterialUploaded?.();
+    } catch (error) {
+      setPreDDMaterialUploadError(error instanceof ApiError ? error.message : "上传资料失败");
+    } finally {
+      setPreDDMaterialUploadBusyKey(null);
     }
   }
 
@@ -1333,27 +1381,26 @@ export function DealDetailPanel({
       )}
 
       {detail.pre_dd && (
-        <PreDDPanel
-          workspace={detail.pre_dd}
-          briefReport={briefReport}
-          briefHistory={briefHistory}
-          briefHistoryBusy={briefHistoryBusy}
-          briefBusy={briefBusy}
-          briefError={briefError}
-          materialStatusBusyKey={preDDMaterialStatusBusyKey ?? null}
-          onGenerateBrief={handleGenerateBrief}
-          onMaterialStatusChange={onPreDDMaterialStatusChange ?? (() => undefined)}
-        />
-      )}
-
-      {a.highlights.length > 0 && (
-        <Section title="投资亮点">
-          <ul className="space-y-1">
-            {a.highlights.map((c, i) => (
-              <ClaimLine key={i} claim={c} />
-            ))}
-          </ul>
-        </Section>
+        <>
+          <PreDDPanel
+            workspace={detail.pre_dd}
+            materialUploadError={preDDMaterialUploadError}
+            materialStatusBusyKey={preDDMaterialStatusBusyKey ?? null}
+            materialUploadBusyKey={preDDMaterialUploadBusyKey}
+            onMaterialStatusChange={onPreDDMaterialStatusChange ?? (() => undefined)}
+            onMaterialUpload={(taskKey, file) => void handleUploadPreDDMaterial(taskKey, file)}
+          />
+          <PreDDBriefPanel
+            briefReport={briefReport}
+            briefHistory={briefHistory}
+            briefHistoryBusy={briefHistoryBusy}
+            briefBusy={briefBusy}
+            briefError={briefError}
+            selectedBriefId={selectedBriefId}
+            onSelectedBriefChange={setSelectedBriefId}
+            onGenerateBrief={handleGenerateBrief}
+          />
+        </>
       )}
 
       {a.initial_risks.length > 0 && (
@@ -1365,45 +1412,6 @@ export function DealDetailPanel({
           </ul>
         </Section>
       )}
-
-      {(a.info_gaps.length > 0 || a.open_questions.length > 0) && (
-        <Section title="信息缺口 / 待验证问题">
-          {a.info_gaps.length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs font-medium text-slate-400">信息缺口</div>
-              <ul className="ml-4 list-disc text-sm text-slate-700">
-                {a.info_gaps.map((g, i) => (
-                  <li key={i}>{g}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {a.open_questions.length > 0 && (
-            <div>
-              <div className="text-xs font-medium text-slate-400">待验证问题</div>
-              <ul className="ml-4 list-disc text-sm text-slate-700">
-                {a.open_questions.map((q, i) => (
-                  <li key={i}>{q}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Section>
-      )}
-
-      {a.next_steps.length > 0 && (
-        <Section title="推荐下一步">
-          <ul className="space-y-1">
-            {a.next_steps.map((c, i) => (
-              <ClaimLine key={i} claim={c} />
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <Section title="材料事实">
-        <Facts detail={detail} />
-      </Section>
 
       {company && (
         <Section title="关联企业（工商）">

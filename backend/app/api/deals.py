@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +45,13 @@ from app.services.deals import (
     update_pre_dd_material_status,
 )
 from app.services.deal_market_signals import DealSignalTargetNotFound, collect_deal_market_signals
-from app.services.deal_materials import DealMaterialTargetNotFound, save_deal_material, search_deal_materials
+from app.services.deal_materials import (
+    DealMaterialTargetNotFound,
+    InvalidDealMaterialCategory,
+    list_deal_materials,
+    save_deal_material,
+    search_deal_materials,
+)
 from app.services.document_extract import DependencyMissingError, DocumentError
 from app.services.market_signal_research import MarketSignalCollectOptions
 from app.services import deal_assistant
@@ -337,6 +343,7 @@ async def search_materials(
 async def upload_deal_material(
     deal_id: uuid.UUID,
     file: UploadFile = File(...),
+    task_key: str | None = Form(default=None),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -351,9 +358,12 @@ async def upload_deal_material(
             filename=file.filename,
             data=data,
             content_type=file.content_type,
+            pre_dd_task_key=task_key,
         )
     except DealMaterialTargetNotFound:
         raise HTTPException(status_code=404, detail="项目不存在") from None
+    except InvalidDealMaterialCategory as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except DependencyMissingError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except DocumentError as e:
@@ -387,7 +397,17 @@ async def generate_pre_dd_brief(
         )
     )
     profile = DealProfile.model_validate(deal.data or {})
-    pre_dd = build_pre_dd_workspace(profile)
+    materials = await list_deal_materials(
+        db,
+        institution_id=user.institution_id,
+        deal_id=deal.id,
+    )
+    material_hits = [
+        hit
+        for material in materials
+        for hit in material.get("pre_dd_task_hits", [])
+    ]
+    pre_dd = build_pre_dd_workspace(profile, material_hits=material_hits)
     company_name = company.name if company is not None else profile.extraction.company_name
     report = build_pre_dd_brief_report(
         deal_id=deal.id,

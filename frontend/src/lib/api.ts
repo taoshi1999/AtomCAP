@@ -795,9 +795,14 @@ export async function collectThesisMarketSignals(
 }
 
 // POST /api/deals/{id}/materials
-export async function uploadDealMaterial(dealId: string, file: File): Promise<DealMaterial> {
+export async function uploadDealMaterial(
+  dealId: string,
+  file: File,
+  taskKey?: string
+): Promise<DealMaterial> {
   const body = new FormData();
   body.append("file", file);
+  if (taskKey) body.append("task_key", taskKey);
   const res = await fetch(`/api/deals/${dealId}/materials`, {
     method: "POST",
     headers: authHeaders(),

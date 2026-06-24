@@ -17,7 +17,11 @@ from app.models.models import Chunk, Deal, Document, EvidenceItemRow
 from app.objects.deal_list import DealSourceType
 from app.services.document_extract import ExtractResult, extract_text
 from app.services.events import record_event
-from app.services.pre_dd import infer_material_task_hits, suggest_material_category
+from app.services.pre_dd import (
+    MATERIAL_SPEC_BY_KEY,
+    infer_material_task_hits,
+    suggest_material_category,
+)
 
 PREVIEW_CHARS = 240
 SEARCH_SNIPPET_CHARS = 180
@@ -25,6 +29,10 @@ SEARCH_SNIPPET_CHARS = 180
 
 class DealMaterialTargetNotFound(Exception):
     """目标 Deal 不存在或不属于当前租户。"""
+
+
+class InvalidDealMaterialCategory(Exception):
+    """用户指定了不存在的 Pre-DD 资料类别。"""
 
 
 def _safe_filename(filename: str | None) -> str:
@@ -50,6 +58,44 @@ def _meta_evidence_id(meta: object) -> str | None:
         return None
     value = meta.get("evidence_id")
     return str(value) if value else None
+
+
+def _assigned_task_key(meta: object) -> str | None:
+    if not isinstance(meta, dict):
+        return None
+    value = str(meta.get("assigned_pre_dd_task_key") or "").strip()
+    return value if value in MATERIAL_SPEC_BY_KEY else None
+
+
+def _project_task_hits(
+    *,
+    document: Document,
+    content: str,
+    meta: dict,
+    evidence_id: str | None,
+) -> list[dict]:
+    """合并用户指定类别与系统识别类别，用户指定项始终排在首位。"""
+    inferred = infer_material_task_hits(
+        document_id=str(document.id),
+        filename=document.filename,
+        text=content,
+        doc_type=document.doc_type,
+        evidence_id=evidence_id,
+    )
+    assigned_key = _assigned_task_key(meta)
+    if assigned_key is None:
+        return inferred
+
+    assigned_hit = {
+        "document_id": str(document.id),
+        "filename": document.filename,
+        "task_key": assigned_key,
+        "keyword": "用户指定",
+        "snippet": _preview(content, limit=180) or document.filename,
+    }
+    if evidence_id:
+        assigned_hit["evidence_id"] = evidence_id
+    return [assigned_hit, *(hit for hit in inferred if hit["task_key"] != assigned_key)]
 
 
 def _query_terms(query: str) -> list[str]:
@@ -103,14 +149,25 @@ def project_deal_material(document: Document, chunk: Chunk | None = None) -> dic
     meta = chunk.meta if chunk is not None and isinstance(chunk.meta, dict) else {}
     content = chunk.content if chunk is not None else ""
     evidence_id = _meta_evidence_id(meta)
-    task_hits = infer_material_task_hits(
-        document_id=str(document.id),
-        filename=document.filename,
-        text=content,
-        doc_type=document.doc_type,
+    task_hits = _project_task_hits(
+        document=document,
+        content=content,
+        meta=meta,
         evidence_id=evidence_id,
     )
-    category_suggestion = suggest_material_category(filename=document.filename, text=content)
+    assigned_key = _assigned_task_key(meta)
+    if assigned_key is not None:
+        spec = MATERIAL_SPEC_BY_KEY[assigned_key]
+        category_suggestion = {
+            "key": spec.key,
+            "title": spec.title,
+            "confidence": "high",
+            "matched_keywords": [],
+            "is_background": False,
+            "reason": "用户从对应 Pre-DD 资料卡片上传，已按指定类别归档。",
+        }
+    else:
+        category_suggestion = suggest_material_category(filename=document.filename, text=content)
     return {
         "id": str(document.id),
         "evidence_id": evidence_id,
@@ -262,6 +319,7 @@ async def save_deal_material(
     filename: str | None,
     data: bytes,
     content_type: str | None = None,
+    pre_dd_task_key: str | None = None,
 ) -> dict:
     """解析上传材料并绑定到 Deal。
 
@@ -275,6 +333,8 @@ async def save_deal_material(
     )
     if deal is None:
         raise DealMaterialTargetNotFound(str(deal_id))
+    if pre_dd_task_key is not None and pre_dd_task_key not in MATERIAL_SPEC_BY_KEY:
+        raise InvalidDealMaterialCategory(f"未知 Pre-DD 资料项: {pre_dd_task_key}")
 
     result = extract_text(filename=filename or "", data=data, content_type=content_type)
     document = Document(
@@ -298,6 +358,7 @@ async def save_deal_material(
             "unit_count": result.unit_count,
             "text_chars": len(result.text),
             "warnings": result.warnings,
+            "assigned_pre_dd_task_key": pre_dd_task_key,
         },
     )
     db.add(chunk)
@@ -320,11 +381,23 @@ async def save_deal_material(
             "fmt": result.fmt,
             "source_type": result.source_type.value,
             "text_chars": len(result.text),
+            "assigned_pre_dd_task_key": pre_dd_task_key,
         },
     )
     db.add(evidence)
     await db.flush()
-    category_suggestion = suggest_material_category(filename=document.filename, text=result.text)
+    if pre_dd_task_key is not None:
+        spec = MATERIAL_SPEC_BY_KEY[pre_dd_task_key]
+        category_suggestion = {
+            "key": spec.key,
+            "title": spec.title,
+            "confidence": "high",
+            "matched_keywords": [],
+            "is_background": False,
+            "reason": "用户从对应 Pre-DD 资料卡片上传，已按指定类别归档。",
+        }
+    else:
+        category_suggestion = suggest_material_category(filename=document.filename, text=result.text)
     chunk.meta = {
         **(chunk.meta or {}),
         "evidence_id": str(evidence.id),
@@ -348,6 +421,7 @@ async def save_deal_material(
             "source_type": result.source_type.value,
             "text_chars": len(result.text),
             "material_category_suggestion": category_suggestion,
+            "assigned_pre_dd_task_key": pre_dd_task_key,
             "warnings": result.warnings,
         },
     )

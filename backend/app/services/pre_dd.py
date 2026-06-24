@@ -282,14 +282,11 @@ def _collection_status(
     profile: DealProfile,
     *,
     task_key: str,
-    system_status: TaskStatus,
-    has_collected_evidence: bool,
 ) -> str:
+    """资料整理状态只由用户显式操作决定，未操作的 14 项统一为待收集。"""
     manual = profile.pre_dd_material_statuses.get(task_key)
     if manual is not None:
         return manual.value
-    if system_status == "complete" or has_collected_evidence:
-        return PreDDMaterialCollectionStatus.COLLECTED.value
     return PreDDMaterialCollectionStatus.PENDING.value
 
 
@@ -422,8 +419,6 @@ def build_pre_dd_workspace(
         collection_status = _collection_status(
             profile,
             task_key=spec.key,
-            system_status=status,
-            has_collected_evidence=bool(provided or related_materials),
         )
         collection_counts[collection_status] += 1
         items.append(
