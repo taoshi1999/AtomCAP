@@ -22,6 +22,7 @@ export type MarketSignalViewItem = {
   id: string;
   title: string;
   summary?: string | null;
+  analysis?: string | null;
   category?: MarketSignalCategory | null;
   date?: string | null;
   connector?: string | null;
@@ -179,6 +180,12 @@ export default function MarketSignalsPanel({
                 </div>
                 <div className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-slate-900">{signal.title}</div>
                 {signal.summary && <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-500">{signal.summary}</p>}
+                {signal.analysis && (
+                  <div className="mt-3 border-t border-slate-100 pt-3">
+                    <div className="text-xs font-bold text-slate-700">信号分析</div>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{signal.analysis}</p>
+                  </div>
+                )}
               </>
             );
 

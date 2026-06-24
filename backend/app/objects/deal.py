@@ -126,6 +126,7 @@ class DealMarketSignal(BaseModel):
     category: DealMarketSignalCategory
     title: str
     summary: str = Field(default="")
+    analysis: str = Field(default="", description="四到五句话说明信号与项目的关系及研究启发")
     url: str | None = Field(default=None)
     source_type: str = Field(default="web_search")
     connector: str | None = Field(default=None)

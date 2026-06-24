@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,7 @@ from app.services.deals import (
 from app.services.deal_market_signals import DealSignalTargetNotFound, collect_deal_market_signals
 from app.services.deal_materials import DealMaterialTargetNotFound, save_deal_material, search_deal_materials
 from app.services.document_extract import DependencyMissingError, DocumentError
+from app.services.market_signal_research import MarketSignalCollectOptions
 from app.services import deal_assistant
 from app.services.deliverables import save_deliverable
 from app.services.events import record_event
@@ -292,6 +293,7 @@ async def delete_deal(
 @router.post("/{deal_id}/market-signals/collect")
 async def collect_market_signals(
     deal_id: uuid.UUID,
+    options: MarketSignalCollectOptions | None = Body(default=None),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -303,6 +305,7 @@ async def collect_market_signals(
             user_id=user.user_id,
             deal_id=deal_id,
             allow_overseas=user.allow_overseas_models,
+            max_search_rounds=(options or MarketSignalCollectOptions()).max_search_rounds,
         )
     except DealSignalTargetNotFound:
         raise HTTPException(status_code=404, detail="项目不存在") from None

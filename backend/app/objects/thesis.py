@@ -52,6 +52,7 @@ class MarketSignal(BaseModel):
     kind: SignalKind
     title: str
     summary: Claim = Field(description="信号内容，必须可展开证据链")
+    analysis: str = Field(default="", description="四到五句话说明信号与赛道的关系及研究启发")
     signal_date: str | None = Field(default=None, description="信号发生时间 YYYY-MM-DD")
     category: MarketSignalCategory | None = Field(default=None, description="近期市场信号的五类分类")
 

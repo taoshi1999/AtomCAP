@@ -20,6 +20,7 @@ import type {
   Thesis,
   ThesisAction,
 } from "./types";
+import { getMarketSignalSearchDepth } from "./userSettings";
 
 /* ----------------------------------------------------------------------------
  * token 注入。
@@ -758,12 +759,17 @@ export interface DealMarketSignalsResponse {
   items: DealMarketSignal[];
   count: number;
   collected_at: string;
+  max_search_rounds: number;
 }
 
 // POST /api/deals/{id}/market-signals/collect
-export async function collectDealMarketSignals(dealId: string): Promise<DealMarketSignalsResponse> {
+export async function collectDealMarketSignals(
+  dealId: string,
+  maxSearchRounds = getMarketSignalSearchDepth()
+): Promise<DealMarketSignalsResponse> {
   return apiJson<DealMarketSignalsResponse>(`/api/deals/${dealId}/market-signals/collect`, {
     method: "POST",
+    body: JSON.stringify({ max_search_rounds: maxSearchRounds }),
   });
 }
 
@@ -774,12 +780,17 @@ export interface ThesisMarketSignalsResponse {
   items: MarketSignal[];
   count: number;
   collected_at: string;
+  max_search_rounds: number;
 }
 
 // POST /api/deliverables/{id}/market-signals/collect
-export async function collectThesisMarketSignals(deliverableId: string): Promise<ThesisMarketSignalsResponse> {
+export async function collectThesisMarketSignals(
+  deliverableId: string,
+  maxSearchRounds = getMarketSignalSearchDepth()
+): Promise<ThesisMarketSignalsResponse> {
   return apiJson<ThesisMarketSignalsResponse>(`/api/deliverables/${deliverableId}/market-signals/collect`, {
     method: "POST",
+    body: JSON.stringify({ max_search_rounds: maxSearchRounds }),
   });
 }
 

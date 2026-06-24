@@ -510,6 +510,7 @@ export default function ThesisView({
           id: evidenceIds(signal.summary)[0] ?? `${signal.title}-${index}`,
           title: signal.title,
           summary: signal.summary.text,
+          analysis: signal.analysis,
           category: signal.category,
           date: signal.signal_date,
           href: target?.href,

@@ -370,6 +370,7 @@ def test_collect_deal_market_signals_saves_evidence_and_updates_profile(monkeypa
     assert len([obj for obj in db.added if isinstance(obj, EvidenceItemRow)]) == 2
     assert deal.data["market_signals"][0]["category"] == "finance_news"
     assert deal.data["market_signals"][0]["evidence_id"]
+    assert deal.data["market_signals"][0]["analysis"].count("。") == 4
     assert DealProfile.model_validate(deal.data).market_signals[1].category == DealMarketSignalCategory.BUSINESS_REGISTRY
     assert events[0]["event_type"] == "deal.market_signals_collected"
     assert events[0]["payload"]["by_category"]["finance_news"] == 1

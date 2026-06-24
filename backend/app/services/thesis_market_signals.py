@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Iterable
@@ -17,9 +18,14 @@ from app.objects import DeliverableType
 from app.objects.base import Claim
 from app.objects.thesis import MarketSignal, MarketSignalCategory, SignalKind, Thesis, ThesisStatus
 from app.services.events import record_event
+from app.services.market_signal_research import (
+    MarketSignalResearchSubject,
+    build_fallback_analysis,
+    run_market_signal_research,
+)
 
 
-MAX_SIGNALS_PER_CATEGORY = 6
+MAX_SIGNALS_PER_CATEGORY = 4
 
 
 class ThesisSignalTargetNotFound(Exception):
@@ -93,6 +99,28 @@ def thesis_market_signal_queries(thesis: Thesis) -> dict[MarketSignalCategory, l
     }
 
 
+def _thesis_research_subject(thesis: Thesis) -> MarketSignalResearchSubject:
+    sub_direction_names = [item.name for item in thesis.sub_directions]
+    segment_terms = [
+        term
+        for segment in thesis.value_chain.upstream + thesis.value_chain.midstream + thesis.value_chain.downstream
+        for term in [segment.name, *(segment.examples or [])]
+    ]
+    return MarketSignalResearchSubject(
+        kind="thesis",
+        name=thesis.thesis_name,
+        description=thesis.one_line_view,
+        track=thesis.thesis_name,
+        focus_terms=_clean_terms(
+            [
+                *sub_direction_names,
+                *segment_terms,
+                *(company.name for company in thesis.representative_companies),
+            ]
+        )[:16],
+    )
+
+
 def _source_key(source: Source) -> str:
     return (source.url or source.title).strip().lower()
 
@@ -108,25 +136,51 @@ async def collect_thesis_market_signal_sources(
     *,
     deliverable_id: uuid.UUID,
     allow_overseas: bool,
+    max_search_rounds: int = 1,
 ) -> dict[MarketSignalCategory, list[Source]]:
-    """从现有 connector 收集赛道五类公开信号，返回未落库 Source。"""
+    """按 ReAct 方式收集、研判并筛选赛道五类公开信号。"""
     connectors = active_connectors(allow_overseas=allow_overseas)
     if not connectors:
         return {category: [] for category in MarketSignalCategory}
 
     queries = thesis_market_signal_queries(thesis)
-    results: dict[MarketSignalCategory, list[Source]] = {}
+    subject = _thesis_research_subject(thesis)
 
-    for category in MarketSignalCategory:
-        sources = await cached_gather_signals(
-            connectors,
-            keywords=queries[category],
-            track=thesis.thesis_name if category == MarketSignalCategory.FINANCE_NEWS else "",
-            allow_overseas=allow_overseas,
+    async def search_round(
+        round_queries: dict[str, list[str]],
+        _round_number: int,
+    ) -> dict[str, list[Source]]:
+        async def search_category(category_value: str, category_queries: list[str]) -> tuple[str, list[Source]]:
+            category = MarketSignalCategory(category_value)
+            sources = await cached_gather_signals(
+                connectors,
+                keywords=category_queries,
+                track=thesis.thesis_name if category is MarketSignalCategory.FINANCE_NEWS else "",
+                allow_overseas=allow_overseas,
+            )
+            return category_value, sources
+
+        return dict(
+            await asyncio.gather(
+                *(
+                    search_category(category_value, category_queries)
+                    for category_value, category_queries in round_queries.items()
+                )
+            )
         )
+
+    researched = await run_market_signal_research(
+        subject=subject,
+        initial_queries={category.value: values for category, values in queries.items()},
+        search_round=search_round,
+        max_search_rounds=max_search_rounds,
+        allow_overseas=allow_overseas,
+    )
+    results: dict[MarketSignalCategory, list[Source]] = {}
+    for category in MarketSignalCategory:
         seen: set[str] = set()
         filtered: list[Source] = []
-        for source in sources:
+        for source in researched.get(category.value, []):
             key = _source_key(source)
             if not key or key in seen:
                 continue
@@ -149,7 +203,9 @@ def _project_signal(
     *,
     evidence_id: uuid.UUID,
     category: MarketSignalCategory,
+    subject: MarketSignalResearchSubject,
 ) -> dict:
+    raw = source.raw or {}
     signal = MarketSignal(
         kind=_signal_kind(category),
         title=source.title,
@@ -158,6 +214,8 @@ def _project_signal(
             evidence_ids=[evidence_id],
             inferred=False,
         ),
+        analysis=raw.get("signal_analysis")
+        or build_fallback_analysis(source, category=category.value, subject=subject),
         signal_date=source.published_at,
         category=category,
     )
@@ -171,6 +229,7 @@ async def collect_thesis_market_signals(
     user_id: uuid.UUID | None,
     deliverable_id: uuid.UUID,
     allow_overseas: bool,
+    max_search_rounds: int = 1,
 ) -> dict:
     """收集并回写 Thesis 近期市场信号，返回前端可直接展示的数据。"""
     row = await db.scalar(
@@ -185,11 +244,14 @@ async def collect_thesis_market_signals(
         raise ValueError("Only thesis deliverables support market signal collection")
 
     thesis = Thesis.model_validate(row.payload or {})
-    source_groups = await collect_thesis_market_signal_sources(
-        thesis,
-        deliverable_id=row.id,
-        allow_overseas=allow_overseas,
-    )
+    collect_kwargs = {
+        "deliverable_id": row.id,
+        "allow_overseas": allow_overseas,
+    }
+    if max_search_rounds != 1:
+        collect_kwargs["max_search_rounds"] = max_search_rounds
+    source_groups = await collect_thesis_market_signal_sources(thesis, **collect_kwargs)
+    subject = _thesis_research_subject(thesis)
     collected_at = datetime.now(UTC).isoformat()
     projected: list[dict] = []
 
@@ -197,7 +259,7 @@ async def collect_thesis_market_signals(
         sources = source_groups.get(category, [])
         evidence_ids = await save_sources(db, institution_id=institution_id, sources=sources) if sources else []
         projected.extend(
-            _project_signal(source, evidence_id=evidence_id, category=category)
+            _project_signal(source, evidence_id=evidence_id, category=category, subject=subject)
             for source, evidence_id in zip(sources, evidence_ids, strict=False)
         )
 
@@ -215,6 +277,7 @@ async def collect_thesis_market_signals(
         subject_id=row.id,
         payload={
             "count": len(projected),
+            "max_search_rounds": max_search_rounds,
             "by_category": {
                 category.value: sum(1 for item in projected if item.get("category") == category.value)
                 for category in MarketSignalCategory
@@ -227,4 +290,5 @@ async def collect_thesis_market_signals(
         "items": projected,
         "count": len(projected),
         "collected_at": collected_at,
+        "max_search_rounds": max_search_rounds,
     }

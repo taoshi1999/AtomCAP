@@ -28,11 +28,14 @@ import {
   Library,
   LogOut,
   Loader2,
+  Minus,
   MessageSquare,
   Paperclip,
   Plus,
   RefreshCcw,
+  Save,
   Search,
+  Settings,
   Target,
   UserRound,
   X,
@@ -60,6 +63,11 @@ import {
 import { useAuth } from "../lib/auth";
 import { useChatSession, type ChatMessage } from "../lib/chatSession";
 import type { DealDetail, Deliverable } from "../lib/types";
+import {
+  getMarketSignalSearchDepth,
+  MAX_MARKET_SIGNAL_SEARCH_DEPTH,
+  setMarketSignalSearchDepth,
+} from "../lib/userSettings";
 
 type HomeMode = "chat" | "tracks" | "preference" | "deals";
 
@@ -274,6 +282,10 @@ export default function ChatPage() {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [marketSignalSearchDepth, setMarketSignalSearchDepthState] = useState(
+    getMarketSignalSearchDepth
+  );
   const [activeRecentKey, setActiveRecentKey] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -439,6 +451,16 @@ export default function ChatPage() {
   function handleSignOut() {
     signOut();
     navigate("/login", { replace: true });
+  }
+
+  function openSettingsDialog() {
+    setMarketSignalSearchDepthState(getMarketSignalSearchDepth());
+    setSettingsDialogOpen(true);
+  }
+
+  function saveSettings() {
+    setMarketSignalSearchDepth(marketSignalSearchDepth);
+    setSettingsDialogOpen(false);
   }
 
   async function fetchMessageDeliverables(blocks: MessageBlock[]) {
@@ -657,8 +679,8 @@ export default function ChatPage() {
           <PreferenceCard home={home} loading={isHomeLoading} onOpen={() => switchMode("preference")} />
           <button
             type="button"
-            onClick={handleSignOut}
-            title="退出登录"
+            onClick={openSettingsDialog}
+            title="账户设置"
             className="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-white">
@@ -668,7 +690,7 @@ export default function ChatPage() {
               <div className="truncate text-sm font-bold text-slate-900">{userName}</div>
               <div className="truncate text-xs text-slate-500">{userSubtitle}</div>
             </div>
-            <LogOut className="h-5 w-5 text-slate-500" />
+            <Settings className="h-5 w-5 text-slate-500" />
           </button>
         </div>
       </aside>
@@ -778,6 +800,17 @@ export default function ChatPage() {
           onClose={() => setHistoryDialogOpen(false)}
         />
       )}
+      {settingsDialogOpen && (
+        <UserSettingsDialog
+          userName={userName}
+          userSubtitle={userSubtitle}
+          searchDepth={marketSignalSearchDepth}
+          onSearchDepthChange={setMarketSignalSearchDepthState}
+          onSave={saveSettings}
+          onSignOut={handleSignOut}
+          onClose={() => setSettingsDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -814,6 +847,125 @@ function NavButton({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {meta && !primaryActive && <span className="text-xs text-slate-400">{meta}</span>}
     </button>
+  );
+}
+
+function UserSettingsDialog({
+  userName,
+  userSubtitle,
+  searchDepth,
+  onSearchDepthChange,
+  onSave,
+  onSignOut,
+  onClose,
+}: {
+  userName: string;
+  userSubtitle: string;
+  searchDepth: number;
+  onSearchDepthChange: (value: number) => void;
+  onSave: () => void;
+  onSignOut: () => void;
+  onClose: () => void;
+}) {
+  function changeDepth(delta: number) {
+    onSearchDepthChange(
+      Math.max(1, Math.min(MAX_MARKET_SIGNAL_SEARCH_DEPTH, searchDepth + delta))
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/20 px-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="账户设置"
+        className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-xl"
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white">
+              <UserRound className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-black text-slate-950">{userName}</h2>
+              <p className="truncate text-xs text-slate-500">{userSubtitle}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            title="关闭"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="px-5 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-bold text-slate-900">市场信号搜索深度</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">
+                限制 ReAct 搜索最多执行的轮次。测试阶段默认为 1。
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
+              {searchDepth} 轮
+            </span>
+          </div>
+
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              type="button"
+              title="减少搜索深度"
+              disabled={searchDepth <= 1}
+              onClick={() => changeDepth(-1)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <input
+              type="range"
+              min={1}
+              max={MAX_MARKET_SIGNAL_SEARCH_DEPTH}
+              step={1}
+              value={searchDepth}
+              aria-label="市场信号搜索深度"
+              onChange={(event) => onSearchDepthChange(Number(event.target.value))}
+              className="h-2 min-w-0 flex-1 cursor-pointer accent-indigo-600"
+            />
+            <button
+              type="button"
+              title="增加搜索深度"
+              disabled={searchDepth >= MAX_MARKET_SIGNAL_SEARCH_DEPTH}
+              onClick={() => changeDepth(1)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <footer className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="inline-flex h-9 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-rose-600"
+          >
+            <LogOut className="h-4 w-4" />
+            退出登录
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700"
+          >
+            <Save className="h-4 w-4" />
+            保存
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 

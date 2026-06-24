@@ -824,6 +824,7 @@ function DealMarketSignalsPanel({
         id: signal.evidence_id,
         title: signal.title,
         summary: signal.summary,
+        analysis: signal.analysis,
         category: signal.category,
         date: signal.published_at,
         connector: signal.connector,

@@ -241,6 +241,7 @@ def test_collect_thesis_market_signals_saves_evidence_and_updates_payload(monkey
     assert len([obj for obj in db.added if isinstance(obj, EvidenceItemRow)]) == 2
     assert deliverable.payload["recent_signals"][0]["category"] == "finance_news"
     assert deliverable.payload["recent_signals"][0]["summary"]["evidence_ids"]
+    assert deliverable.payload["recent_signals"][0]["analysis"].count("。") == 4
     assert Thesis.model_validate(deliverable.payload).recent_signals[1].category == MarketSignalCategory.PATENT
     assert events[0]["event_type"] == "thesis.market_signals_collected"
     assert events[0]["payload"]["by_category"]["patent"] == 1

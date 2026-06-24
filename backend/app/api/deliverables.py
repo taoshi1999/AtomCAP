@@ -34,6 +34,7 @@ from app.services.events import record_event
 from app.services import track_assistant
 from app.services.thesis_context import thesis_context_from_payload
 from app.services.thesis_market_signals import ThesisSignalTargetNotFound, collect_thesis_market_signals
+from app.services.market_signal_research import MarketSignalCollectOptions
 from app.services.user_actions import (
     THESIS_ACTIONS,
     record_user_action,
@@ -269,6 +270,7 @@ async def get_deliverable(
 @router.post("/{deliverable_id}/market-signals/collect")
 async def collect_deliverable_market_signals(
     deliverable_id: uuid.UUID,
+    options: MarketSignalCollectOptions | None = Body(default=None),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -282,6 +284,7 @@ async def collect_deliverable_market_signals(
             user_id=user.user_id,
             deliverable_id=deliverable_id,
             allow_overseas=user.allow_overseas_models,
+            max_search_rounds=(options or MarketSignalCollectOptions()).max_search_rounds,
         )
     except ThesisSignalTargetNotFound as exc:
         raise HTTPException(status_code=404, detail="对象不存在") from exc

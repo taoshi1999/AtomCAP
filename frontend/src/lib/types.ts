@@ -22,6 +22,7 @@ export interface MarketSignal {
   kind: SignalKind;
   title: string;
   summary: Claim;
+  analysis?: string;
   signal_date?: string | null;
   category?: MarketSignalCategory | null;
 }
@@ -232,6 +233,7 @@ export interface DealMarketSignal {
   category: DealMarketSignalCategory;
   title: string;
   summary: string;
+  analysis?: string;
   url?: string | null;
   source_type: string;
   connector?: string | null;

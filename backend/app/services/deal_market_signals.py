@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Iterable
@@ -15,9 +16,14 @@ from app.evidence.service import save_sources
 from app.models.models import Deal
 from app.objects.deal import DealMarketSignalCategory, DealProfile, DealStatus
 from app.services.events import record_event
+from app.services.market_signal_research import (
+    MarketSignalResearchSubject,
+    build_fallback_analysis,
+    run_market_signal_research,
+)
 
 
-MAX_SIGNALS_PER_CATEGORY = 6
+MAX_SIGNALS_PER_CATEGORY = 4
 
 CATEGORY_LABELS: dict[DealMarketSignalCategory, str] = {
     DealMarketSignalCategory.FINANCE_NEWS: "财经新闻",
@@ -87,6 +93,26 @@ def deal_market_signal_queries(profile: DealProfile) -> dict[DealMarketSignalCat
     }
 
 
+def _deal_research_subject(profile: DealProfile) -> MarketSignalResearchSubject:
+    extraction = profile.extraction
+    return MarketSignalResearchSubject(
+        kind="deal",
+        name=extraction.company_name,
+        description=profile.analysis.portrait or extraction.one_line_intro or "",
+        track=extraction.track or extraction.sub_direction or "",
+        aliases=extraction.aliases,
+        focus_terms=_clean_terms(
+            [
+                extraction.product,
+                extraction.tech_route,
+                extraction.one_line_intro,
+                *extraction.founders,
+                *extraction.competitors[:3],
+            ]
+        ),
+    )
+
+
 def _source_key(source: Source) -> str:
     return (source.url or source.title).strip().lower()
 
@@ -102,38 +128,56 @@ async def collect_deal_market_signal_sources(
     *,
     deal_id: uuid.UUID,
     allow_overseas: bool,
+    max_search_rounds: int = 1,
 ) -> dict[DealMarketSignalCategory, list[Source]]:
-    """从现有 connector 收集项目五类信号，返回未落库的 Source。"""
+    """按 ReAct 方式收集、研判并筛选项目五类信号。"""
     connectors = active_connectors(allow_overseas=allow_overseas)
     if not connectors:
         return {category: [] for category in DealMarketSignalCategory}
 
     queries = deal_market_signal_queries(profile)
     track = profile.extraction.track or profile.extraction.sub_direction or ""
-    results: dict[DealMarketSignalCategory, list[Source]] = {}
+    subject = _deal_research_subject(profile)
 
-    business_sources = await lookup_company(
-        connectors,
-        (profile.extraction.company_name or "").strip(),
-    )
-    results[DealMarketSignalCategory.BUSINESS_REGISTRY] = business_sources[:MAX_SIGNALS_PER_CATEGORY]
+    async def search_round(
+        round_queries: dict[str, list[str]],
+        round_number: int,
+    ) -> dict[str, list[Source]]:
+        async def search_category(category_value: str, category_queries: list[str]) -> tuple[str, list[Source]]:
+            category = DealMarketSignalCategory(category_value)
+            if category is DealMarketSignalCategory.BUSINESS_REGISTRY and round_number == 1:
+                sources = await lookup_company(
+                    connectors,
+                    (profile.extraction.company_name or "").strip(),
+                )
+            else:
+                sources = await cached_gather_signals(
+                    connectors,
+                    keywords=category_queries,
+                    track=track if category is DealMarketSignalCategory.FINANCE_NEWS else "",
+                    allow_overseas=allow_overseas,
+                )
+            return category_value, sources
 
-    for category in (
-        DealMarketSignalCategory.FINANCE_NEWS,
-        DealMarketSignalCategory.PATENT,
-        DealMarketSignalCategory.PAPER,
-        DealMarketSignalCategory.PERSONNEL,
-    ):
-        sources = await cached_gather_signals(
-            connectors,
-            keywords=queries[category],
-            track=track if category == DealMarketSignalCategory.FINANCE_NEWS else "",
-            allow_overseas=allow_overseas,
+        pairs = await asyncio.gather(
+            *(
+                search_category(category_value, category_queries)
+                for category_value, category_queries in round_queries.items()
+            )
         )
-        results[category] = sources[:MAX_SIGNALS_PER_CATEGORY]
+        return dict(pairs)
+
+    researched = await run_market_signal_research(
+        subject=subject,
+        initial_queries={category.value: values for category, values in queries.items()},
+        search_round=search_round,
+        max_search_rounds=max_search_rounds,
+        allow_overseas=allow_overseas,
+    )
 
     filtered: dict[DealMarketSignalCategory, list[Source]] = {}
-    for category, sources in results.items():
+    for category in DealMarketSignalCategory:
+        sources = researched.get(category.value, [])[:MAX_SIGNALS_PER_CATEGORY]
         seen: set[str] = set()
         items: list[Source] = []
         for source in sources:
@@ -152,12 +196,16 @@ def _project_signal(
     evidence_id: uuid.UUID,
     category: DealMarketSignalCategory,
     collected_at: str,
+    subject: MarketSignalResearchSubject,
 ) -> dict:
+    raw = source.raw or {}
     return {
         "evidence_id": str(evidence_id),
         "category": category.value,
         "title": source.title,
         "summary": source.snippet,
+        "analysis": raw.get("signal_analysis")
+        or build_fallback_analysis(source, category=category.value, subject=subject),
         "url": source.url,
         "source_type": source.source_type,
         "connector": source.connector,
@@ -173,6 +221,7 @@ async def collect_deal_market_signals(
     user_id: uuid.UUID | None,
     deal_id: uuid.UUID,
     allow_overseas: bool,
+    max_search_rounds: int = 1,
 ) -> dict:
     """收集并保存项目近期市场信号，返回前端可直接展示的列表。"""
     deal = await db.scalar(
@@ -185,11 +234,14 @@ async def collect_deal_market_signals(
         raise DealSignalTargetNotFound(str(deal_id))
 
     profile = DealProfile.model_validate(deal.data or {})
-    source_groups = await collect_deal_market_signal_sources(
-        profile,
-        deal_id=deal.id,
-        allow_overseas=allow_overseas,
-    )
+    collect_kwargs = {
+        "deal_id": deal.id,
+        "allow_overseas": allow_overseas,
+    }
+    if max_search_rounds != 1:
+        collect_kwargs["max_search_rounds"] = max_search_rounds
+    source_groups = await collect_deal_market_signal_sources(profile, **collect_kwargs)
+    subject = _deal_research_subject(profile)
     collected_at = datetime.now(UTC).isoformat()
     projected: list[dict] = []
 
@@ -197,7 +249,13 @@ async def collect_deal_market_signals(
         sources = source_groups.get(category, [])
         evidence_ids = await save_sources(db, institution_id=institution_id, sources=sources) if sources else []
         projected.extend(
-            _project_signal(source, evidence_id=evidence_id, category=category, collected_at=collected_at)
+            _project_signal(
+                source,
+                evidence_id=evidence_id,
+                category=category,
+                collected_at=collected_at,
+                subject=subject,
+            )
             for source, evidence_id in zip(sources, evidence_ids, strict=False)
         )
 
@@ -215,10 +273,16 @@ async def collect_deal_market_signals(
         subject_id=deal.id,
         payload={
             "count": len(projected),
+            "max_search_rounds": max_search_rounds,
             "by_category": {
                 category.value: sum(1 for item in projected if item["category"] == category.value)
                 for category in DealMarketSignalCategory
             },
         },
     )
-    return {"items": projected, "count": len(projected), "collected_at": collected_at}
+    return {
+        "items": projected,
+        "count": len(projected),
+        "collected_at": collected_at,
+        "max_search_rounds": max_search_rounds,
+    }
