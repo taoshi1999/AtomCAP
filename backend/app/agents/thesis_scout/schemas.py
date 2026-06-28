@@ -42,9 +42,9 @@ class SubDirectionDraft(BaseModel):
 
     name: str
     detail: str = Field(description="子赛道详情")
-    investment_reasons: list[Claim] = Field(min_length=1, description="推荐理由（证据链绑定）")
+    investment_reasons: list[Claim] = Field(min_length=3, max_length=5, description="推荐理由（证据链绑定）")
     representative_companies: list[RepresentativeCompany] = Field(default_factory=list)
-    key_risks: list[Claim] = Field(default_factory=list)
+    key_risks: list[Claim] = Field(min_length=3, max_length=5)
     suitable_stage: str = Field(description="适合的投资阶段，如 天使/A轮/B轮+")
 
 

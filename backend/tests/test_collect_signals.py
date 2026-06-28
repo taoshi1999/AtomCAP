@@ -100,10 +100,10 @@ def test_gather_empty_inputs():
 
 def test_collect_signals_assigns_aligned_evidence_ids(monkeypatch):
     sources = [_src("信号A", "https://e.com/a", "2026-06-01")]
-    captured = {}
+    calls = []
 
     async def fake_gather(connectors, *, keywords, track, days=90, allow_overseas=False, cache=None):
-        captured.update(keywords=keywords, track=track, connectors=connectors)
+        calls.append({"keywords": keywords, "track": track, "connectors": connectors})
         return sources
 
     monkeypatch.setattr(nodes, "active_connectors", lambda *, allow_overseas: ["stub"])
@@ -112,8 +112,9 @@ def test_collect_signals_assigns_aligned_evidence_ids(monkeypatch):
         "query": "AI硬件还有什么机会", "allow_overseas": False,
         "track_definition": {"name": "AI 硬件", "search_keywords": ["AI 硬件", "edge AI chip"]},
     }))
-    assert captured["keywords"] == ["AI 硬件", "edge AI chip"]
-    assert captured["track"] == "AI 硬件"
+    assert calls[0]["keywords"] == ["AI 硬件", "edge AI chip", "AI硬件还有什么机会"]
+    assert calls[0]["track"] == "AI 硬件"
+    assert len(calls) == nodes.MAX_THESIS_SIGNAL_SEARCH_ROUNDS
     [raw] = out["raw_signals"]
     [es] = out["evidence_sources"]
     assert raw["evidence_id"] == es["evidence_id"]
@@ -124,16 +125,17 @@ def test_collect_signals_assigns_aligned_evidence_ids(monkeypatch):
 
 
 def test_collect_signals_falls_back_to_query_keyword(monkeypatch):
-    captured = {}
+    calls = []
 
     async def fake_gather(connectors, *, keywords, track, days=90, allow_overseas=False, cache=None):
-        captured["keywords"] = keywords
+        calls.append(keywords)
         return []
 
     monkeypatch.setattr(nodes, "active_connectors", lambda *, allow_overseas: ["stub"])
     monkeypatch.setattr(nodes, "cached_gather_signals", fake_gather)
     out = asyncio.run(nodes.collect_signals({"query": "具身智能值得投吗"}))
-    assert captured["keywords"] == ["具身智能值得投吗"]
+    assert calls[0] == ["具身智能值得投吗"]
+    assert len(calls) == nodes.MAX_THESIS_SIGNAL_SEARCH_ROUNDS
     assert out["raw_signals"] == [] and out["evidence_sources"] == []
 
 

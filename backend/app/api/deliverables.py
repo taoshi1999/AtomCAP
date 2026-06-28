@@ -87,6 +87,10 @@ def _manual_fit(rationale: str) -> FitScoreBreakdown:
     )
 
 
+def _manual_claims(items: list[str]) -> list[Claim]:
+    return [Claim(text=item, inferred=True) for item in items]
+
+
 def _manual_thesis_payload(body: CreateThesisBody) -> Thesis:
     thesis_name = body.thesis_name.strip()
     names = [name.strip() for name in body.sub_directions if name.strip()]
@@ -97,9 +101,16 @@ def _manual_thesis_payload(body: CreateThesisBody) -> Thesis:
         SubDirection(
             name=name,
             detail="用户手动创建的子方向，等待进一步研究与证据补充。",
-            investment_reasons=[
-                Claim(text="该方向由用户手动加入赛道库，需补充市场信号与证据链。", inferred=True)
-            ],
+            investment_reasons=_manual_claims([
+                "该方向由用户手动加入赛道库，需补充市场信号与证据链。",
+                "该方向尚未完成产业链位置和代表公司核验。",
+                "该方向需要结合机构偏好进一步确认投资优先级。",
+            ]),
+            key_risks=_manual_claims([
+                "缺少公开市场信号支撑，需补充外部资料。",
+                "代表公司、竞争格局和商业化阶段尚未验证。",
+                "与机构偏好的匹配度仍需通过赛道前瞻 Agent 重新评分。",
+            ]),
             suitable_stage="待确认",
             fit_score=_manual_fit("手动创建草稿，暂无完整机构匹配度评分。"),
         )
@@ -112,14 +123,18 @@ def _manual_thesis_payload(body: CreateThesisBody) -> Thesis:
         risk_level=body.risk_level,
         advice=body.advice or "建议通过赛道前瞻 Agent 补充信号、证据链与机构匹配度。",
         sub_directions=sub_directions,
-        investment_reason=[
-            Claim(text="用户手动创建赛道，系统尚未完成外部信号验证。", inferred=True)
-        ],
+        investment_reason=_manual_claims([
+            "用户手动创建赛道，系统尚未完成外部信号验证。",
+            "该赛道已进入机构赛道库，可作为后续研究和项目挖掘的对象。",
+            "建议通过赛道前瞻 Agent 补充产业链、市场信号和证据链。",
+        ]),
         institution_fit_score=_manual_fit("手动创建草稿，需进一步结合机构偏好评分。"),
         value_chain=ValueChain(),
-        key_risks=[
-            Claim(text="缺少公开信号、代表公司与竞争格局验证。", inferred=True)
-        ],
+        key_risks=_manual_claims([
+            "缺少公开信号、代表公司与竞争格局验证。",
+            "当前机会等级和风险等级来自手动录入，尚未经过系统研究校准。",
+            "若直接生成项目池，可能因赛道边界不清导致候选项目噪声较高。",
+        ]),
         status=ThesisStatus.DRAFT,
     )
 

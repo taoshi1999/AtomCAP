@@ -31,6 +31,8 @@ from app.services.deals import (
     apply_user_action,
     deal_matches_query,
     deal_summary,
+    LibraryMatchEntry,
+    mark_deal_list_library_matches,
     update_pre_dd_material_status,
     soft_delete_deal,
     is_allowed_transition,
@@ -228,6 +230,52 @@ def test_deal_matches_query_uses_name_portrait_source_and_status():
     assert deal_matches_query(summary, "user input")
     assert deal_matches_query(summary, "screening")
     assert not deal_matches_query(summary, "新能源电池")
+
+
+def test_mark_deal_list_library_matches_by_name_and_uscc():
+    deal_id = uuid.uuid4()
+    company_id = uuid.uuid4()
+    uscc_deal_id = uuid.uuid4()
+    uscc_company_id = uuid.uuid4()
+    payload = {
+        "name": "候选项目池",
+        "candidates": [
+            {"company_name": "光羽科技", "aliases": [], "initial_score": 80},
+            {
+                "company_name": "另一个名字",
+                "aliases": [],
+                "uscc": "91440300MA5TEST001",
+                "initial_score": 75,
+            },
+            {"company_name": "未命中公司", "aliases": [], "initial_score": 60},
+        ],
+    }
+    out = mark_deal_list_library_matches(
+        payload,
+        [
+            LibraryMatchEntry(
+                deal_id=deal_id,
+                company_id=company_id,
+                names=("深圳光羽智能科技有限公司", "光羽科技"),
+            ),
+            LibraryMatchEntry(
+                deal_id=uscc_deal_id,
+                company_id=uscc_company_id,
+                names=("测试主体",),
+                uscc="91440300MA5TEST001",
+            ),
+        ],
+    )
+
+    first, second, third = out["candidates"]
+    assert first["is_in_library"] is True
+    assert first["deal_id"] == str(deal_id)
+    assert first["company_id"] == str(company_id)
+    assert second["is_in_library"] is True
+    assert second["deal_id"] == str(uscc_deal_id)
+    assert second["company_id"] == str(uscc_company_id)
+    assert third["is_in_library"] is False
+    assert "deal_id" not in third
 
 
 class _FakeDealDb:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.objects.base import BaseDeliverable, Claim
 from app.objects.thesis import FitScoreBreakdown
@@ -45,7 +45,9 @@ class CandidateReferenceLink(BaseModel):
 
 class DealCandidate(BaseModel):
     company_name: str = Field(description="规范化后的公司主体名")
+    deal_id: uuid.UUID | None = Field(default=None, description="若候选已对应项目库条目，则为 Deal id")
     company_id: uuid.UUID | None = Field(default=None)
+    is_in_library: bool = Field(default=False, description="是否已经存在于当前机构项目库")
     uscc: str | None = Field(default=None)
     aliases: list[str] = Field(default_factory=list)
     official_website: str | None = Field(default=None, description="候选公司的官网或主页链接")
@@ -57,12 +59,20 @@ class DealCandidate(BaseModel):
     source_type: DealSourceType = Field(default=DealSourceType.PUBLIC_SIGNAL_MINING)
 
     selection_reasons: list[Claim] = Field(min_length=1)
-    recommendation_reasons: list[Claim] = Field(default_factory=list)
-    initial_risks: list[Claim] = Field(default_factory=list)
+    recommendation_reasons: list[Claim] = Field(min_length=3, max_length=5)
+    initial_risks: list[Claim] = Field(min_length=3, max_length=5)
 
     fit_score: FitScoreBreakdown | None = Field(default=None)
     initial_score: float = Field(ge=0, le=100)
     recommendation_tier: RecommendationTier = Field(default=RecommendationTier.OBSERVE)
+
+    @field_validator("recommendation_reasons", "initial_risks")
+    @classmethod
+    def _claims_must_be_evidence_backed(cls, claims: list[Claim]) -> list[Claim]:
+        for claim in claims:
+            if not claim.evidence_ids:
+                raise ValueError("项目池推荐理由和风险点必须绑定至少一个证据")
+        return claims
 
 
 class DealList(BaseDeliverable):

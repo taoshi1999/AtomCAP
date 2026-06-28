@@ -22,7 +22,16 @@ def make_sub(name: str) -> dict:
     return {
         "name": name,
         "detail": f"{name}详情",
-        "investment_reasons": [{"text": "供应链确定性强", "evidence_ids": [str(uuid.uuid4())]}],
+        "investment_reasons": [
+            {"text": "供应链确定性强", "evidence_ids": [str(uuid.uuid4())]},
+            {"text": "技术路线具备延展性", "evidence_ids": [str(uuid.uuid4())]},
+            {"text": "下游需求正在分化", "evidence_ids": [str(uuid.uuid4())]},
+        ],
+        "key_risks": [
+            {"text": "客户集中度较高", "evidence_ids": [str(uuid.uuid4())]},
+            {"text": "量产节奏存在不确定性", "evidence_ids": [str(uuid.uuid4())]},
+            {"text": "竞争格局可能快速变化", "evidence_ids": [str(uuid.uuid4())]},
+        ],
         "suitable_stage": "A轮",
         "fit_score": make_fit(),
     }
@@ -36,10 +45,18 @@ def make_thesis(n_subs: int = 3) -> dict:
         "risk_level": "中高",
         "advice": "重点关注上游组件和端侧计算方向",
         "sub_directions": [make_sub(f"子赛道{i}") for i in range(n_subs)],
-        "investment_reason": [{"text": "与机构硬科技偏好匹配", "evidence_ids": [str(uuid.uuid4())]}],
+        "investment_reason": [
+            {"text": "与机构硬科技偏好匹配", "evidence_ids": [str(uuid.uuid4())]},
+            {"text": "结构性降本可能带来窗口", "evidence_ids": [str(uuid.uuid4())]},
+            {"text": "产业链上游有分化机会", "evidence_ids": [str(uuid.uuid4())]},
+        ],
         "institution_fit_score": make_fit(),
         "value_chain": {"upstream": [{"name": "芯片"}], "midstream": [], "downstream": []},
-        "key_risks": [{"text": "终端需求可能被高估", "inferred": True}],
+        "key_risks": [
+            {"text": "终端需求可能被高估", "inferred": True},
+            {"text": "技术路线可能快速切换", "inferred": True},
+            {"text": "早期公司商业化验证不足", "inferred": True},
+        ],
     }
 
 

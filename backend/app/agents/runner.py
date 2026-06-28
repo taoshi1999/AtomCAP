@@ -17,11 +17,13 @@ from app.evidence import service as evidence_service
 from app.llm.client import begin_usage_collection, end_usage_collection
 from app.objects import DeliverableType
 from app.services import business as business_service
+from app.services.deals import annotate_deal_list_library_matches
 from app.services import preferences as preferences_service
 from app.services.agent_runs import finish_run, start_run
 from app.services.conversations import react_steps_block, save_message, usage_block
 from app.services.deliverables import save_deliverable
 from app.services.events import recent_history, record_event
+from app.services.theses import annotate_thesis_library_matches
 
 AGENT_FAILED_MSG = "赛道前瞻分析执行失败，请稍后重试。"
 EMPTY_THESIS_ERROR = "子图执行完成但未产出 Thesis 对象"
@@ -344,6 +346,11 @@ async def run_thesis_scout(
                 await evidence_service.save_collected(
                     db, institution_id=institution_id, evidence_sources=evidence_sources
                 )
+            thesis_payload = await annotate_thesis_library_matches(
+                db,
+                institution_id=institution_id,
+                payload=thesis_payload,
+            )
             deliverable = await save_deliverable(
                 db,
                 institution_id=institution_id,
@@ -515,6 +522,11 @@ async def run_deal_sourcing(
                 await evidence_service.save_collected(
                     db, institution_id=institution_id, evidence_sources=evidence_sources
                 )
+            deal_payload = await annotate_deal_list_library_matches(
+                db,
+                institution_id=institution_id,
+                payload=deal_payload,
+            )
             deliverable = await save_deliverable(
                 db,
                 institution_id=institution_id,

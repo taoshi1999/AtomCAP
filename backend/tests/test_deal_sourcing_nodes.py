@@ -43,6 +43,30 @@ def _draft(name: str, aliases=None, eid="e1") -> CandidateDraft:
     )
 
 
+def _evidence_id(seed: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
+
+
+def _claims(prefix: str, eid: str) -> list[dict]:
+    evidence_id = _evidence_id(eid)
+    return [
+        {"text": f"{prefix} 1", "evidence_ids": [evidence_id], "inferred": False},
+        {"text": f"{prefix} 2", "evidence_ids": [evidence_id], "inferred": False},
+        {"text": f"{prefix} 3", "evidence_ids": [evidence_id], "inferred": False},
+    ]
+
+
+def _scored_fields(name: str, eid: str = "e1", score: int = 92) -> dict:
+    return {
+        **_draft(name, eid=eid).model_dump(mode="json"),
+        "initial_score": score,
+        "recommendation_tier": "strong" if score >= 80 else "watch",
+        "fit_score": {**_fit(), "total": score},
+        "recommendation_reasons": _claims(f"{name} 推荐理由", eid),
+        "initial_risks": _claims(f"{name} 风险点", eid),
+    }
+
+
 def _fake_llm(monkeypatch):
     """schema → 实例的假 complete_structured，记录每次调用。"""
     calls: list[dict] = []
@@ -62,15 +86,15 @@ def _fake_llm(monkeypatch):
                     company_name="光羽科技",
                     fit_score=FitScoreBreakdown(**{**_fit(), "total": 92}),
                     recommendation_tier=RecommendationTier.STRONG,
-                    recommendation_reasons=[{"text": "上游光学交互",
-                                             "evidence_ids": [str(uuid.uuid5(uuid.NAMESPACE_DNS, "e1"))],
-                                             "inferred": False}],
-                    initial_risks=[{"text": "客户集中度待验证", "evidence_ids": [], "inferred": True}],
+                    recommendation_reasons=_claims("光羽科技 推荐理由", "e1"),
+                    initial_risks=_claims("光羽科技 风险点", "e1"),
                 ),
                 ScoredCandidate(
                     company_name="星海智能",
                     fit_score=FitScoreBreakdown(**{**_fit(), "total": 70}),
                     recommendation_tier=RecommendationTier.WATCH,
+                    recommendation_reasons=_claims("星海智能 推荐理由", "e2"),
+                    initial_risks=_claims("星海智能 风险点", "e2"),
                 ),
             ]
         ),
@@ -258,10 +282,7 @@ def test_assemble_empty_produces_valid_deal_list(monkeypatch):
 
 def test_assemble_premium_tier(monkeypatch):
     calls = _fake_llm(monkeypatch)
-    cands = [
-        {**_draft("光羽科技").model_dump(mode="json"), "initial_score": 92,
-         "recommendation_tier": "strong", "fit_score": {**_fit(), "total": 92}},
-    ]
+    cands = [_scored_fields("光羽科技", "e1", 92)]
     out = asyncio.run(nodes.assemble_deal_list(
         {"candidates": cands, "search_strategy": {"themes": ["AI硬件"]}}
     ))
@@ -275,14 +296,7 @@ def test_assemble_attaches_candidate_reference_links(monkeypatch):
     """候选项目池应保留可打开的相关资料，便于用户追溯。"""
     _fake_llm(monkeypatch)
     eid = str(uuid.uuid5(uuid.NAMESPACE_DNS, "e1"))
-    cands = [
-        {
-            **_draft("光羽科技", eid="e1").model_dump(mode="json"),
-            "initial_score": 92,
-            "recommendation_tier": "strong",
-            "fit_score": {**_fit(), "total": 92},
-        },
-    ]
+    cands = [_scored_fields("光羽科技", "e1", 92)]
     out = asyncio.run(
         nodes.assemble_deal_list(
             {
@@ -354,10 +368,8 @@ def test_collect_candidate_reference_materials_finds_homepage_and_recent_sources
     monkeypatch.setattr(nodes, "cached_gather_signals", fake_gather)
 
     cand = {
-        **_draft("北京兴晟能源有限公司", aliases=["兴晟能源"]).model_dump(mode="json"),
-        "initial_score": 88,
-        "recommendation_tier": "strong",
-        "fit_score": {**_fit(), "total": 88},
+        **_scored_fields("北京兴晟能源有限公司", "e1", 88),
+        "aliases": ["兴晟能源"],
     }
     enriched = asyncio.run(
         nodes.collect_candidate_reference_materials(
@@ -386,7 +398,7 @@ def test_collect_candidate_reference_materials_finds_homepage_and_recent_sources
 def test_all_llm_nodes_pass_compliance_flag(monkeypatch):
     """约定 5：每个 LLM 节点都必须透传 allow_overseas。"""
     calls = _fake_llm(monkeypatch)
-    cands = [_draft("光羽科技").model_dump(mode="json")]
+    cands = [_scored_fields("光羽科技", "e1", 92)]
     base = {"allow_overseas": True, "search_strategy": {"themes": ["t"]},
             "raw_signals": [{"title": "x", "evidence_id": "e1"}], "preference_input": {}}
     asyncio.run(nodes.gen_search_strategy(dict(base, query="q")))
@@ -400,7 +412,7 @@ def test_all_llm_nodes_pass_compliance_flag(monkeypatch):
 # ---------- 子图全链路 ----------
 
 def test_graph_end_to_end_produces_deal_list(monkeypatch):
-    """真实 LangGraph 图端到端：无公开信号时仍产出待核验候选项目池。"""
+    """真实 LangGraph 图端到端：无证据时不展示无支撑的候选项目卡片。"""
     calls = _fake_llm(monkeypatch)
     monkeypatch.setattr(nodes, "active_connectors", lambda **kw: [])
     graph = build_deal_sourcing_graph()
@@ -418,16 +430,12 @@ def test_graph_end_to_end_produces_deal_list(monkeypatch):
     final = chunks[-1]
 
     DealList.model_validate(final["deal_list"])
-    assert len(final["deal_list"]["candidates"]) == 2
+    assert final["deal_list"]["candidates"] == []
     assert final["search_strategy"]["themes"][0] == "AI 眼镜光学模组"
-    for candidate in final["deal_list"]["candidates"]:
-        for reason in candidate["selection_reasons"]:
-            assert reason["evidence_ids"] == []
-            assert reason["inferred"] is True
 
-    # 调用链：策略 FAST → 待核验候选 STANDARD → 评分 STANDARD → 池级组装 PREMIUM。
+    # 调用链：策略 FAST → 待核验候选 STANDARD → 评分 STANDARD；无合格证据候选时不再做池级命名 LLM。
     tiers = [c["tier"] for c in calls]
-    assert tiers == [ModelTier.FAST, ModelTier.STANDARD, ModelTier.STANDARD, ModelTier.PREMIUM]
+    assert tiers == [ModelTier.FAST, ModelTier.STANDARD, ModelTier.STANDARD]
     assert all(c["allow_overseas"] is False for c in calls)
 
     seen = [c.get("progress") for c in chunks if c.get("progress")]

@@ -25,9 +25,9 @@ def build_deal_sourcing_graph():
     g.add_edge("mine_signals", "generate_candidates")
     g.add_edge("generate_candidates", "dedupe_candidates")
     g.add_edge("dedupe_candidates", "verify_candidates")
-    g.add_edge("verify_candidates", "score_candidates")
-    g.add_edge("score_candidates", "collect_candidate_reference_materials")
-    g.add_edge("collect_candidate_reference_materials", "assemble_deal_list")
+    g.add_edge("verify_candidates", "collect_candidate_reference_materials")
+    g.add_edge("collect_candidate_reference_materials", "score_candidates")
+    g.add_edge("score_candidates", "assemble_deal_list")
     g.add_edge("assemble_deal_list", END)
 
     return g.compile()

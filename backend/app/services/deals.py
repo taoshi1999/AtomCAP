@@ -18,8 +18,10 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,6 +162,123 @@ def deal_summary(deal: Deal, company: Company | None) -> dict:
 def _norm_query(value: str | None) -> str:
     compact = "".join((value or "").split())
     return compact.replace("_", "").replace("-", "").replace("－", "").lower()
+
+
+_COMPANY_NOISE = re.compile(
+    r"(有限责任公司|股份有限公司|有限公司|集团|科技|technology|technologies|inc|ltd|co|corp|company|\(.*?\)|（.*?）)",
+    re.IGNORECASE,
+)
+_NON_ALNUM = re.compile(r"[\s\.,，。、_\-/&]+")
+
+
+def _norm_company_name(value: str | None) -> str:
+    text = _COMPANY_NOISE.sub("", value or "")
+    text = _NON_ALNUM.sub("", text)
+    return text.strip().lower()
+
+
+@dataclass(frozen=True)
+class LibraryMatchEntry:
+    deal_id: uuid.UUID
+    company_id: uuid.UUID
+    names: tuple[str, ...]
+    uscc: str | None = None
+
+
+def _candidate_match_keys(candidate: dict) -> tuple[set[str], str | None]:
+    names = [
+        candidate.get("company_name"),
+        *(candidate.get("aliases") or []),
+    ]
+    norms = {_norm_company_name(str(name)) for name in names if str(name or "").strip()}
+    norms.discard("")
+    uscc = str(candidate.get("uscc") or "").strip() or None
+    return norms, uscc
+
+
+def mark_deal_list_library_matches(payload: dict, entries: list[LibraryMatchEntry]) -> dict:
+    """Mark DealList candidates that already exist in the current institution's project library."""
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list):
+        return payload
+
+    by_uscc: dict[str, LibraryMatchEntry] = {}
+    by_name: dict[str, LibraryMatchEntry] = {}
+    for entry in entries:
+        if entry.uscc:
+            by_uscc.setdefault(entry.uscc, entry)
+        for name in entry.names:
+            norm = _norm_company_name(name)
+            if norm:
+                by_name.setdefault(norm, entry)
+
+    next_payload = dict(payload)
+    marked: list[dict] = []
+    for raw_candidate in candidates:
+        if not isinstance(raw_candidate, dict):
+            marked.append(raw_candidate)
+            continue
+        candidate = dict(raw_candidate)
+        names, uscc = _candidate_match_keys(candidate)
+        match = by_uscc.get(uscc or "")
+        if match is None:
+            match = next((by_name[name] for name in names if name in by_name), None)
+        if match is not None:
+            candidate["deal_id"] = str(match.deal_id)
+            candidate["company_id"] = str(match.company_id)
+            candidate["is_in_library"] = True
+        else:
+            candidate["is_in_library"] = False
+        marked.append(candidate)
+    next_payload["candidates"] = marked
+    return next_payload
+
+
+def _deal_library_entry(deal: Deal, company: Company | None) -> LibraryMatchEntry | None:
+    data = deal.data or {}
+    feedback = data.get("user_feedback") or {}
+    if not feedback.get("is_in_library"):
+        return None
+    extraction = data.get("extraction") or {}
+    names = [
+        company.name if company is not None else None,
+        extraction.get("company_name"),
+        *(extraction.get("aliases") or []),
+    ]
+    normalized_names = tuple(str(name).strip() for name in names if str(name or "").strip())
+    uscc = str(company.uscc or extraction.get("uscc") or "").strip() if company is not None else str(extraction.get("uscc") or "").strip()
+    return LibraryMatchEntry(
+        deal_id=deal.id,
+        company_id=deal.company_id,
+        names=normalized_names,
+        uscc=uscc or None,
+    )
+
+
+async def annotate_deal_list_library_matches(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    payload: dict,
+) -> dict:
+    """Check generated DealList candidates against existing project-library deals."""
+    rows = (
+        await db.execute(
+            select(Deal, Company)
+            .join(Company, Deal.company_id == Company.id)
+            .where(
+                Deal.institution_id == institution_id,
+                Company.institution_id == institution_id,
+                or_(Deal.status.is_(None), Deal.status != DealStatus.DELETED.value),
+            )
+        )
+    ).all()
+    entries = [
+        entry
+        for deal, company in rows
+        if (entry := _deal_library_entry(deal, company)) is not None
+    ]
+    return mark_deal_list_library_matches(payload, entries)
 
 
 def deal_matches_query(summary: dict, query: str | None) -> bool:

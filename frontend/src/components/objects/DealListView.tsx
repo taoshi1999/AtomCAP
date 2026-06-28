@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -11,20 +11,24 @@ import {
   Loader2,
   Plus,
   ShieldAlert,
-  Sparkles,
   ThumbsDown,
 } from "lucide-react";
+import EvidencePanel from "../EvidencePanel";
 import { ApiError, createDeal, triggerDealAction, type CreateDealPayload } from "../../lib/api";
+import { argumentFromEvidence, evidenceIds } from "../../lib/evidence";
+import type { EvidenceDialogState } from "../../lib/evidence";
 import type {
   Claim,
   DealCandidate,
   DealListDeliverable,
   DealSummary,
+  EvidenceItem,
   FitScoreBreakdown,
   RecommendationTier,
 } from "../../lib/types";
 
 type CandidateBusy = "library" | "workspace" | "dismiss";
+type LibraryFilter = "all" | "in_library" | "not_in_library";
 
 interface CandidateState {
   deal?: DealSummary;
@@ -228,28 +232,79 @@ function buildCreateDealPayload(
   };
 }
 
-function ClaimList({ claims, emptyText }: { claims: Claim[]; emptyText: string }) {
+function buildClaimEvidenceDialog(
+  title: string,
+  claim: Claim,
+  evidenceById: Map<string, EvidenceItem>
+): EvidenceDialogState {
+  const ids = evidenceIds(claim);
+  return {
+    title,
+    rows: [
+      {
+        point: claimText(claim),
+        arguments:
+          ids.length > 0
+            ? ids.map((id) => {
+                const evidence = evidenceById.get(id);
+                if (evidence) return argumentFromEvidence(evidence);
+                return {
+                  title: `证据 ${id} 尚未返回来源详情`,
+                  detail: "请刷新交付物详情或检查证据是否仍属于当前机构。",
+                  kind: "inferred",
+                };
+              })
+            : [
+                {
+                  title: claim.inferred ? "该观点当前为模型推断" : "该观点当前未绑定可追溯证据",
+                  detail: "暂无可打开的支撑材料。",
+                  kind: "inferred",
+                },
+              ],
+      },
+    ],
+  };
+}
+
+function ClaimList({
+  claims,
+  emptyText,
+  evidenceTitle,
+  evidenceById,
+  onOpenEvidence,
+}: {
+  claims: Claim[];
+  emptyText: string;
+  evidenceTitle: string;
+  evidenceById: Map<string, EvidenceItem>;
+  onOpenEvidence: (state: EvidenceDialogState) => void;
+}) {
   if (!claims.length) {
     return <p className="text-xs text-slate-400">{emptyText}</p>;
   }
 
   return (
     <ul className="space-y-1.5">
-      {claims.slice(0, 3).map((claim, index) => {
+      {claims.map((claim, index) => {
         const evidenceCount = Array.isArray(claim.evidence_ids) ? claim.evidence_ids.length : 0;
         return (
           <li key={`${claim.text}-${index}`} className="rounded-lg bg-slate-50 px-2.5 py-2">
             <p className="text-xs leading-5 text-slate-700">{claimText(claim)}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
               {claim.inferred && <span>模型推断</span>}
               <span>{evidenceCount} 条证据</span>
+              <button
+                type="button"
+                onClick={() => onOpenEvidence(buildClaimEvidenceDialog(evidenceTitle, claim, evidenceById))}
+                className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-white px-2 py-1 font-semibold text-indigo-700 transition hover:bg-indigo-50"
+              >
+                <FileText className="h-3 w-3" />
+                查看证据
+              </button>
             </div>
           </li>
         );
       })}
-      {claims.length > 3 && (
-        <li className="text-xs text-slate-400">还有 {claims.length - 3} 条未展开</li>
-      )}
     </ul>
   );
 }
@@ -348,12 +403,45 @@ function CandidateActionButton({
   );
 }
 
-export default function DealListView({ payload }: { payload: DealListDeliverable }) {
+export default function DealListView({
+  payload,
+  evidenceItems = [],
+}: {
+  payload: DealListDeliverable;
+  evidenceItems?: EvidenceItem[];
+}) {
   const navigate = useNavigate();
   const [candidateStates, setCandidateStates] = useState<Record<string, CandidateState>>({});
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>("all");
+  const [evidenceDialog, setEvidenceDialog] = useState<EvidenceDialogState | null>(null);
 
   const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
   const searchThemes = Array.isArray(payload.search_themes) ? payload.search_themes : [];
+  const evidenceById = useMemo(
+    () => new Map(evidenceItems.map((item) => [item.id, item])),
+    [evidenceItems]
+  );
+
+  function isCandidateInLibrary(candidate: DealCandidate, index: number) {
+    const key = candidateKey(candidate, index);
+    return Boolean(candidate.is_in_library || candidateStates[key]?.deal);
+  }
+
+  const candidateEntries = candidates.map((candidate, index) => ({
+    candidate,
+    index,
+    inLibrary: isCandidateInLibrary(candidate, index),
+  }));
+  const libraryCounts = {
+    all: candidateEntries.length,
+    in_library: candidateEntries.filter((entry) => entry.inLibrary).length,
+    not_in_library: candidateEntries.filter((entry) => !entry.inLibrary).length,
+  };
+  const visibleCandidateEntries = candidateEntries.filter((entry) => {
+    if (libraryFilter === "in_library") return entry.inLibrary;
+    if (libraryFilter === "not_in_library") return !entry.inLibrary;
+    return true;
+  });
 
   function updateCandidateState(key: string, patch: CandidateState) {
     setCandidateStates((current) => ({
@@ -419,6 +507,26 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
               </span>
             ))}
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              ["all", "全部", libraryCounts.all],
+              ["in_library", "已在项目库中", libraryCounts.in_library],
+              ["not_in_library", "未在项目库中", libraryCounts.not_in_library],
+            ].map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setLibraryFilter(key as LibraryFilter)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  libraryFilter === key
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600"
+                }`}
+              >
+                {label} {count}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-right">
           <div className="text-2xl font-bold text-slate-950">{candidates.length}</div>
@@ -432,14 +540,19 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
         </div>
       ) : (
         <div className="max-h-[72vh] space-y-3 overflow-y-auto pr-1">
-          {candidates.map((candidate, index) => {
+          {visibleCandidateEntries.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400">
+              当前筛选条件下暂无候选项目。
+            </div>
+          )}
+          {visibleCandidateEntries.map(({ candidate, index, inLibrary }) => {
             const key = candidateKey(candidate, index);
             const state = candidateStates[key] ?? {};
             const tier = tierMeta(candidate.recommendation_tier);
-            const selectionReasons = normalizeClaims(candidate.selection_reasons);
             const recommendationReasons = normalizeClaims(candidate.recommendation_reasons);
             const initialRisks = normalizeClaims(candidate.initial_risks);
             const isBusy = Boolean(state.busy);
+            const existingDealId = state.deal?.id ?? candidate.deal_id ?? null;
 
             return (
               <article
@@ -457,10 +570,10 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500">
                         {sourceLabel(candidate.source_type)}
                       </span>
-                      {state.deal && (
+                      {inLibrary && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700">
                           <CheckCircle2 className="h-3.5 w-3.5" />
-                          已落库
+                          已在项目库中
                         </span>
                       )}
                       {state.dismissed && (
@@ -484,27 +597,32 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
 
                 <CandidateReferenceLinks candidate={candidate} />
 
-                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
-                  <section>
-                    <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                      <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-                      筛选理由
-                    </div>
-                    <ClaimList claims={selectionReasons} emptyText="暂无筛选理由" />
-                  </section>
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
                   <section>
                     <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                       <FileText className="h-3.5 w-3.5 text-indigo-500" />
                       推荐理由
                     </div>
-                    <ClaimList claims={recommendationReasons} emptyText="暂无推荐理由" />
+                    <ClaimList
+                      claims={recommendationReasons}
+                      emptyText="暂无推荐理由"
+                      evidenceTitle={`${candidate.company_name} 推荐理由`}
+                      evidenceById={evidenceById}
+                      onOpenEvidence={setEvidenceDialog}
+                    />
                   </section>
                   <section>
                     <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                       <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
-                      初始风险
+                      风险点
                     </div>
-                    <ClaimList claims={initialRisks} emptyText="暂无初始风险" />
+                    <ClaimList
+                      claims={initialRisks}
+                      emptyText="暂无风险点"
+                      evidenceTitle={`${candidate.company_name} 风险点`}
+                      evidenceById={evidenceById}
+                      onOpenEvidence={setEvidenceDialog}
+                    />
                   </section>
                 </div>
 
@@ -530,9 +648,9 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
                 <footer className="mt-4 flex flex-wrap gap-2">
                   <CandidateActionButton
                     busy={state.busy === "library"}
-                    disabled={isBusy || Boolean(state.deal) || state.dismissed === true}
+                    disabled={isBusy || inLibrary || state.dismissed === true}
                     icon={<Plus className="h-3.5 w-3.5" />}
-                    label={state.deal ? "已加入项目库" : "加入项目库"}
+                    label={inLibrary ? "已在项目库中" : "加入项目库"}
                     onClick={() =>
                       void persistAndRun(candidate, index, "library", async (deal) => {
                         await triggerDealAction(deal.id, "add_to_library");
@@ -545,8 +663,12 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
                     busy={state.busy === "workspace"}
                     disabled={isBusy || state.dismissed === true}
                     icon={<ArrowRight className="h-3.5 w-3.5" />}
-                    label={state.deal ? "查看工作台" : "创建工作台"}
-                    onClick={() =>
+                    label={existingDealId ? "查看工作台" : "创建工作台"}
+                    onClick={() => {
+                      if (existingDealId) {
+                        navigate(`/workspace/${existingDealId}`);
+                        return;
+                      }
                       void persistAndRun(
                         candidate,
                         index,
@@ -556,20 +678,42 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
                           return { notice: "工作台已创建", dismissed: false };
                         },
                         (deal) => navigate(`/workspace/${deal.id}`)
-                      )
-                    }
+                      );
+                    }}
                   />
                   <CandidateActionButton
                     busy={state.busy === "dismiss"}
                     disabled={isBusy || state.dismissed === true}
                     icon={<ThumbsDown className="h-3.5 w-3.5" />}
                     label="不感兴趣"
-                    onClick={() =>
+                    onClick={() => {
+                      if (existingDealId) {
+                        updateCandidateState(key, {
+                          busy: "dismiss",
+                          error: undefined,
+                          notice: undefined,
+                        });
+                        void triggerDealAction(existingDealId, "dismiss")
+                          .then(() => {
+                            updateCandidateState(key, {
+                              busy: undefined,
+                              notice: "已标记不感兴趣",
+                              dismissed: true,
+                            });
+                          })
+                          .catch((error) => {
+                            updateCandidateState(key, {
+                              busy: undefined,
+                              error: apiErrorMessage(error),
+                            });
+                          });
+                        return;
+                      }
                       void persistAndRun(candidate, index, "dismiss", async (deal) => {
                         await triggerDealAction(deal.id, "dismiss");
                         return { notice: "已标记不感兴趣", dismissed: true };
-                      })
-                    }
+                      });
+                    }}
                     tone="danger"
                   />
                 </footer>
@@ -578,6 +722,7 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
           })}
         </div>
       )}
+      {evidenceDialog && <EvidencePanel state={evidenceDialog} onClose={() => setEvidenceDialog(null)} />}
     </section>
   );
 }

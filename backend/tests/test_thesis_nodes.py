@@ -38,7 +38,16 @@ def _draft(name: str) -> SubDirectionDraft:
     return SubDirectionDraft(
         name=name,
         detail="细分详情",
-        investment_reasons=[{"text": "推荐理由", "inferred": True}],
+        investment_reasons=[
+            {"text": "推荐理由 1", "inferred": True},
+            {"text": "推荐理由 2", "inferred": True},
+            {"text": "推荐理由 3", "inferred": True},
+        ],
+        key_risks=[
+            {"text": "风险点 1", "inferred": True},
+            {"text": "风险点 2", "inferred": True},
+            {"text": "风险点 3", "inferred": True},
+        ],
         suitable_stage="A轮",
     )
 

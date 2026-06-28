@@ -53,6 +53,17 @@ class _NullTxn:
         return False
 
 
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
 class _FakeSession:
     def __init__(self, store: _Store):
         self._store = store
@@ -79,6 +90,8 @@ class _FakeSession:
 
     async def execute(self, stmt):
         compiled = stmt.compile(dialect=postgresql.dialect())
+        if str(compiled).lstrip().upper().startswith("SELECT"):
+            return _FakeResult([])
         self._store.update_params.append(dict(compiled.params))
         return None
 
@@ -120,11 +133,19 @@ def _fit():
     }
 
 
+def _claims(prefix: str):
+    return [
+        {"text": f"{prefix} 1", "evidence_ids": [], "inferred": True},
+        {"text": f"{prefix} 2", "evidence_ids": [], "inferred": True},
+        {"text": f"{prefix} 3", "evidence_ids": [], "inferred": True},
+    ]
+
+
 def _sub(name: str):
     return {
         "name": name, "detail": "细分详情",
-        "investment_reasons": [{"text": "推荐理由", "evidence_ids": [], "inferred": True}],
-        "representative_companies": [], "key_risks": [],
+        "investment_reasons": _claims("推荐理由"),
+        "representative_companies": [], "key_risks": _claims("子赛道风险"),
         "suitable_stage": "A轮", "fit_score": _fit(),
     }
 
@@ -139,12 +160,12 @@ def thesis_payload():
         "risk_level": "中",
         "advice": "优先关注上游",
         "sub_directions": [_sub("子赛道A"), _sub("子赛道B"), _sub("子赛道C")],
-        "investment_reason": [{"text": "与机构偏好匹配", "evidence_ids": [], "inferred": True}],
+        "investment_reason": _claims("与机构偏好匹配"),
         "institution_fit_score": _fit(),
         "value_chain": {"upstream": [], "midstream": [], "downstream": [], "customers": []},
         "recent_signals": [],
         "representative_companies": [],
-        "key_risks": [{"text": "供给过剩风险", "evidence_ids": [], "inferred": True}],
+        "key_risks": _claims("供给过剩风险"),
     }
 
 
@@ -345,10 +366,14 @@ def test_success_persists_evidence_and_strips_hallucinated_ids(monkeypatch):
     payload = thesis_payload()
     # 真实引用 + 幻觉引用混在同一 Claim；另一 Claim 全是幻觉引用
     payload["key_risks"] = [
-        {"text": "有据风险", "evidence_ids": [eid_real, eid_fake], "inferred": False}
+        {"text": "有据风险", "evidence_ids": [eid_real, eid_fake], "inferred": False},
+        {"text": "风险补充 1", "evidence_ids": [], "inferred": True},
+        {"text": "风险补充 2", "evidence_ids": [], "inferred": True},
     ]
     payload["investment_reason"] = [
-        {"text": "纯幻觉引用", "evidence_ids": [eid_fake], "inferred": False}
+        {"text": "纯幻觉引用", "evidence_ids": [eid_fake], "inferred": False},
+        {"text": "理由补充 1", "evidence_ids": [], "inferred": True},
+        {"text": "理由补充 2", "evidence_ids": [], "inferred": True},
     ]
     graph = _FakeGraph(
         [
@@ -381,9 +406,9 @@ def test_success_persists_evidence_and_strips_hallucinated_ids(monkeypatch):
 
     # 幻觉 id 被剥除；剥空的 Claim 自动 inferred=True，真实引用保留 inferred=False
     [d] = store.of(Deliverable)
-    [risk] = d.payload["key_risks"]
+    risk = d.payload["key_risks"][0]
     assert risk["evidence_ids"] == [eid_real] and risk["inferred"] is False
-    [reason] = d.payload["investment_reason"]
+    reason = d.payload["investment_reason"][0]
     assert reason["evidence_ids"] == [] and reason["inferred"] is True
 
     # 实际被引用的证据与 deliverable 连边
@@ -396,7 +421,9 @@ def test_success_without_evidence_strips_all_ids(monkeypatch):
     """无采集证据时（Connector 未配置 key 的常态路径）：一切 evidence_id 都是伪造，全部剥除。"""
     payload = thesis_payload()
     payload["key_risks"] = [
-        {"text": "风险", "evidence_ids": [str(uuid.uuid4())], "inferred": False}
+        {"text": "风险", "evidence_ids": [str(uuid.uuid4())], "inferred": False},
+        {"text": "风险补充 1", "evidence_ids": [], "inferred": True},
+        {"text": "风险补充 2", "evidence_ids": [], "inferred": True},
     ]
     graph = _FakeGraph([{"progress": "Thesis 已生成", "thesis": payload}])
     events, store = _run(monkeypatch, graph)
@@ -404,5 +431,5 @@ def test_success_without_evidence_strips_all_ids(monkeypatch):
     assert [e["event"] for e in events][-1] == "object"
     assert store.of(EvidenceItemRow) == [] and store.of(EvidenceLinkRow) == []
     [d] = store.of(Deliverable)
-    [risk] = d.payload["key_risks"]
+    risk = d.payload["key_risks"][0]
     assert risk["evidence_ids"] == [] and risk["inferred"] is True

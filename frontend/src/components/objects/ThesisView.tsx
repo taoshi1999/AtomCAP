@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, FileText, Loader2, Search, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileText, Loader2, Search, X } from "lucide-react";
 import EvidencePanel from "../EvidencePanel";
 import MarketSignalsPanel, { type MarketSignalViewItem } from "../MarketSignalsPanel";
 import {
   ApiError,
   collectThesisMarketSignals,
+  createManualThesis,
   generateDealPool,
   triggerDeliverableAction,
 } from "../../lib/api";
@@ -14,7 +15,7 @@ import {
   evidenceIds,
   evidenceTarget,
 } from "../../lib/evidence";
-import type { EvidenceArgument, EvidenceDialogState, EvidenceTarget } from "../../lib/evidence";
+import type { EvidenceArgument, EvidenceDialogState, EvidenceRow, EvidenceTarget } from "../../lib/evidence";
 import type {
   Claim,
   EvidenceItem,
@@ -43,14 +44,17 @@ type ActionNotice = {
   text: string;
 };
 
+type LibraryFilter = "all" | "in_library" | "not_in_library";
+
 const SUB_ACTIONS: Array<{ action: ThesisAction; label: string; tone?: "primary" | "danger" }> = [
   { action: "generate_deal_pool", label: "生成项目池", tone: "primary" },
   { action: "generate_briefing", label: "深入分析" },
-  { action: "join_project_library", label: "加入项目库" },
+  { action: "join_project_library", label: "加入赛道库" },
   { action: "dismiss_track", label: "不感兴趣", tone: "danger" },
 ];
 
 const EMPTY_EVIDENCE_ITEMS: EvidenceItem[] = [];
+const MIN_EVIDENCE_CHAIN_ROWS = 3;
 
 function compactError(error: unknown): string {
   if (error instanceof ApiError) return error.message;
@@ -198,6 +202,68 @@ function argumentsForClaim(
   ];
 }
 
+function supportingArguments(args: EvidenceArgument[]): EvidenceArgument[] {
+  const supported = args.filter((arg) => arg.kind !== "inferred");
+  return supported.length > 0 ? supported : args;
+}
+
+function rowKey(row: EvidenceRow): string {
+  const first = row.arguments[0];
+  return `${row.point}::${first?.href ?? first?.title ?? ""}`;
+}
+
+function compactPoint(text: string, maxLength = 96): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+function appendUniqueRow(rows: EvidenceRow[], seen: Set<string>, row: EvidenceRow) {
+  if (!row.point.trim() || row.arguments.length === 0) return;
+  const key = rowKey(row);
+  if (seen.has(key)) return;
+  seen.add(key);
+  rows.push(row);
+}
+
+function ensureEvidenceChainRows(
+  rows: EvidenceRow[],
+  evidenceById: Map<string, EvidenceItem>,
+  options: {
+    preference?: Record<string, unknown>;
+    includePreference?: boolean;
+  } = {}
+): EvidenceRow[] {
+  const out: EvidenceRow[] = [];
+  const seen = new Set<string>();
+  rows.forEach((row) => appendUniqueRow(out, seen, row));
+
+  if (options.includePreference && out.length < MIN_EVIDENCE_CHAIN_ROWS) {
+    for (const argument of preferenceEvidenceArguments(options.preference)) {
+      appendUniqueRow(out, seen, {
+        point: `机构偏好显示：${argument.title}`,
+        arguments: [argument],
+      });
+      if (out.length >= MIN_EVIDENCE_CHAIN_ROWS) break;
+    }
+  }
+
+  if (out.length < MIN_EVIDENCE_CHAIN_ROWS) {
+    for (const evidence of evidenceById.values()) {
+      const argument = argumentFromEvidence(evidence);
+      appendUniqueRow(out, seen, {
+        point: evidence.snippet
+          ? `公开资料显示：${compactPoint(evidence.snippet)}`
+          : `公开资料来源：${evidence.title || "未命名证据"}`,
+        arguments: [argument],
+      });
+      if (out.length >= MIN_EVIDENCE_CHAIN_ROWS) break;
+    }
+  }
+
+  return out;
+}
+
 function buildEvidenceRows(
   title: string,
   claims: Claim[],
@@ -208,12 +274,20 @@ function buildEvidenceRows(
   const sourceClaims = claims.length > 0 ? claims : [syntheticClaim(title)];
   const rows = sourceClaims.map((claim) => ({
     point: claim.text,
-    arguments: argumentsForClaim(claim, evidenceById, {
+    arguments: supportingArguments(
+      argumentsForClaim(claim, evidenceById, {
+        preference,
+        includePreference: options.includePreference,
+      })
+    ),
+  }));
+  return {
+    title,
+    rows: ensureEvidenceChainRows(rows, evidenceById, {
       preference,
       includePreference: options.includePreference,
     }),
-  }));
-  return { title, rows };
+  };
 }
 
 function buildSignalEvidenceRows(
@@ -224,38 +298,44 @@ function buildSignalEvidenceRows(
   if (ids.length === 0) {
     return {
       title: signal.title,
-      rows: [
-        {
-          point: signal.summary.text,
-          arguments: [
-            {
-              title: "该市场信号尚未绑定具体来源",
-              detail: "未展示搜索结果，避免把关键词搜索误当成证据来源。",
-              kind: "inferred",
-            },
-          ],
-        },
-      ],
+      rows: ensureEvidenceChainRows(
+        [
+          {
+            point: signal.summary.text,
+            arguments: [
+              {
+                title: "该市场信号尚未绑定具体来源",
+                detail: "未展示搜索结果，避免把关键词搜索误当成证据来源。",
+                kind: "inferred",
+              },
+            ],
+          },
+        ],
+        evidenceById
+      ),
     };
   }
 
   return {
     title: signal.title,
-    rows: ids.map((id) => {
-      const evidence = evidenceById.get(id);
-      return {
-        point: signal.summary.text,
-        arguments: evidence
-          ? [argumentFromEvidence(evidence)]
-          : [
-              {
-                title: `证据 ${id} 尚未返回来源详情`,
-                detail: "请刷新交付物详情或检查证据是否仍属于当前机构。",
-                kind: "inferred",
-              },
-            ],
-      };
-    }),
+    rows: ensureEvidenceChainRows(
+      ids.map((id) => {
+        const evidence = evidenceById.get(id);
+        return {
+          point: signal.summary.text,
+          arguments: evidence
+            ? [argumentFromEvidence(evidence)]
+            : [
+                {
+                  title: `证据 ${id} 尚未返回来源详情`,
+                  detail: "请刷新交付物详情或检查证据是否仍属于当前机构。",
+                  kind: "inferred",
+                },
+              ],
+        };
+      }),
+      evidenceById
+    ),
   };
 }
 
@@ -469,6 +549,10 @@ function actionButtonClass(tone?: "primary" | "danger"): string {
   return "border-slate-200 text-slate-700 hover:bg-slate-50 disabled:text-slate-400";
 }
 
+function subDirectionKey(sub: SubDirection, index: number): string {
+  return `${sub.name}-${index}`;
+}
+
 export default function ThesisView({
   thesis,
   deliverableId,
@@ -486,6 +570,8 @@ export default function ThesisView({
   const [segmentDialog, setSegmentDialog] = useState<SegmentDialogState | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<ActionNotice | null>(null);
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>("all");
+  const [localLibraryMatches, setLocalLibraryMatches] = useState<Record<string, string>>({});
   const [marketSignals, setMarketSignals] = useState<MarketSignal[]>(thesis.recent_signals ?? []);
   const [marketSignalCategory, setMarketSignalCategory] = useState<MarketSignalCategory | "all">("all");
   const [marketSignalBusy, setMarketSignalBusy] = useState(false);
@@ -528,6 +614,38 @@ export default function ThesisView({
       }),
     [evidenceById, marketSignals]
   );
+  const subDirectionEntries = useMemo(
+    () =>
+      thesis.sub_directions.map((sub, index) => {
+        const key = subDirectionKey(sub, index);
+        const deliverableMatch = localLibraryMatches[key] ?? sub.deliverable_id ?? null;
+        return {
+          sub,
+          index,
+          key,
+          inLibrary: Boolean(sub.is_in_library || deliverableMatch),
+          deliverableId: deliverableMatch,
+        };
+      }),
+    [localLibraryMatches, thesis.sub_directions]
+  );
+  const subDirectionCounts = useMemo(
+    () => ({
+      all: subDirectionEntries.length,
+      in_library: subDirectionEntries.filter((entry) => entry.inLibrary).length,
+      not_in_library: subDirectionEntries.filter((entry) => !entry.inLibrary).length,
+    }),
+    [subDirectionEntries]
+  );
+  const visibleSubDirectionEntries = useMemo(
+    () =>
+      subDirectionEntries.filter((entry) => {
+        if (libraryFilter === "in_library") return entry.inLibrary;
+        if (libraryFilter === "not_in_library") return !entry.inLibrary;
+        return true;
+      }),
+    [libraryFilter, subDirectionEntries]
+  );
 
   const handleCollectMarketSignals = useCallback(async (options: { auto?: boolean } = {}) => {
     if (!deliverableId) {
@@ -558,6 +676,8 @@ export default function ThesisView({
     setMarketSignalBusy(false);
     setMarketSignalCollectedAt(null);
     setLocalEvidenceItems(evidenceItems);
+    setLibraryFilter("all");
+    setLocalLibraryMatches({});
   }, [deliverableId, evidenceItems, thesis.recent_signals]);
 
   useEffect(() => {
@@ -582,19 +702,21 @@ export default function ThesisView({
     );
   }
 
-  async function runSubAction(action: ThesisAction, sub: SubDirection) {
-    if (!deliverableId) {
+  async function runSubAction(action: ThesisAction, sub: SubDirection, index: number, inLibrary: boolean) {
+    const activeDeliverableId = deliverableId;
+    if (!activeDeliverableId && action !== "join_project_library") {
       setNotice({ tone: "error", text: "当前对象缺少 deliverable_id，无法执行动作。" });
       return;
     }
-    const key = `${action}:${sub.name}`;
-    setBusyAction(key);
+    const entryKey = subDirectionKey(sub, index);
+    const actionKey = `${action}:${entryKey}`;
+    setBusyAction(actionKey);
     setNotice(null);
     try {
       if (action === "generate_deal_pool") {
         let streamError = "";
         await generateDealPool(
-          deliverableId,
+          activeDeliverableId!,
           {
             onProgress(text) {
               if (text) setNotice({ tone: "info", text });
@@ -613,8 +735,24 @@ export default function ThesisView({
         );
         if (streamError) throw new Error(streamError);
         setNotice({ tone: "success", text: `已根据「${sub.name}」发起项目池生成。` });
+      } else if (action === "join_project_library") {
+        if (inLibrary) {
+          setNotice({ tone: "info", text: `「${sub.name}」已在赛道库中。` });
+        } else {
+          const created = await createManualThesis({
+            thesis_name: sub.name,
+            one_line_view: sub.detail,
+            opportunity_level: thesis.opportunity_level,
+            risk_level: thesis.risk_level,
+            advice: `由「${thesis.thesis_name}」推荐加入赛道库，建议继续补充市场信号、产业链和项目池。`,
+            sub_directions: [sub.name],
+          });
+          setLocalLibraryMatches((current) => ({ ...current, [entryKey]: created.id }));
+          setNotice({ tone: "success", text: `「${sub.name}」已加入赛道库。` });
+        }
       } else {
-        await triggerDeliverableAction(deliverableId, action, { source_sub_direction: sub.name });
+        if (!activeDeliverableId) return;
+        await triggerDeliverableAction(activeDeliverableId, action, { source_sub_direction: sub.name });
         const label = SUB_ACTIONS.find((item) => item.action === action)?.label ?? action;
         setNotice({ tone: "success", text: `已执行「${label}」：${sub.name}` });
       }
@@ -681,16 +819,48 @@ export default function ThesisView({
       <ValueChainSection thesis={displayedThesis} evidenceById={evidenceById} onOpenSegment={setSegmentDialog} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h3 className="text-base font-bold text-slate-900">子赛道</h3>
-          <span className="text-xs text-slate-400">{thesis.sub_directions.length} 个</span>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["all", "全部", subDirectionCounts.all],
+              ["in_library", "已在赛道库中", subDirectionCounts.in_library],
+              ["not_in_library", "未在赛道库中", subDirectionCounts.not_in_library],
+            ].map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setLibraryFilter(key as LibraryFilter)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  libraryFilter === key
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600"
+                }`}
+              >
+                {label} {count}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {thesis.sub_directions.map((sub) => (
-            <div key={sub.name} className="rounded-lg border border-slate-200 p-4">
+          {visibleSubDirectionEntries.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400 xl:col-span-2">
+              当前筛选条件下暂无推荐赛道。
+            </div>
+          )}
+          {visibleSubDirectionEntries.map(({ sub, index, key, inLibrary }) => (
+            <div key={key} className="rounded-lg border border-slate-200 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h4 className="font-bold text-slate-950">{sub.name}</h4>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="font-bold text-slate-950">{sub.name}</h4>
+                    {inLibrary && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        已在赛道库中
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-sm leading-6 text-slate-600">{sub.detail}</p>
                 </div>
                 <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
@@ -722,18 +892,19 @@ export default function ThesisView({
                   查看证据链
                 </button>
                 {SUB_ACTIONS.map((item) => {
-                  const key = `${item.action}:${sub.name}`;
-                  const busy = busyAction === key;
+                  const actionKey = `${item.action}:${key}`;
+                  const busy = busyAction === actionKey;
+                  const alreadyInLibrary = item.action === "join_project_library" && inLibrary;
                   return (
                     <button
                       key={item.action}
                       type="button"
-                      disabled={!!busyAction}
-                      onClick={() => void runSubAction(item.action, sub)}
+                      disabled={!!busyAction || alreadyInLibrary}
+                      onClick={() => void runSubAction(item.action, sub, index, inLibrary)}
                       className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed ${actionButtonClass(item.tone)}`}
                     >
                       {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      {item.label}
+                      {alreadyInLibrary ? "已在赛道库中" : item.label}
                     </button>
                   );
                 })}

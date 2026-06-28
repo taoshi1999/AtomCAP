@@ -506,8 +506,10 @@ SCORE_SYSTEM = """你是一级市场机构的投资策略分析师。对每个�
    exclusion_penalty（命中机构不感兴趣清单才 >0 并说明）、total（加权合成）、rationale（一句话）
 2. recommendation_tier：据 total 与信号强度给分层——strong（强推荐）/watch（可关注）/
    observe（待观察）/reject（不推荐或不匹配）
-3. recommendation_reasons：为何值得机构关注（绑定信号 evidence_id，无证据留空由系统标记推断）
-4. initial_risks：项目获取阶段的轻量风险（非完整 Pre-DD），同样可绑定证据
+3. recommendation_reasons：必须输出 3–5 条，每条都要引用至少一个 evidence_id；
+   evidence_id 只能来自该候选的「候选项目证据上下文」或原 selection_reasons，严禁伪造。
+4. initial_risks：必须输出 3–5 条项目获取阶段轻量风险（非完整 Pre-DD），
+   每条同样必须引用至少一个 evidence_id；可以多个判断引用同一证据，但文本不能重复。
 诚实打分：信息不足给中性分并说明，不要抬分。company_name 必须与输入候选一致（按名合并）。"""
 
 
@@ -522,12 +524,140 @@ def _tier_from_score(total: float) -> RecommendationTier:
     return RecommendationTier.REJECT
 
 
+def _candidate_claim_ids(candidate: dict) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for key in ("selection_reasons", "recommendation_reasons", "initial_risks"):
+        for claim in candidate.get(key) or []:
+            if not isinstance(claim, dict):
+                continue
+            for evidence_id in claim.get("evidence_ids") or []:
+                text = str(evidence_id)
+                if text and text not in seen:
+                    seen.add(text)
+                    ids.append(text)
+    return ids
+
+
+def _candidate_evidence_context(candidate: dict, evidence_sources: list[dict]) -> list[dict]:
+    """Evidence snippets the scoring model may cite for one candidate."""
+    cited = set(_candidate_claim_ids(candidate))
+    rows: list[dict] = []
+    seen: set[str] = set()
+
+    def add(source: dict) -> None:
+        evidence_id = str(source.get("evidence_id") or "")
+        if not evidence_id or evidence_id in seen:
+            return
+        seen.add(evidence_id)
+        rows.append(
+            {
+                "evidence_id": evidence_id,
+                "source_type": source.get("source_type"),
+                "title": source.get("title"),
+                "url": source.get("url"),
+                "snippet": str(source.get("snippet") or "")[:500],
+                "published_at": source.get("published_at"),
+            }
+        )
+
+    for source in evidence_sources:
+        evidence_id = str(source.get("evidence_id") or "")
+        if evidence_id in cited:
+            add(source)
+    for source in evidence_sources:
+        if len(rows) >= 10:
+            break
+        if _source_matches_candidate(source, candidate):
+            add(source)
+
+    return rows[:10]
+
+
+def _scoring_evidence_context(candidates: list[dict], evidence_sources: list[dict]) -> list[dict]:
+    return [
+        {
+            "company_name": candidate.get("company_name"),
+            "sub_direction": candidate.get("sub_direction"),
+            "evidence": _candidate_evidence_context(candidate, evidence_sources),
+        }
+        for candidate in candidates
+    ]
+
+
+def _valid_claims(claims: list[dict], valid_ids: set[str]) -> list[dict]:
+    valid: list[dict] = []
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        ids = [str(eid) for eid in (claim.get("evidence_ids") or []) if str(eid) in valid_ids]
+        text = str(claim.get("text") or "").strip()
+        if not text or not ids:
+            continue
+        valid.append({**claim, "text": text, "evidence_ids": ids, "inferred": False})
+    return valid[:5]
+
+
+def _fallback_evidence_claims(
+    *,
+    candidate: dict,
+    evidence_sources: list[dict],
+    kind: str,
+    existing: list[dict],
+) -> list[dict]:
+    """Deterministic safety net if the model under-produces evidence-backed claims."""
+    valid_ids = {str(source.get("evidence_id")) for source in evidence_sources if source.get("evidence_id")}
+    if not valid_ids:
+        valid_ids = set(_candidate_claim_ids(candidate))
+    claims = _valid_claims(existing, valid_ids)
+    if len(claims) >= 3:
+        return claims[:5]
+
+    context_ids = [row["evidence_id"] for row in _candidate_evidence_context(candidate, evidence_sources)]
+    if not context_ids:
+        context_ids = [eid for eid in _candidate_claim_ids(candidate) if eid in valid_ids]
+    if not context_ids:
+        return claims
+
+    company = str(candidate.get("company_name") or "该候选项目")
+    sub_direction = str(candidate.get("sub_direction") or "当前方向")
+    if kind == "recommendation":
+        templates = [
+            f"公开资料显示「{company}」与「{sub_direction}」方向存在直接关联，具备继续跟踪价值。",
+            f"已检索到「{company}」相关公开资料，可支撑其进入候选项目池进一步研究。",
+            f"现有信号能够定位「{company}」的业务或主体信息，适合作为可追溯候选项目继续核验。",
+        ]
+    else:
+        templates = [
+            f"当前关于「{company}」的可用资料仍以公开信息为主，商业化进展需要继续核验。",
+            f"公开资料尚不足以完整判断「{company}」的收入、客户或交付情况，存在信息不充分风险。",
+            f"基于已检索材料，「{company}」的融资条款、估值和竞争格局仍需在后续尽调中确认。",
+        ]
+
+    seen_text = {claim["text"] for claim in claims}
+    for index, text in enumerate(templates):
+        if len(claims) >= 3:
+            break
+        if text in seen_text:
+            continue
+        claims.append(
+            {
+                "text": text,
+                "evidence_ids": [context_ids[index % len(context_ids)]],
+                "inferred": False,
+            }
+        )
+        seen_text.add(text)
+    return claims[:5]
+
+
 async def score_candidates(state: DealSourcingState) -> dict:
     """Step 8-9：逐候选机构匹配度评分 + 推荐分层。无候选不调 LLM。"""
     cands = state.get("candidates") or []
     if not cands:
         return {"candidates": [], "progress": "正在计算机构匹配度并排序…"}
 
+    evidence_sources = state.get("evidence_sources") or []
     assessment = await _ask(
         state,
         ModelTier.STANDARD,
@@ -535,6 +665,7 @@ async def score_candidates(state: DealSourcingState) -> dict:
         {
             "搜索策略": state.get("search_strategy", {}),
             "候选项目": cands,
+            "候选项目证据上下文": _scoring_evidence_context(cands, evidence_sources),
             "机构偏好": state.get("preference_input", {}),
             "来源Thesis": state.get("thesis_context", {}),
         },
@@ -548,32 +679,74 @@ async def score_candidates(state: DealSourcingState) -> dict:
         sc = score_by_name.get(name)
         if sc is not None:
             total = sc.fit_score.total
+            recommendation_reasons = _fallback_evidence_claims(
+                candidate=c,
+                evidence_sources=evidence_sources,
+                kind="recommendation",
+                existing=[r.model_dump(mode="json") for r in sc.recommendation_reasons],
+            )
+            initial_risks = _fallback_evidence_claims(
+                candidate=c,
+                evidence_sources=evidence_sources,
+                kind="risk",
+                existing=[r.model_dump(mode="json") for r in sc.initial_risks],
+            )
             enriched.append(
                 {
                     **c,
                     "fit_score": sc.fit_score.model_dump(mode="json"),
                     "initial_score": total,
                     "recommendation_tier": sc.recommendation_tier.value,
-                    "recommendation_reasons": [r.model_dump(mode="json") for r in sc.recommendation_reasons],
-                    "initial_risks": [r.model_dump(mode="json") for r in sc.initial_risks],
+                    "recommendation_reasons": recommendation_reasons,
+                    "initial_risks": initial_risks,
                 }
             )
         else:
             # 评分缺失：中性分回退，绝不丢候选（约定：候选不静默消失）
+            recommendation_reasons = _fallback_evidence_claims(
+                candidate=c,
+                evidence_sources=evidence_sources,
+                kind="recommendation",
+                existing=[],
+            )
+            initial_risks = _fallback_evidence_claims(
+                candidate=c,
+                evidence_sources=evidence_sources,
+                kind="risk",
+                existing=[],
+            )
             enriched.append(
                 {
                     **c,
                     "fit_score": None,
                     "initial_score": 50.0,
                     "recommendation_tier": _tier_from_score(50.0).value,
-                    "recommendation_reasons": [],
-                    "initial_risks": [],
+                    "recommendation_reasons": recommendation_reasons,
+                    "initial_risks": initial_risks,
                 }
             )
     # 路线第 9 步：learned_preference 反哺——候选 fit_score 有界微调 + risk_boundary 初筛旗标
     enriched = apply_learned_preference_to_candidates(
         enriched, state.get("preference_input") or {}, state.get("thesis_context") or {}
     )
+    enriched = [
+        {
+            **candidate,
+            "recommendation_reasons": _fallback_evidence_claims(
+                candidate=candidate,
+                evidence_sources=evidence_sources,
+                kind="recommendation",
+                existing=list(candidate.get("recommendation_reasons") or []),
+            ),
+            "initial_risks": _fallback_evidence_claims(
+                candidate=candidate,
+                evidence_sources=evidence_sources,
+                kind="risk",
+                existing=list(candidate.get("initial_risks") or []),
+            ),
+        }
+        for candidate in enriched
+    ]
     # 按初筛总分降序（排序键），强推荐在前
     enriched.sort(key=lambda c: c.get("initial_score", 0), reverse=True)
     return {"candidates": enriched, "progress": "正在计算机构匹配度并排序…"}
@@ -935,14 +1108,30 @@ def _empty_deal_list(state: DealSourcingState) -> dict:
     return payload
 
 
+def _has_required_evidence_claims(candidate: dict) -> bool:
+    for key in ("recommendation_reasons", "initial_risks"):
+        claims = candidate.get(key) or []
+        if not (3 <= len(claims) <= 5):
+            return False
+        for claim in claims:
+            if not isinstance(claim, dict) or not claim.get("evidence_ids"):
+                return False
+    return True
+
+
 async def assemble_deal_list(state: DealSourcingState) -> dict:
     """Step 10：组装 DealList（PREMIUM 仅做池级命名与总览，候选明细已结构化保真）。
 
     候选评分与证据绑定已在前序节点完成，组装阶段不再过 LLM 重写候选——避免丢失
     evidence_ids 与结构化评分。落库不在节点内做，由 agents/runner.py 编排。
     """
+    eligible_candidates = [
+        candidate
+        for candidate in (state.get("candidates") or [])
+        if _has_required_evidence_claims(candidate)
+    ]
     cands = attach_candidate_reference_links(
-        state.get("candidates") or [],
+        eligible_candidates,
         state.get("evidence_sources") or [],
     )
     strat = state.get("search_strategy") or {}

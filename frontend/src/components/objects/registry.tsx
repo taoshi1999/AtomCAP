@@ -27,7 +27,12 @@ export function DeliverableView({
         />
       );
     case "deal_list":
-      return <DealListView payload={deliverable.payload as DealListDeliverable} />;
+      return (
+        <DealListView
+          payload={deliverable.payload as DealListDeliverable}
+          evidenceItems={deliverable.evidence_items}
+        />
+      );
     default:
       return (
         <div className="rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-400">

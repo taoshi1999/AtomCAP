@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from pydantic import BaseModel, Field
 
 from app.objects.base import Claim
@@ -46,14 +48,21 @@ class CandidateDrafts(BaseModel):
     candidates: list[CandidateDraft] = Field(default_factory=list)
 
 
+class EvidenceBackedClaim(Claim):
+    """Deal sourcing claims shown to users must point to at least one evidence item."""
+
+    evidence_ids: list[uuid.UUID] = Field(min_length=1, description="必须引用至少一个候选项目证据 id")
+    inferred: bool = Field(default=False)
+
+
 class ScoredCandidate(BaseModel):
     """Step 8-10：候选公司的机构匹配度评分 + 推荐分层 + 推荐理由/轻量风险。"""
 
     company_name: str = Field(description="必须与候选草稿一致（按名合并）")
     fit_score: FitScoreBreakdown
     recommendation_tier: RecommendationTier
-    recommendation_reasons: list[Claim] = Field(default_factory=list)
-    initial_risks: list[Claim] = Field(default_factory=list)
+    recommendation_reasons: list[EvidenceBackedClaim] = Field(min_length=3, max_length=5)
+    initial_risks: list[EvidenceBackedClaim] = Field(min_length=3, max_length=5)
 
 
 class ScoredCandidates(BaseModel):
@@ -72,6 +81,7 @@ __all__ = [
     "SearchStrategy",
     "CandidateDraft",
     "CandidateDrafts",
+    "EvidenceBackedClaim",
     "ScoredCandidate",
     "ScoredCandidates",
     "DealListSummary",

@@ -63,6 +63,8 @@ export interface RepresentativeCompany {
 
 export interface SubDirection {
   name: string;
+  deliverable_id?: string | null;
+  is_in_library?: boolean;
   detail: string;
   investment_reasons: Claim[];
   representative_companies: RepresentativeCompany[];
@@ -161,7 +163,9 @@ export interface CandidateReferenceLink {
 
 export interface DealCandidate {
   company_name: string;
+  deal_id?: string | null;
   company_id?: string | null;
+  is_in_library?: boolean;
   uscc?: string | null;
   aliases: string[];
   official_website?: string | null;

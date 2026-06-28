@@ -10,6 +10,8 @@ recommended_actions / created_from_conversation / status
 
 from __future__ import annotations
 
+import uuid
+
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -105,10 +107,15 @@ class SubDirection(BaseModel):
     代表公司、主要风险、适合投资阶段、与机构偏好匹配。"""
 
     name: str
+    deliverable_id: uuid.UUID | None = Field(
+        default=None,
+        description="若该子赛道已对应赛道库中的 Thesis，则为对应 deliverable id",
+    )
+    is_in_library: bool = Field(default=False, description="是否已经存在于当前机构赛道库")
     detail: str = Field(description="子赛道详情")
-    investment_reasons: list[Claim] = Field(min_length=1, description="推荐理由（证据链绑定）")
+    investment_reasons: list[Claim] = Field(min_length=3, max_length=5, description="推荐理由（证据链绑定）")
     representative_companies: list[RepresentativeCompany] = Field(default_factory=list)
-    key_risks: list[Claim] = Field(default_factory=list)
+    key_risks: list[Claim] = Field(min_length=3, max_length=5)
     suitable_stage: str = Field(description="适合的投资阶段，如 天使/A轮/B轮+")
     fit_score: FitScoreBreakdown
 
@@ -122,12 +129,12 @@ class Thesis(BaseDeliverable):
     risk_level: str = Field(description="风险等级：高/中高/中/低")
     advice: str = Field(description="核心卡片底部的一句话建议")
     sub_directions: list[SubDirection] = Field(min_length=3, max_length=7)
-    investment_reason: list[Claim] = Field(description="赛道整体推荐理由：为何与本机构匹配")
+    investment_reason: list[Claim] = Field(min_length=3, max_length=5, description="赛道整体推荐理由：为何与本机构匹配")
     institution_fit_score: FitScoreBreakdown
     value_chain: ValueChain
     recent_signals: list[MarketSignal] = Field(default_factory=list)
     representative_companies: list[RepresentativeCompany] = Field(default_factory=list)
-    key_risks: list[Claim] = Field(min_length=1, description="风险点必须有，否则像销售材料")
+    key_risks: list[Claim] = Field(min_length=3, max_length=5, description="风险点必须有，否则像销售材料")
     recommended_actions: list[RecommendedAction] = Field(
         default_factory=lambda: list(RecommendedAction)
     )

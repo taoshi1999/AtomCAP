@@ -30,6 +30,7 @@ from app.agents.thesis_scout.schemas import (
     TrackDefinition,
 )
 from app.agents.thesis_scout.state import ThesisScoutState
+from app.connectors.base import Source
 from app.connectors.registry import active_connectors, cached_gather_signals
 from app.llm.client import ModelTier, complete_structured
 from app.objects.preference import InvestmentPreference
@@ -81,6 +82,66 @@ async def parse_track(state: ThesisScoutState) -> dict:
     }
 
 
+MIN_THESIS_SIGNAL_COUNT = 5
+MAX_THESIS_SIGNAL_SEARCH_ROUNDS = 3
+
+
+def _uniq_text(values: list[object], *, limit: int | None = None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def _signal_search_rounds(track_definition: dict, query: str | None) -> list[list[str]]:
+    """Build increasingly broad thesis-research search rounds.
+
+    A single weak query can easily return generic technical documents. Later rounds
+    pair the parsed track boundary with market-signal terms so the collector keeps
+    looking for investable evidence before assembling a thesis.
+    """
+    name = str(track_definition.get("name") or "").strip()
+    includes = _uniq_text(track_definition.get("includes") or [])
+    keywords = _uniq_text(track_definition.get("search_keywords") or [])
+    query_text = str(query or "").strip()
+    bases = _uniq_text([name, *includes, query_text])
+    signal_terms = ["融资", "政策", "产业化", "专利", "产品发布", "市场规模", "降本"]
+
+    rounds: list[list[str]] = [
+        _uniq_text([*keywords, *bases], limit=6),
+        _uniq_text([f"{base} {term}" for base in bases for term in signal_terms[:4]], limit=6),
+        _uniq_text(
+            [
+                *(f"{base} 初创公司 融资 官网" for base in bases[:4]),
+                *(f"{base} 技术突破 产业链 供应商" for base in bases[:4]),
+                query_text,
+            ],
+            limit=6,
+        ),
+    ]
+
+    unique_rounds: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for round_keywords in rounds:
+        key = tuple(round_keywords)
+        if round_keywords and key not in seen:
+            seen.add(key)
+            unique_rounds.append(round_keywords)
+    return unique_rounds[:MAX_THESIS_SIGNAL_SEARCH_ROUNDS]
+
+
+def _source_key(source: Source) -> str:
+    return str(source.url or source.title or "").strip().lower()
+
+
 async def collect_signals(state: ThesisScoutState) -> dict:
     """Step 3：多 Connector 并发收集市场信号，每条预分配 evidence_id。
 
@@ -94,17 +155,25 @@ async def collect_signals(state: ThesisScoutState) -> dict:
     未配置任何数据源 key 时走空信号路径（博查/企查查付费 key——README 已标注）。
     """
     td = state.get("track_definition") or {}
-    keywords = [k for k in (td.get("search_keywords") or []) if k]
-    if not keywords and state.get("query"):
-        keywords = [state["query"]]
     allow_overseas = state.get("allow_overseas", False)
     connectors = active_connectors(allow_overseas=allow_overseas)
-    sources = await cached_gather_signals(
-        connectors,
-        keywords=keywords,
-        track=td.get("name") or "",
-        allow_overseas=allow_overseas,
-    )
+    sources: list[Source] = []
+    seen_sources: set[str] = set()
+    for round_keywords in _signal_search_rounds(td, state.get("query")):
+        batch = await cached_gather_signals(
+            connectors,
+            keywords=round_keywords,
+            track=td.get("name") or "",
+            allow_overseas=allow_overseas,
+        )
+        for source in batch:
+            key = _source_key(source)
+            if not key or key in seen_sources:
+                continue
+            seen_sources.add(key)
+            sources.append(source)
+        if len(sources) >= MIN_THESIS_SIGNAL_COUNT:
+            break
 
     evidence_sources: list[dict] = []
     raw_signals: list[dict] = []
@@ -266,7 +335,8 @@ async def value_chain(state: ThesisScoutState) -> dict:
 
 SUB_DIRECTIONS_SYSTEM = """你是一级市场赛道研究员，从产业链拆解中提炼 3–7 个值得关注的子赛道。要求：
 1. 每个子赛道：name、detail（做什么、为什么现在）、investment_reasons（推荐理由，
-   引用市场信号的 evidence_ids，无证据留空由系统标记推断）、key_risks（真实风险）、
+   必须 3–5 条；引用市场信号的 evidence_ids，无证据留空由系统标记推断）、key_risks（真实风险，
+   必须 3–5 条；有信号支撑时引用 evidence_ids）、
    suitable_stage（适合的投资阶段）、representative_companies（确有把握才写，不要编造）
 2. 子赛道之间要有区分度：覆盖产业链不同环节或不同切入逻辑，不要同义反复
 3. 结构性信号支撑的子赛道优先；纯热度驱动的要在风险里说明
@@ -275,16 +345,23 @@ SUB_DIRECTIONS_SYSTEM = """你是一级市场赛道研究员，从产业链拆�
 
 async def gen_sub_directions(state: ThesisScoutState) -> dict:
     """Step 5：生成 3–7 个子赛道草稿（机构匹配度由下一节点补全）。"""
+    classified = state.get("classified_signals", [])
+    payload = {
+        "赛道定义": state.get("track_definition", {}),
+        "市场信号": classified,
+        "产业链": state.get("value_chain", {}),
+        "机构偏好": state.get("preference", {}),
+    }
+    if not classified:
+        payload["补充要求"] = (
+            "当前公开信号不足或尚未形成高置信结构性信号。仍需基于赛道定义、产业链和机构偏好，"
+            "输出 3-7 个待验证子赛道；不要编造具体融资、政策或专利证据，相关推荐理由应标记为模型推断。"
+        )
     drafts = await _ask(
         state,
         ModelTier.STANDARD,
         SUB_DIRECTIONS_SYSTEM,
-        {
-            "赛道定义": state.get("track_definition", {}),
-            "市场信号": state.get("classified_signals", []),
-            "产业链": state.get("value_chain", {}),
-            "机构偏好": state.get("preference", {}),
-        },
+        payload,
         SubDirectionDrafts,
     )
     return {
@@ -382,12 +459,14 @@ ASSEMBLE_SYSTEM = """你是一级市场（VC/PE）的资深赛道研究员，负
 要求：
 1. 子赛道（sub_directions）3–7 个，优先沿用「候选子赛道」的内容与 fit_score，
    只做提炼润色，不推翻前序分析
-2. key_risks 必须至少给出 1 条真实风险——没有风险点的判断像销售材料，不可信
-3. 严禁伪造 evidence_ids：上下文中没有给出证据 id 时一律留空数组，由系统标记为模型推断
-4. opportunity_level 取值 高/中/低，risk_level 取值 高/中高/中/低
-5. 上下文中的「市场信号」「产业链」「机构匹配度」为空时，基于赛道常识给出初版判断，
+2. investment_reason 必须给出 3–5 条赛道整体推荐理由；key_risks 必须给出 3–5 条真实风险。
+   每条都应是可放入证据链的独立论点；有市场信号支撑时必须引用对应 evidence_ids。
+3. 子赛道的 investment_reasons 和 key_risks 也必须各 3–5 条。
+4. 严禁伪造 evidence_ids：上下文中没有给出证据 id 时一律留空数组，由系统标记为模型推断
+5. opportunity_level 取值 高/中/低，risk_level 取值 高/中高/中/低
+6. 上下文中的「市场信号」「产业链」「机构匹配度」为空时，基于赛道常识给出初版判断，
    不要编造具体融资事件或政策名称
-6. 全部用简体中文输出
+7. 全部用简体中文输出
 """
 
 
