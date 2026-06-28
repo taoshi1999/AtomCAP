@@ -46,13 +46,22 @@ class CheckSize(BaseModel):
 
 class DeclaredStrategy(BaseModel):
     focus_sectors: list[str] = Field(default_factory=list)
+    anti_focus_sectors: list[str] = Field(default_factory=list)
     focus_stages: list[str] = Field(default_factory=list)
+    anti_focus_stages: list[str] = Field(default_factory=list)
     focus_regions: list[str] = Field(default_factory=list)
+    anti_focus_regions: list[str] = Field(default_factory=list)
     check_size: CheckSize | None = None
+    anti_check_sizes: list[str] = Field(default_factory=list)
     target_deal_types: list[str] = Field(default_factory=list)
+    anti_risk_levels: list[str] = Field(default_factory=list)
     custom_dimensions: dict[str, list[str]] = Field(
         default_factory=dict, description="用户自定义声明偏好维度"
     )
+    anti_custom_dimensions: dict[str, list[str]] = Field(
+        default_factory=dict, description="用户自定义声明反偏好维度"
+    )
+    supplemental_notes: list[str] = Field(default_factory=list, description="补充说明")
     description: str | None = None
 
 
@@ -66,6 +75,11 @@ class AbandonedSimilarityPenalty(BaseModel):
 class AntiPreference(BaseModel):
     disliked_sectors: list[str] = Field(default_factory=list)
     disliked_subsectors: list[str] = Field(default_factory=list)
+    disliked_stages: list[str] = Field(default_factory=list)
+    disliked_regions: list[str] = Field(default_factory=list)
+    disliked_risk_levels: list[str] = Field(default_factory=list)
+    disliked_check_sizes: list[str] = Field(default_factory=list)
+    disliked_custom_dimensions: dict[str, list[str]] = Field(default_factory=dict)
     disliked_deal_patterns: list[str] = Field(default_factory=list)
     abandoned_similarity_penalty: AbandonedSimilarityPenalty = Field(
         default_factory=AbandonedSimilarityPenalty
@@ -126,3 +140,4 @@ class InvestmentPreference(BaseModel):
     risk_appetite: str | None = Field(default=None, description="风险偏好描述")
     check_size: str | None = Field(default=None, description="单笔投资规模（遗留扁平字段，文本）")
     notes: str | None = Field(default=None, description="其他策略说明")
+    supplemental_notes: list[str] = Field(default_factory=list, description="补充说明")

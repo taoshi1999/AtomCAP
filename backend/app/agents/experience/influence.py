@@ -263,6 +263,12 @@ def assess_preference_fit(
     hit_sub = _in_list(_anti_list(anti_preference, "disliked_subsectors"), sub_sector)
     if hit_sub:
         penalties.append(f"子赛道『{hit_sub}』")
+    hit_stage = _in_list(_anti_list(anti_preference, "disliked_stages"), stage)
+    if hit_stage:
+        penalties.append(f"阶段『{hit_stage}』")
+    hit_region = _in_list(_anti_list(anti_preference, "disliked_regions"), region)
+    if hit_region:
+        penalties.append(f"地域『{hit_region}』")
     if penalties:
         delta -= ANTI_PREF_PENALTY * len(penalties)
 
@@ -270,19 +276,168 @@ def assess_preference_fit(
     return PreferenceInfluence(delta=round(delta, 2), matched=matched, penalties=penalties)
 
 
+def _get(source: Any, field_name: str, default: Any = None) -> Any:
+    if source is None:
+        return default
+    if isinstance(source, Mapping):
+        return source.get(field_name, default)
+    return getattr(source, field_name, default)
+
+
+def _string_values(value: Any) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = str(item).strip() if item is not None else ""
+        key = _normalize(text)
+        if text and key not in seen:
+            seen.add(key)
+            out.append(text)
+    return out
+
+
+def _copy_learned(learned: Any) -> dict:
+    if isinstance(learned, Mapping):
+        return {str(k): list(v) if isinstance(v, list) else v for k, v in learned.items()}
+    out: dict[str, Any] = {}
+    if learned is None:
+        return out
+    for field_name in _DIMENSION_WEIGHT_FIELD.values():
+        values = getattr(learned, field_name, None)
+        if values:
+            out[field_name] = list(values)
+    return out
+
+
+def _with_declared_positive_weights(learned: Any, declared: Any) -> Any:
+    """把人工声明的正向偏好补进评分权重表，保留已有 learned_preference。"""
+    declared_values = {
+        "sector_weights": _string_values(_get(declared, "focus_sectors")),
+        "stage_weights": _string_values(_get(declared, "focus_stages")),
+        "region_weights": _string_values(_get(declared, "focus_regions")),
+    }
+    if not any(declared_values.values()):
+        return learned
+
+    out = _copy_learned(learned)
+    for field_name, values in declared_values.items():
+        table = list(out.get(field_name) or [])
+        existing = {_normalize(_item_name(item)) for item in table}
+        for value in values:
+            key = _normalize(value)
+            if key and key not in existing:
+                table.append({"name": value, "weight": 1.0, "confidence": 1.0})
+                existing.add(key)
+        out[field_name] = table
+    return out
+
+
+def _copy_anti(anti: Any) -> dict:
+    if isinstance(anti, Mapping):
+        return {
+            str(k): (list(v) if isinstance(v, list) else dict(v) if isinstance(v, Mapping) else v)
+            for k, v in anti.items()
+        }
+    out: dict[str, Any] = {}
+    if anti is None:
+        return out
+    for field_name in (
+        "disliked_sectors",
+        "disliked_subsectors",
+        "disliked_stages",
+        "disliked_regions",
+        "disliked_risk_levels",
+        "disliked_check_sizes",
+        "disliked_custom_dimensions",
+        "disliked_deal_patterns",
+        "abandoned_similarity_penalty",
+    ):
+        value = getattr(anti, field_name, None)
+        if value:
+            out[field_name] = value
+    return out
+
+
+def _merge_unique_list(target: dict, field_name: str, values: list[str]) -> None:
+    if not values:
+        return
+    current = _string_values(target.get(field_name))
+    seen = {_normalize(item) for item in current}
+    for value in values:
+        key = _normalize(value)
+        if key and key not in seen:
+            current.append(value)
+            seen.add(key)
+    target[field_name] = current
+
+
+def _with_declared_anti_preferences(anti: Any, declared: Any) -> Any:
+    declared_lists = {
+        "disliked_sectors": _string_values(_get(declared, "anti_focus_sectors")),
+        "disliked_stages": _string_values(_get(declared, "anti_focus_stages")),
+        "disliked_regions": _string_values(_get(declared, "anti_focus_regions")),
+        "disliked_risk_levels": _string_values(_get(declared, "anti_risk_levels")),
+        "disliked_check_sizes": _string_values(_get(declared, "anti_check_sizes")),
+    }
+    raw_custom = _get(declared, "anti_custom_dimensions") or {}
+    custom = raw_custom if isinstance(raw_custom, Mapping) else {}
+    has_declared_anti = any(declared_lists.values()) or any(custom.values())
+    if not has_declared_anti:
+        return anti
+
+    out = _copy_anti(anti)
+    for field_name, values in declared_lists.items():
+        _merge_unique_list(out, field_name, values)
+
+    if custom:
+        current = out.get("disliked_custom_dimensions")
+        current = dict(current) if isinstance(current, Mapping) else {}
+        for label, values in custom.items():
+            clean_values = _string_values(values)
+            if not clean_values:
+                continue
+            merged = _string_values(current.get(label))
+            seen = {_normalize(item) for item in merged}
+            for value in clean_values:
+                key = _normalize(value)
+                if key and key not in seen:
+                    merged.append(value)
+                    seen.add(key)
+            current[str(label)] = merged
+        out["disliked_custom_dimensions"] = current
+    return out
+
+
 def extract_preference_blocks(preference: Any) -> tuple[Any, Any, dict]:
-    """从偏好视图 dict / InvestmentPreference 取 (learned_preference, anti_preference, risk_boundary)。"""
+    """从偏好视图 dict / InvestmentPreference 取评分可读的偏好、反偏好和风险边界。
+
+    learned_preference 仍是行为学习权重表；若当前生效偏好来自人工声明策略，则把声明的
+    正向/负向维度补成权重表和 anti_preference，保证“偏好加分、反偏好减分”在推荐排序里
+    生效，而不要求前端直接维护 learned_preference。
+    """
     if preference is None:
         return None, None, {}
     if isinstance(preference, Mapping):
+        declared = preference.get("declared_strategy")
+        learned = _with_declared_positive_weights(preference.get("learned_preference"), declared)
+        anti = _with_declared_anti_preferences(preference.get("anti_preference"), declared)
         return (
-            preference.get("learned_preference"),
-            preference.get("anti_preference"),
+            learned,
+            anti,
             preference.get("risk_boundary") or {},
         )
+    declared = getattr(preference, "declared_strategy", None)
+    learned = _with_declared_positive_weights(
+        getattr(preference, "learned_preference", None), declared
+    )
+    anti = _with_declared_anti_preferences(
+        getattr(preference, "anti_preference", None), declared
+    )
     return (
-        getattr(preference, "learned_preference", None),
-        getattr(preference, "anti_preference", None),
+        learned,
+        anti,
         getattr(preference, "risk_boundary", None) or {},
     )
 

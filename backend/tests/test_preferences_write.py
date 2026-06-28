@@ -125,20 +125,37 @@ def test_describe_for_agent_includes_current_applied_preference():
             "name": "AI 基础设施偏好",
             "declared_strategy": {
                 "focus_sectors": ["AI 基础设施", "算力"],
+                "anti_focus_sectors": ["纯流量平台"],
                 "focus_stages": ["Pre-A", "A"],
+                "anti_focus_stages": ["Pre-IPO"],
                 "focus_regions": ["中国", "全球"],
+                "anti_focus_regions": ["海外"],
                 "custom_dimensions": {"商业化信号": ["已签大客户", "高留存"]},
+                "anti_custom_dimensions": {"团队背景": ["纯销售背景"]},
+                "supplemental_notes": ["优先看产业资源协同"],
                 "description": "优先看能被项目获取 Agent 直接使用的偏好说明",
             },
+            "anti_preference": {
+                "disliked_sectors": ["太阳能"],
+                "disliked_stages": ["Pre-IPO"],
+                "disliked_regions": ["海外"],
+            },
             "track_preferences": ["AI 基础设施"],
+            "excluded_tracks": ["太阳能"],
             "stages": ["A"],
             "geographies": ["中国"],
             "risk_appetite": "中等风险",
             "check_size": "500万-2000万",
+            "supplemental_notes": ["不追逐短期概念热点"],
         }
     )
 
     assert "名称：AI 基础设施偏好" in text
     assert "版本：v7" in text
     assert "关注赛道：AI 基础设施、算力" in text
+    assert "反偏好赛道：纯流量平台、太阳能" in text
+    assert "反偏好阶段：Pre-IPO" in text
+    assert "反偏好地域：海外" in text
     assert "商业化信号：已签大客户、高留存" in text
+    assert "反偏好团队背景：纯销售背景" in text
+    assert "补充说明：优先看产业资源协同；不追逐短期概念热点" in text

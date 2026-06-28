@@ -342,11 +342,17 @@ export async function updatePreference(
 export interface PreferenceProfileContent {
   name: string;
   sectors: string[];
+  anti_sectors: string[];
   stages: string[];
+  anti_stages: string[];
   regions: string[];
+  anti_regions: string[];
   risk_levels: string[];
+  anti_risk_levels: string[];
   check_sizes: string[];
+  anti_check_sizes: string[];
   custom_dimensions?: PreferenceCustomDimension[];
+  supplemental_notes?: string[];
   notes?: string | null;
 }
 
@@ -354,17 +360,25 @@ export interface PreferenceCustomDimension {
   key?: string | null;
   label: string;
   values: string[];
+  anti_values?: string[];
 }
 
 export interface PreferenceProfileSummary {
   id: string;
   name: string;
   sectors: string[];
+  anti_sectors: string[];
   stages: string[];
+  anti_stages: string[];
   regions: string[];
+  anti_regions: string[];
   risk_levels: string[];
+  anti_risk_levels: string[];
   check_sizes: string[];
+  anti_check_sizes: string[];
   custom_dimensions?: PreferenceCustomDimension[];
+  supplemental_notes?: string[];
+  notes?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }

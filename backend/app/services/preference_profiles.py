@@ -18,6 +18,18 @@ from app.models.models import DomainEvent, PreferenceProfileRow
 from app.objects.preference_profile import PreferenceProfile
 
 
+def _weighted_items(values: list[str], *, weight: float) -> list[dict]:
+    return [{"name": value, "weight": weight, "confidence": 1.0} for value in values]
+
+
+def _supplemental_notes_from_payload(payload: dict) -> list:
+    notes = payload.get("supplemental_notes")
+    if isinstance(notes, list):
+        return notes
+    legacy_note = payload.get("notes")
+    return [legacy_note] if isinstance(legacy_note, str) and legacy_note.strip() else []
+
+
 def profile_summary(row: PreferenceProfileRow) -> dict:
     """列表卡片投影（够渲染卡片即可，五维取值随卡片直接展示）。"""
     payload = row.payload or {}
@@ -25,11 +37,18 @@ def profile_summary(row: PreferenceProfileRow) -> dict:
         "id": str(row.id),
         "name": row.name,
         "sectors": payload.get("sectors", []),
+        "anti_sectors": payload.get("anti_sectors", []),
         "stages": payload.get("stages", []),
+        "anti_stages": payload.get("anti_stages", []),
         "regions": payload.get("regions", []),
+        "anti_regions": payload.get("anti_regions", []),
         "risk_levels": payload.get("risk_levels", []),
+        "anti_risk_levels": payload.get("anti_risk_levels", []),
         "check_sizes": payload.get("check_sizes", []),
+        "anti_check_sizes": payload.get("anti_check_sizes", []),
         "custom_dimensions": payload.get("custom_dimensions", []),
+        "supplemental_notes": _supplemental_notes_from_payload(payload),
+        "notes": payload.get("notes"),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -49,7 +68,14 @@ def profile_matches_query(row: PreferenceProfileRow, query: str | None) -> bool:
     custom_text = ""
     if isinstance(custom_dimensions, list):
         custom_text = "\n".join(
-            "\n".join(str(part or "") for part in (item.get("label"), *(item.get("values") or [])))
+            "\n".join(
+                str(part or "")
+                for part in (
+                    item.get("label"),
+                    *(item.get("values") or []),
+                    *(item.get("anti_values") or []),
+                )
+            )
             for item in custom_dimensions
             if isinstance(item, dict)
         )
@@ -60,10 +86,16 @@ def profile_matches_query(row: PreferenceProfileRow, query: str | None) -> bool:
                 row.name,
                 payload.get("name"),
                 "\n".join(payload.get("sectors") or []),
+                "\n".join(payload.get("anti_sectors") or []),
                 "\n".join(payload.get("stages") or []),
+                "\n".join(payload.get("anti_stages") or []),
                 "\n".join(payload.get("regions") or []),
+                "\n".join(payload.get("anti_regions") or []),
                 "\n".join(payload.get("risk_levels") or []),
+                "\n".join(payload.get("anti_risk_levels") or []),
                 "\n".join(payload.get("check_sizes") or []),
+                "\n".join(payload.get("anti_check_sizes") or []),
+                "\n".join(_supplemental_notes_from_payload(payload)),
                 payload.get("notes"),
                 custom_text,
             )
@@ -91,11 +123,17 @@ def profile_event_payload(profile: PreferenceProfile) -> dict:
         "profile": payload,
         "name": payload["name"],
         "sectors": payload.get("sectors", []),
+        "anti_sectors": payload.get("anti_sectors", []),
         "stages": payload.get("stages", []),
+        "anti_stages": payload.get("anti_stages", []),
         "regions": payload.get("regions", []),
+        "anti_regions": payload.get("anti_regions", []),
         "risk_levels": payload.get("risk_levels", []),
+        "anti_risk_levels": payload.get("anti_risk_levels", []),
         "check_sizes": payload.get("check_sizes", []),
+        "anti_check_sizes": payload.get("anti_check_sizes", []),
         "custom_dimensions": payload.get("custom_dimensions", []),
+        "supplemental_notes": payload.get("supplemental_notes", []),
         "notes": payload.get("notes"),
     }
 
@@ -111,22 +149,61 @@ def profile_to_investment_preference(profile: PreferenceProfile) -> dict:
     custom_dimensions = {
         item.label: item.values for item in profile.custom_dimensions if item.values
     }
+    anti_custom_dimensions = {
+        item.label: item.anti_values
+        for item in profile.custom_dimensions
+        if item.anti_values
+    }
+    disliked_deal_patterns = [
+        *profile.anti_stages,
+        *profile.anti_regions,
+        *profile.anti_risk_levels,
+        *profile.anti_check_sizes,
+        *(
+            f"{label}: {value}"
+            for label, values in anti_custom_dimensions.items()
+            for value in values
+        ),
+    ]
     return {
         "name": profile.name,
         "status": "active",
         "declared_strategy": {
             "focus_sectors": profile.sectors,
+            "anti_focus_sectors": profile.anti_sectors,
             "focus_stages": profile.stages,
+            "anti_focus_stages": profile.anti_stages,
             "focus_regions": profile.regions,
+            "anti_focus_regions": profile.anti_regions,
+            "anti_risk_levels": profile.anti_risk_levels,
+            "anti_check_sizes": profile.anti_check_sizes,
             "custom_dimensions": custom_dimensions,
-            "description": profile.notes,
+            "anti_custom_dimensions": anti_custom_dimensions,
+            "supplemental_notes": profile.supplemental_notes,
+            "description": "\n".join(profile.supplemental_notes) or profile.notes,
+        },
+        "learned_preference": {
+            "sector_weights": _weighted_items(profile.sectors, weight=1.0),
+            "stage_weights": _weighted_items(profile.stages, weight=1.0),
+            "region_weights": _weighted_items(profile.regions, weight=1.0),
+        },
+        "anti_preference": {
+            "disliked_sectors": profile.anti_sectors,
+            "disliked_stages": profile.anti_stages,
+            "disliked_regions": profile.anti_regions,
+            "disliked_risk_levels": profile.anti_risk_levels,
+            "disliked_check_sizes": profile.anti_check_sizes,
+            "disliked_custom_dimensions": anti_custom_dimensions,
+            "disliked_deal_patterns": disliked_deal_patterns,
         },
         "track_preferences": profile.sectors,
+        "excluded_tracks": profile.anti_sectors,
         "stages": profile.stages,
         "geographies": profile.regions,
         "risk_appetite": " / ".join(profile.risk_levels) if profile.risk_levels else None,
         "check_size": " / ".join(profile.check_sizes) if profile.check_sizes else None,
-        "notes": profile.notes,
+        "supplemental_notes": profile.supplemental_notes,
+        "notes": "\n".join(profile.supplemental_notes) or profile.notes,
     }
 
 

@@ -6,3 +6,21 @@ body,
   height: 100%;
   overflow: hidden;
 }
+
+.preference-card-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.preference-card-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.preference-card-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.preference-card-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}

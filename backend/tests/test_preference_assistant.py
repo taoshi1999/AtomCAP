@@ -27,6 +27,16 @@ def test_heuristic_create_extracts_dimensions():
     assert "半导体" in r.profile.name
 
 
+def test_heuristic_create_extracts_anti_preference():
+    r = heuristic_interpret("帮我创建一个关注新能源、电池，但不想看太阳能的投资偏好")
+    assert r.action == ACTION_CREATE
+    assert r.profile is not None
+    assert "新能源" in r.profile.sectors
+    assert "电池" in r.profile.sectors
+    assert "太阳能" in r.profile.anti_sectors
+    assert "太阳能" not in r.profile.sectors
+
+
 def test_heuristic_filter_extracts_keywords():
     r = heuristic_interpret("筛选出半导体相关的投资偏好")
     assert r.action == ACTION_FILTER

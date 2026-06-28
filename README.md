@@ -1,120 +1,809 @@
 # AtomCAP
 
-以「交付结果对象」为中心的一级市场投资多 Agent 系统。整体架构与路线见 [技术规划.md](./技术规划.md)。
+AtomCAP 是一个面向一级市场投资机构的多 Agent 投研工作台。系统围绕「赛道研究、项目挖掘、项目工作台、投资偏好、经验沉淀」组织业务能力，用结构化对象、证据链和可见 ReAct 工作过程把大模型能力落到可审计、可复用的投资流程中。
+
+本文档按当前代码库状态整理，目标是让新接手的开发人员能够快速理解项目边界、架构分层、主要功能模块、关键数据对象、启动方式和后续开发路径。
+
+## 当前状态
+
+截至 2026-06-28，AtomCAP 已具备一套可运行的 MVP：
+
+- 前端：React + Vite + Tailwind CSS，主入口为首页工作台、项目工作台、赛道库、项目库、投资偏好管理。
+- 后端：FastAPI + SQLAlchemy Async + PostgreSQL/pgvector + Redis + LangGraph + SSE。
+- Agent：已落地通用对话、赛道前瞻、项目挖掘、项目分析、投资偏好建议、市场信号 ReAct 收集、经验沉淀反哺等链路。
+- 数据源：博查、Tavily、企查查 Connector 已有实现或可插拔实现，并带缓存和合规开关。
+- 投资偏好：支持多张命名偏好卡片，每个维度都有「偏好」和「反偏好」，支持补充说明，并会作为当前机构偏好注入大模型推理。
+- 项目工作台：支持项目状态流转、近期市场信号、项目材料、Pre-DD 资料、Pre-DD Brief 多版本生成。
+- 证据链：赛道详情、项目池、市场信号、材料等对象都围绕 Source / Claim / EvidenceLink 设计，尽量避免无来源结论。
+
+## 产品定位
+
+AtomCAP 服务的核心场景不是通用聊天，而是投资机构内部的投研与项目管理协作。
+
+主要用户包括：
+
+- 投资人：希望快速获得赛道机会、候选项目、风险点和推荐理由。
+- 分析师：需要围绕项目材料、公开市场信号、工商信息和投资偏好生成可追溯研究结论。
+- 投委会或合伙人：需要看到项目状态、Pre-DD 资料完整度、关键论点证据和机构偏好匹配情况。
+
+AtomCAP 的核心设计原则：
+
+- 输出不是纯文本，而是可持久化、可点击、可追溯的业务对象。
+- Agent 的执行过程以可见 ReAct 方式展示给用户，但不暴露模型隐藏推理。
+- 每条重要结论都尽量绑定证据；无法绑定时标记为模型推断。
+- 投资偏好是长期资产，用户显式配置和行为经验沉淀会共同影响后续推荐。
+
+## 总体架构
+
+```mermaid
+flowchart LR
+  User["用户 / 投资团队"] --> FE["Frontend<br/>React + Vite"]
+  FE --> API["FastAPI API 层<br/>REST + SSE"]
+  API --> Services["Service 层<br/>业务编排 / 版本化 / 记账"]
+  API --> Runner["Agent Runner<br/>生命周期 / SSE / 落库"]
+  Runner --> Graphs["LangGraph 子图<br/>Thesis / Deal Sourcing / Deal Intake"]
+  Graphs --> LLM["LLM Client<br/>fast / standard / premium"]
+  Graphs --> Connectors["Connectors<br/>Bocha / Tavily / QCC"]
+  Services --> DB["PostgreSQL + pgvector"]
+  Services --> Redis["Redis<br/>缓存 / 队列"]
+  Connectors --> Redis
+  Runner --> Evidence["Evidence Service<br/>Source / Claim / Link"]
+  Evidence --> DB
+```
+
+### 分层说明
+
+后端按「对象契约 → 服务 → Agent → API」组织：
+
+- `backend/app/objects`：系统对象 Pydantic Schema，是前后端契约和强校验源头。
+- `backend/app/models`：SQLAlchemy ORM，负责数据库表结构。
+- `backend/app/services`：业务服务层，负责对象读写、事件记账、偏好版本化、市场信号收集、材料处理等。
+- `backend/app/agents`：意图路由、LangGraph 子图、ReAct 可见计划、Runner 编排。
+- `backend/app/connectors`：外部数据源适配层，统一输出 Source。
+- `backend/app/evidence`：证据落库和对象结论连边。
+- `backend/app/api`：FastAPI 路由，面向前端提供 REST 和 SSE。
+
+前端按「页面 shell → 领域管理器 → 对象视图」组织：
+
+- `frontend/src/pages/ChatPage.tsx`：主工作台 shell，左侧栏、会话、模式切换、当前投资偏好卡片。
+- `frontend/src/pages/WorkspacePage.tsx`：项目工作台详情页。
+- `frontend/src/components/PreferenceManager.tsx`：投资偏好管理。
+- `frontend/src/components/TrackManager.tsx`：赛道库管理。
+- `frontend/src/components/DealManager.tsx`：项目库管理。
+- `frontend/src/components/MarketSignalsPanel.tsx`：近期市场信号复用组件。
+- `frontend/src/components/objects`：交付对象渲染注册表，包含 ThesisView、DealListView。
+- `frontend/src/lib/api.ts`：前端 API 客户端和类型。
+
+## 核心业务对象
+
+AtomCAP 的输出都尽量落成结构化对象，而不是只把模型文本保存在消息里。
+
+| 对象 | 后端 Schema | 数据表 | 用途 |
+| --- | --- | --- | --- |
+| Thesis | `objects/thesis.py` | `deliverables` | 赛道研究交付物，包含市场信号、产业链、子方向、建议和证据链 |
+| DealList | `objects/deal_list.py` | `deliverables` | 候选项目池，包含项目卡片、相关资料、推荐理由、风险点和证据 |
+| DealProfile | `objects/deal.py` | `deals` | 单项目画像，项目工作台的核心数据 |
+| InvestmentPreference | `objects/preference.py` | `preferences` | 当前机构生效投资偏好，版本化 |
+| PreferenceProfile | `objects/preference_profile.py` | `preference_profiles` | 用户自建命名偏好卡片，可应用为当前偏好 |
+| EvidenceItem | `objects/evidence.py` | `evidence_items` | 外部网页、工商资料、材料、模型来源等证据源 |
+| EvidenceLink | `objects/evidence.py` | `evidence_links` | 交付对象和证据源之间的引用关系 |
+| UserAction | `objects/experience.py` | `user_actions` | 用户行为记录，用于经验沉淀 |
+| ExperienceEvent | `objects/experience.py` | `experience_events` | 从行为中抽取出的偏好/反偏好/风险边界信号 |
+| PreferenceAdvice | `objects/experience.py` | `preference_advice` | 经验沉淀 Agent 给出的偏好更新建议 |
+
+### 证据链约定
+
+业务对象中的重要结论通常以 Claim 表示：
+
+- Claim 有 `text`、`evidence_ids`、`inferred` 等字段。
+- `evidence_ids` 指向 `evidence_items` 中的 Source。
+- 如果模型生成了结论但没有有效证据，系统会把该 Claim 标记为 `inferred=true`。
+- Runner 成功落库时会剥除无效 evidence id，避免对象引用不存在的证据。
+
+```mermaid
+flowchart TD
+  Source["外部 Source<br/>网页 / 工商 / 专利 / 材料"] --> EvidenceItem["evidence_items"]
+  Claim["对象内 Claim<br/>推荐理由 / 风险点 / 论点"] --> EvidenceLink["evidence_links"]
+  EvidenceItem --> EvidenceLink
+  EvidenceLink --> Deliverable["Thesis / DealList / DealProfile"]
+```
+
+## 系统功能模块
+
+### 1. 登录、首页和全局工作台
+
+相关文件：
+
+- 后端：`api/auth.py`、`api/home.py`、`services/conversations.py`
+- 前端：`pages/LoginPage.tsx`、`pages/ChatPage.tsx`、`lib/auth.tsx`
+
+功能点：
+
+- 用户注册机构并登录，后端签发 JWT。
+- 首页通过 `/api/home` 聚合首屏数据：用户、机构、当前偏好、最近会话、交付物、项目摘要和统计。
+- 左侧栏包含新对话、项目库、赛道库、投资偏好、最近会话、当前投资偏好卡片和账户设置。
+- 当前投资偏好卡片展示当前生效偏好名、版本、偏好、反偏好和补充说明，卡片内部可滚动查看全部维度。
+- 最近会话列表独立滚动，底部偏好卡片固定占位。
+
+### 2. 对话与可见 ReAct 流程
+
+相关文件：
+
+- 后端：`api/conversations.py`、`agents/router.py`、`agents/react_planner.py`、`agents/runner.py`
+- 前端：`lib/chatSession.tsx`、`pages/ChatPage.tsx`
+
+功能点：
+
+- 用户消息进入 `/api/conversations/{id}/messages`，通过 SSE 返回事件。
+- 后端先做意图分类，再进入对应 Agent 或普通对话。
+- 系统会输出可见 ReAct 工作过程：当前状态判断、下一步计划、工具调用、工具结果、最终交付。
+- 前端把 ReAct 步骤以对话形式展示，工具调用可展开查看具体操作和结果。
+- ReAct 步骤会持久化到消息 blocks 中，切换会话后仍能看到工作过程。
+- 通用对话支持模型档位切换，支持 token usage 展示。
+
+SSE 事件主要包括：
+
+- `progress`：进度文本。
+- `token`：模型正文增量。
+- `react_step`：可见 ReAct 步骤。
+- `object`：生成的交付对象引用。
+- `usage`：token 用量。
+- `error`：错误。
+- `done`：结束。
+
+### 3. 意图路由
+
+相关文件：
+
+- `agents/router.py`
+- `api/conversations.py`
+
+当前意图：
+
+- `chat`：通用对话。
+- `thesis_scout`：赛道前瞻，生成 Thesis。
+- `deal_sourcing`：项目挖掘，生成 DealList。
+- `deal_intake`：分析用户给定的单个项目，生成 DealProfile 并创建项目工作台。
+- `preference_advice`：偏好/反偏好修改建议，进入人工审阅队列。
+
+```mermaid
+flowchart TD
+  Msg["用户消息 / 上传材料"] --> Router["Intent Router"]
+  Router --> Chat["通用对话"]
+  Router --> Thesis["赛道前瞻 Agent"]
+  Router --> Sourcing["项目挖掘 Agent"]
+  Router --> Intake["项目分析 Agent"]
+  Router --> Pref["投资偏好建议 Agent"]
+  Thesis --> Deliverable["Thesis 交付物"]
+  Sourcing --> DealList["DealList 项目池"]
+  Intake --> Deal["DealProfile + 项目工作台"]
+  Pref --> Advice["PreferenceAdvice 审阅项"]
+```
+
+### 4. 赛道库和赛道详情
+
+相关文件：
+
+- 后端：`api/deliverables.py`、`services/theses.py`、`services/thesis_market_signals.py`
+- Agent：`agents/thesis_scout`
+- 前端：`components/TrackManager.tsx`、`components/objects/ThesisView.tsx`
+
+功能点：
+
+- 赛道库以卡片形式展示机构已创建或 Agent 生成的 Thesis。
+- 赛道库支持搜索、删除、AI 助手自然语言创建和筛选。
+- 赛道详情包含：
+  - 赛道判断。
+  - 近期市场信号。
+  - 产业链视图。
+  - 子方向推荐。
+  - 代表公司。
+  - 风险点和建议。
+  - 证据链弹窗。
+- 市场信号按五类整理：财经新闻、工商信息、专利信息、学术论文、人事变动。
+- 市场信号支持再次收集，并按当前设置的搜索深度执行 ReAct 搜索。
+- 赛道详情中的市场信号、产业链相关资料和证据链论据应跳转到对应网页或材料，而不是触发关键词搜索。
+- Thesis 可以触发「生成项目池」，进入项目挖掘 Agent。
+
+赛道前瞻子图：
+
+```mermaid
+flowchart LR
+  A["parse_track"] --> B["collect_signals"]
+  A --> C["load_preference"]
+  A --> D["load_history"]
+  B --> E["classify_signals"]
+  C --> H["fit_score"]
+  D --> H
+  E --> F["value_chain"]
+  F --> G["gen_sub_directions"]
+  G --> H
+  H --> I["assemble_thesis"]
+```
+
+### 5. 项目挖掘和候选项目池
+
+相关文件：
+
+- 后端：`agents/deal_sourcing`、`api/deliverables.py`
+- 前端：`components/objects/DealListView.tsx`
+
+功能点：
+
+- 用户可以直接要求系统推荐项目，也可以从赛道详情中生成项目池。
+- 系统会持续搜索和筛选，直到候选项目池基本可用后再呈现。
+- 生成项目前会检查当前项目库：
+  - 已在项目库中的项目显示为「已在项目库中」。
+  - 支持筛选「已在项目库中 / 未在项目库中」。
+- 每个项目卡片包含：
+  - 项目名称、方向、别名、初始评分。
+  - 相关资料链接。
+  - 推荐理由，要求 3-5 条，每条至少一个证据。
+  - 风险点，要求 3-5 条，每条至少一个证据。
+  - 查看证据弹窗。
+- 「筛选理由」已经移除，项目卡片只保留「推荐理由」和「风险点」两类判断。
+
+项目挖掘子图：
+
+```mermaid
+flowchart LR
+  A["gen_search_strategy"] --> B["mine_signals"]
+  B --> C["generate_candidates"]
+  C --> D["dedupe_candidates"]
+  D --> E["verify_candidates"]
+  E --> F["score_candidates"]
+  F --> G["collect_candidate_reference_materials"]
+  G --> H["assemble_deal_list"]
+```
+
+关键实现：
+
+- `gen_search_strategy` 会根据用户请求、赛道上下文和机构偏好拆搜索策略。
+- `mine_signals` 调用 Connector 收集公开信号。
+- `generate_candidates` 从信号反推公司。
+- `dedupe_candidates` 做名称规范化、别名合并和实体去重。
+- `verify_candidates` 调用工商源核验主体，补全公司名、统一社会信用代码和工商证据。
+- `score_candidates` 根据偏好、证据和风险进行评分。
+- `collect_candidate_reference_materials` 尽量补齐官网、近期重要资料、新闻和公告。
+
+### 6. 项目库和项目工作台
+
+相关文件：
+
+- 后端：`api/deals.py`、`services/deals.py`、`services/deal_materials.py`、`services/deal_market_signals.py`、`services/pre_dd.py`、`services/pre_dd_brief.py`
+- Agent：`agents/deal_intake`
+- 前端：`components/DealManager.tsx`、`pages/WorkspacePage.tsx`
+
+项目库功能点：
+
+- 项目库支持搜索、删除、AI 助手自然语言创建和筛选。
+- 项目卡片展示公司名、状态、匹配度、入库状态。
+- 点击项目进入项目工作台。
+
+项目工作台功能点：
+
+- 项目名称下方展示项目状态迁移图。
+- 状态流转：
+  - 初始状态：`初筛中`。
+  - 初筛中可点击「立项」进入 `尽调中`，或点击「否决」进入 `已否决`。
+  - 尽调中可点击「划款」进入 `进行中`，或点击「否决」进入 `已否决`。
+  - 进行中可点击「退出」进入 `已退出`。
+  - 已否决和已退出为终态。
+- 项目工作台包含：
+  - 项目画像。
+  - 项目材料。
+  - 近期市场信号。
+  - Pre-DD 资料。
+  - Pre-DD Brief。
+  - 关联公司工商信息。
+  - 推荐下一步。
+
+项目分析子图：
+
+```mermaid
+flowchart LR
+  A["parse_material"] --> B["enrich_external"]
+  B --> C["align_entity"]
+  C --> D["assemble_deal"]
+```
+
+#### 项目材料
+
+项目材料支持上传文件和材料归类：
+
+- 支持 PDF、Word、Excel、CSV、TXT 等文本型材料。
+- 在「初筛中」阶段上传材料后，系统会读取材料内容并判断其属于 14 个 Pre-DD 资料维度中的哪一类。
+- 若 14 类都不匹配，则建议归类为「背景材料」。
+- 材料可作为项目材料证据，被市场信号、证据链和 Pre-DD Brief 引用。
+
+#### 近期市场信号
+
+项目工作台和赛道详情均复用市场信号逻辑：
+
+- 五类信号：财经新闻、工商信息、专利信息、学术论文、人事变动。
+- 用户可按类别筛选。
+- 用户可点击「再次收集」重新触发收集。
+- 每条信号包含「信号分析」，用几句话说明与当前项目或赛道的关系、启发和核验重点。
+- 搜索逻辑采用 ReAct：先搜索，再由模型研判候选，决定是否继续下一轮搜索。
+- 用户可在设置中配置搜索深度；测试阶段默认深度为 1。
+
+市场信号 ReAct：
+
+```mermaid
+flowchart TD
+  A["生成初始查询"] --> B["调用搜索 / 数据源"]
+  B --> C["候选信号预排序和去噪"]
+  C --> D["模型评估相关性和信号分析"]
+  D --> E{"是否继续搜索"}
+  E -- "继续" --> F["生成下一轮查询"]
+  F --> B
+  E -- "停止" --> G["展示高相关市场信号"]
+```
+
+#### Pre-DD 资料
+
+当前设计为 14 个 Pre-DD 资料维度：
+
+- BP / 产品宣传材料。
+- 股东与股权结构。
+- 组织架构与核心人员。
+- 业务模式。
+- 营销模式。
+- 盈利模式。
+- 财务指标数据。
+- 上游供应商。
+- 下游大客户。
+- 竞争对手。
+- 市场规模和增长。
+- 核心管理团队简历、员工花名册。
+- 融资和估值说明。
+- 未来发展方向或合作诉求。
+
+每个资料项包含：
+
+- 简介：一句话说明需要收集的材料。
+- 已收集材料：包括系统捕获公开信息和机构上传材料。
+- 待收集建议：如果系统认为足够，则显示「材料收集完成」。
+- 状态：已收集 / 待收集，用户可手动切换。
+- 上传资料按钮：允许用户对每个资料项上传材料。
+
+#### Pre-DD Brief
+
+Pre-DD Brief 独立于 Pre-DD 资料卡片：
+
+- 用户点击「生成 Pre-DD Brief」后，系统根据当前资料情况生成 Brief。
+- 支持多版本生成。
+- 用户可点击不同版本查看历史 Brief。
+
+### 7. 投资偏好管理
+
+相关文件：
+
+- 后端：`api/preferences.py`、`api/preference_profiles.py`、`services/preferences.py`、`services/preference_profiles.py`、`services/preference_assistant.py`
+- 前端：`components/PreferenceManager.tsx`、`pages/ChatPage.tsx`
+- 反哺层：`agents/experience/influence.py`
+
+功能点：
+
+- 用户可创建多张命名投资偏好卡片。
+- 每张偏好卡片包含固定维度：
+  - 赛道。
+  - 融资阶段。
+  - 所在地域。
+  - 风险偏好。
+  - 融资规模。
+- 用户可新增自定义偏好维度。
+- 每个维度都有两类取值：
+  - 偏好：机构喜欢的特性，是赛道或项目的加分项。
+  - 反偏好：机构厌恶的特性，是赛道或项目的减分项。
+- 用户可新增和删除补充说明；补充说明会随当前投资偏好交给大模型作为推理参考。
+- 偏好卡片可以应用为机构当前生效偏好。
+- 当前生效偏好是版本化的，写入 `preferences` 表。
+- 左侧边栏下方的「当前投资偏好」卡片展示偏好、反偏好和补充说明，并提供内部滚动条。
+- 投资偏好管理页支持搜索、删除、AI 助手自然语言创建和筛选。
+
+应用偏好时的映射：
+
+- 正向维度进入 `declared_strategy.focus_*` 和 `learned_preference` 的高权重项。
+- 反偏好进入 `declared_strategy.anti_*`、`anti_preference.disliked_*` 和遗留兼容字段 `excluded_tracks`。
+- 补充说明进入 `supplemental_notes` 和 `declared_strategy.supplemental_notes`。
+
+推荐和评分时：
+
+- `agents/experience/influence.py` 会把声明偏好转成评分可读的权重表。
+- 命中偏好会提高项目或赛道匹配度。
+- 命中反偏好会降低匹配度或生成风险提示。
+
+### 8. 经验沉淀和偏好建议
+
+相关文件：
+
+- 后端：`objects/experience.py`、`services/user_actions.py`、`services/experience_distillation.py`、`services/preference_advice.py`
+- Agent：`agents/experience`
+- API：`api/experience.py`、`api/preference_advice.py`
+
+功能点：
+
+- 用户行为会结构化为 UserAction。
+- 系统可以从行为中提取 ExperienceEvent。
+- 强偏好信号会生成 PreferenceAdvice。
+- Advice 进入人工审阅队列，用户接受后才会改写当前偏好。
+- 接受 Advice 后会创建新的 active Preference 版本，旧版本保留审计。
+- 无可执行变更时不会制造噪声偏好版本。
+
+设计原则：
+
+- 经验沉淀 Agent 只能提出建议，不能绕过用户直接改偏好。
+- 显式偏好/反偏好优先级高于行为推断。
+- 所有偏好变更都写 domain_events，便于审计。
+
+### 9. 数据源 Connector
+
+相关文件：
+
+- `connectors/base.py`
+- `connectors/registry.py`
+- `connectors/bocha.py`
+- `connectors/tavily.py`
+- `connectors/qcc.py`
+- `connectors/cache.py`
+
+Connector 统一输出 `Source`，供 Agent、市场信号和证据链复用。
+
+当前数据源：
+
+- 博查：Web 搜索。
+- Tavily：全局搜索、新闻、资料检索。
+- 企查查：工商照面、股东、对外投资等企业信息。
+
+关键约定：
+
+- 数据源按 key 是否配置启用。
+- `allow_overseas_models` 类似合规闸门，控制海外源和海外模型使用。
+- 搜索结果会做 URL 去重、时间截断、噪声过滤和缓存。
+- Redis 缓存默认 TTL 24h，配置为 `SIGNAL_CACHE_TTL_SECONDS`。
+
+### 10. 模型路由
+
+相关文件：
+
+- `llm/client.py`
+- `api/models.py`
+- `litellm/config.yaml`
+
+系统业务代码只使用模型档位，不直接写死具体模型：
+
+- `fast`：轻量分类、候选生成、推荐候选。
+- `standard`：结构化分析、候选研判。
+- `premium`：高价值最终组装、复杂判断。
+- `embed`：向量化预留。
+
+Provider 选择：
+
+- `LLM_PROVIDER=auto` 时优先使用 DeepSeek key，其次 OpenAI key，都没有则回退本地 LiteLLM 网关。
+- 机构级 `allow_overseas_models` 控制海外模型和海外数据源。
+- 前端可读取 `/api/models` 并在对话框中切换可用档位。
+
+## 数据库模型概览
+
+主要表：
+
+- `institutions`：机构。
+- `users`：用户。
+- `conversations` / `messages`：会话和消息，消息 blocks 保存 text、object_ref、usage、react_steps 等结构。
+- `preferences`：当前生效投资偏好，版本化。
+- `preference_profiles`：用户自建偏好卡片。
+- `agent_runs`：Agent 运行生命周期。
+- `domain_events`：领域事件流水。
+- `companies` / `persons` / `deals`：业务对象。
+- `deliverables`：Thesis、DealList 等交付对象。
+- `evidence_items` / `evidence_links`：证据源与对象引用关系。
+- `documents` / `chunks`：文档和 RAG 预留。
+- `user_actions` / `experience_events` / `preference_advice`：经验沉淀链路。
+
+启动时 `main.py` 会尝试 `CREATE EXTENSION vector` 和 `Base.metadata.create_all`，避免开发环境新表缺失导致 500。生产仍应以 Alembic 迁移为准。
+
+## API 模块概览
+
+| 路由前缀 | 文件 | 用途 |
+| --- | --- | --- |
+| `/api/auth` | `api/auth.py` | 注册、登录 |
+| `/api/home` | `api/home.py` | 首页聚合数据 |
+| `/api/models` | `api/models.py` | 可用模型档位 |
+| `/api/conversations` | `api/conversations.py` | 会话列表、消息 SSE、上传材料 |
+| `/api/deliverables` | `api/deliverables.py` | Thesis / DealList 交付物、赛道助手、市场信号、生成项目池 |
+| `/api/deals` | `api/deals.py` | 项目库、项目详情、市场信号、材料、Pre-DD、状态流转 |
+| `/api/preferences` | `api/preferences.py` | 当前机构生效偏好 |
+| `/api/preference-profiles` | `api/preference_profiles.py` | 命名偏好卡片 CRUD、应用、推荐、偏好助手 |
+| `/api/preference-advice` | `api/preference_advice.py` | 偏好建议生成、队列、审阅 |
+| `/api/experience` | `api/experience.py` | 经验扫描 |
 
 ## 目录结构
 
-```
-backend/
-  app/
-    objects/      # ★ 交付结果对象 Pydantic Schema —— 系统契约原点（Thesis / DealList 已完整定义）
-    models/       # SQLAlchemy ORM（三类对象 + 证据链 + domain_events + RAG）
-    llm/          # 档位路由（fast/standard/premium）+ 结构化输出（校验失败自动修复）
-    agents/       # 主图意图路由 + 专用 Agent 子图（赛道前瞻 thesis_scout / 项目获取 deal_sourcing）
-                  #   + runner 执行编排（子图节点纯函数；run 生命周期/落库/SSE 事件由 runner 统一编排）
-    connectors/   # 数据源抽象 + registry 聚合检索（key 启用/合规闸门/去重截断）+ 博查（已实装）/企查查/Tavily
-    evidence/     # 证据链服务（Source 落库、结论连边）
-    services/     # 对象存取（入库强校验）、domain_events 记账与历史回放、偏好读写（版本化）、agent_runs 生命周期
-    api/          # JWT 认证（注册/登录）、对话 SSE（token/progress/object/error/done 协议 + 历史回放）、对象动作（记账）、偏好读写
-  worker/         # ARQ：长任务 + cron（赛道监控、经验沉淀）
-  tests/          # Schema 契约测试 + 运行编排测试
-  evals/          # 赛道前瞻 golden 评测集
-frontend/
-  src/
-    components/objects/  # ★ 对象渲染注册表 + ThesisView 六区
-    mocks/               # AI 硬件 mock Thesis（Phase 0 验收用）
-    pages/               # 首页对话 / 项目工作台
-litellm/config.yaml      # 模型档位配置 —— 换模型只改这里
+```text
+AtomCAP-dev/
+  backend/
+    app/
+      agents/            # 意图路由、ReAct 计划、LangGraph 子图、Runner
+      api/               # FastAPI 路由
+      connectors/        # 博查 / Tavily / 企查查 / 缓存
+      evidence/          # 证据落库与连边
+      llm/               # 模型档位路由与结构化输出
+      models/            # SQLAlchemy ORM
+      objects/           # Pydantic 业务对象契约
+      services/          # 业务服务层
+      main.py            # FastAPI app 入口
+    alembic/             # 数据库迁移
+    tests/               # 后端测试
+    worker/              # ARQ worker
+    pyproject.toml
+  frontend/
+    src/
+      components/        # 领域组件和交付对象渲染
+      lib/               # API、鉴权、会话状态、设置
+      pages/             # ChatPage / WorkspacePage / LoginPage
+      index.css
+    package.json
+  litellm/
+    config.yaml          # LiteLLM 模型档位配置
+  docker-compose.yml
+  .env.example
+  技术规划.md
+  agent_design/
 ```
 
-## 快速启动
+## 本地启动
+
+### 1. 准备环境变量
 
 ```bash
-cp .env.example .env          # 填入模型与数据源 API key
-docker compose up -d postgres redis litellm
-
-# 后端
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-alembic upgrade head                                 # 建表（含 pgvector 扩展与 HNSW 向量索引）
-uvicorn app.main:app --reload                        # http://localhost:8000/docs
-pytest                                               # Schema 契约测试 + 迁移契约测试
-
-# 前端
-cd frontend
-npm install
-npm run dev                                          # http://localhost:5173
+cp .env.example .env
 ```
 
-前端启动后首页即渲染 mock Thesis 的六区 UI（Phase 0 验收标准）。
+至少需要确认：
 
-## Phase 0 待办（按技术规划）
+- `DATABASE_URL`
+- `REDIS_URL`
+- `JWT_SECRET`
+- 一个可用模型入口：DeepSeek、OpenAI 或本地 LiteLLM。
+- 可选数据源：`BOCHA_API_KEY`、`QCC_APP_KEY`、`QCC_SECRET_KEY`、`TAVILY_API_KEY`。
 
-- [x] Alembic 初始化 + 首个 migration（0001：pgvector 扩展 + 全部 15 表 + HNSW 向量索引；`tests/test_migration_contract.py` 保证迁移与 ORM 不漂移；离线审阅用 `alembic upgrade head --sql`）
-- [x] JWT 认证与多租户上下文（`/api/auth/register` 机构引导注册 + `/login` 签发 JWT；`get_current_user` 注入租户上下文并实时读 `allow_overseas_models`；开发回退开关 `AUTH_DEV_FALLBACK`；deliverable 动作端点已带租户过滤并写 domain_events）
-- [x] 通用对话接 `llm.complete()` 流式（`complete_stream()` 复用档位路由与海外合规降级；SSE 新增 error 事件；会话/消息落库带租户过滤，历史回放 `GET /messages`；流内用 `SessionLocal` 短事务——FastAPI ≥0.106 在流式响应前关闭依赖会话）
-- [x] domain_events 在所有对象动作处记账（注册/登录、deliverable 四个动作、会话/消息、agent run 状态流转 `agent_run.started/succeeded/failed` —— `services/agent_runs.py`）
-- [x] 赛道前瞻子图完成后 assistant 消息落库（object_ref 块）+ 真实 deliverable_id 推送（`agents/runner.py` 编排：run 创建 → 子图执行 progress 去重推送 → Thesis 经 SCHEMA_REGISTRY 强校验入库（回链 run 与来源会话）→ `thesis.created` → assistant 消息 → run 收尾；失败路径统一 `agent_run.failed` + error 事件，不落脏数据。`assemble_thesis` 节点已真实实现：PREMIUM 档结构化输出 + 合规开关透传，上游节点为空时基于赛道常识出初版判断，无证据结论自动 `inferred=True`）
-- [x] 赛道前瞻 LLM 节点真实实现（parse_track/classify_signals/value_chain/gen_sub_directions/fit_score：提示词 + 档位按任务轻重 FAST/STANDARD + 合规开关全节点透传；中间结构化模型 `agents/thesis_scout/schemas.py` 复用 Thesis 内嵌模型零转换损耗；classify 空信号守卫不调 LLM；fit 评分按名合并进子赛道草稿、缺失回退机构整体分；`tests/test_thesis_nodes.py` 含真实 LangGraph 子图端到端集成测试）
-- [x] collect_signals 接 Connector 并落 evidence_items（`connectors/registry.py`：按已配置 key 启用数据源、global 源被 `allow_overseas` 闸住——检索词出境与模型调用同等对待；多源×多关键词并发聚合、单源失败降级、URL 去重、按时间截断控成本；信号预分配 evidence_id 供 Claim 绑定，runner 成功事务统一落 evidence_items 并把被引用证据与 deliverable 连边；payload 中不属于本次采集的 evidence_id 一律剥除、剥空的 Claim 自动 `inferred=True`——约定 2 的代码级兜底。博查 web-search 已实装 HTTP 调用并以 MockTransport 离线验证解析契约；企查查/Tavily 仍为桩）
-- [x] Tavily 实装（`connectors/tavily.py`：POST /search Bearer 鉴权、`results[]` 防御式解析、days→time_range 映射、search_news/company_lookup(general topic)/funding_events(组合检索词)；region=global 受 `allow_overseas` 闸控；transport 注入口离线 MockTransport 验证，`tests/test_tavily.py` 覆盖请求体/鉴权/解析/空响应/days 映射）
-- [x] 企查查（工商/股东/对外投资）实装（`connectors/qcc.py`：开放平台 MD5 Token 鉴权（Token=MD5(AppKey+Timespan+SecretKey) 大写）；`company_lookup` 先取工商照面解析 KeyNo，再并发拉股东/对外投资，落 `company_registry`/`company_shareholder`/`company_investment` 三类 Source；字段多候选键防御取值、Status 非 200 降级、无 KeyNo 守卫不打子查询；region=cn 不受 allow_overseas 闸控；search_news/funding_events 返回空——本源服务项目获取 Agent 企业尽调，信号检索仍走博查/Tavily。端点路径以开放平台文档为准、待真实 key 校准；`tests/test_qcc.py` 6 用例覆盖鉴权头/三类解析/Status 降级/Result 列表形/无 KeyNo 守卫/news 空）
-- [ ] 博查真实 key 冒烟测试；企查查真实 key 冒烟（端点路径与字段名按开放平台文档校准）；Tavily 真实 key 冒烟
-- [x] 信号检索 24h 缓存（`connectors/cache.py`：`cached_gather_signals` 在 gather_signals 外套缓存，键含「合规开关 × 启用源集合 × 赛道 × 关键词集合 × 时间窗」——合规开关不同则源集合不同，严禁跨闸门复用结果（约定 5）；关键词大小写/顺序无关最大化命中；只缓存非空结果不钉死失败空集；redis 懒加载、不可用即透明降级为不缓存（缓存层故障绝不拖垮主检索）；TTL 走 `signal_cache_ttl_seconds` 默认 24h。`tests/test_signal_cache.py` 覆盖键稳定性/序列化/命中复用/降级/合规隔离）
-- [x] load_preference / load_history 实装（`services/preferences.get_active`：active 取最大 version、payload 经 InvestmentPreference 校验、脏数据降级空偏好；`services/events.recent_history`：按机构回放白名单事件——runner 在 run 创建事务中预加载注入初始 state，节点保持纯函数：load_preference 校验+剔空字段，load_history 按 parse_track 关键词过滤同赛道历史、附机构行为统计头、上限 50 条；thesis.created 与 deliverable 动作事件 payload 已带 track 上下文供回放匹配——事件流水事后无法补）
-- [x] 项目获取 Agent（Deal Sourcing 搜寻流）真实实现（`agents/deal_sourcing/`：设计文档流程一六节点 LangGraph 子图——gen_search_strategy（FAST，据整个来源 Thesis 与机构偏好拆搜索策略，不止赛道名）→ mine_signals（多 Connector 并发挖掘，每条预分配 evidence_id，复用 24h 缓存与 allow_overseas 闸控）→ generate_candidates（STANDARD，Signal-to-Deal 从信号反推公司，selection_reasons 绑定信号 evidence_id）→ dedupe_candidates（纯函数确定性实体对齐：名称规范化去后缀/括注 + 别名跨条命中合并 + 入选理由按 text 去重）→ score_candidates（STANDARD，逐候选 FitScoreBreakdown 分项 + 推荐分层 strong/watch/observe/reject + 推荐理由/轻量风险，评分缺失中性回退不丢候选，按分降序）→ assemble_deal_list（PREMIUM 仅做池级命名与总览，候选明细结构化保真不重写以保 evidence_ids）。DealList 交付对象扩展对齐 Step 8-10（fit_score/recommendation_tier/recommendation_reasons/initial_risks/source_type/search_themes）。runner.run_deal_sourcing 与赛道前瞻同构编排：run 生命周期 → 证据剥伪连边 → DealList 经 SCHEMA_REGISTRY 强校验入库 → `deal_list.created` 记账 → assistant 消息 object_ref；支持从 Thesis「生成项目池」传 source_thesis_id/thesis_context。conversations.py 接 DEAL_SOURCING 意图（≥0.7 置信度）。`tests/test_deal_sourcing_nodes.py` 11 用例覆盖档位/合规透传/空守卫/实体去重/评分合并回退排序/空池兜底/真实子图端到端，全套 100 测试通过）
-- [x] 项目获取 Agent 分析流（Deal Intake）真实实现（`agents/deal_intake/`：设计文档流程二四节点 LangGraph 子图——parse_material（STANDARD，从 BP 文本/项目介绍/公司名客观抽取 DealExtraction，未提及字段不臆造，空材料守卫不调 LLM）→ enrich_external（企查查 company_lookup 工商实体补全 + 博查/Tavily 新闻融资信号交叉验证，每条预分配 evidence_id，复用 allow_overseas 闸控，未识别项目/无 key 走空证据）→ align_entity（纯函数确定性实体对齐：uscc 精确命中 + 规范化名/别名跨字段等值合并，与机构已有公司去重，命中即关联 company_id）→ assemble_deal（PREMIUM，项目画像/赛道判断/fit_score 分项/投资亮点/初步风险/信息缺口/待验证问题/推荐下一步，Claim 绑定证据，非完整 Pre-DD）。产出**业务对象**：DealProfile 强校验 `deals.data`，`services/business.py` upsert Company（客观信息，命中已有则补全不空覆盖）+ create Deal（status=screening 待初筛）。`agents/runner.run_deal_intake` 同构编排：run 生命周期 → 证据剥伪连边 → Company/Deal 落库 → `deal.created` 记账（约定 4）→ assistant 消息带 deal_ref 块（前端据此进入项目工作台）。`agents/router.Intent.DEAL_INTAKE` + conversations.py 分析型触发（≥0.7 置信度，与 deal_sourcing「找一批」区分「分析一个」）。新增 `connectors/registry.lookup_company`（多工商源并发去重）。`objects/deal.py` 定义 DealExtraction/DealAnalysis/DealProfile/DealStatus。`tests/test_deal_intake_nodes.py` 10 用例覆盖档位/合规透传/空材料与未识别守卫/uscc 与名称别名对齐/source_type 透传/DealProfile 强校验/真实子图端到端，全套 110 测试通过）
-- [x] Deal Intake 文件型材料解析（`app/services/document_extract.py`：上传 PDF/Word(.docx)/Excel(.xlsx)/纯文本 BP → 抽取文本喂入同一 `run_deal_intake` 分析流。按扩展名分派、content-type 兜底，第三方解析库懒加载（未装也不拖垮编译/启动）；体积 20MB 守卫、空文本/扫描件守卫、UTF-8↔GB18030 解码回退；Word 段落+表格按行拼接、Excel 多工作表+单元格制表符拼接、PDF 多页拼接。source_type 推断：Excel→internal_excel、PDF/Word/文本→bp_upload。新增 `POST /api/conversations/{id}/upload`（UploadFile→抽取→把材料记成 user 消息→直进 Deal Intake，免再过意图分类；解析失败 4xx、依赖缺失 503）。`tests/test_document_extract.py` 15 用例覆盖分派/守卫/解码/docx/xlsx/csv/pdf 注入假库，全套 125 测试通过。**顺带修复**：上一版 `conversations.py` 提交时被挂载同步截断成 `return EventSourceRespons`（缺尾），已补全为 `return EventSourceResponse(event_stream())`）
-- [x] deal_sourcing 搜寻流工商核验节点（`agents/deal_sourcing/nodes.verify_candidates`：dedupe 后、score 前新增确定性核验节点——对每个候选并发跑企查查 `registry.lookup_company`（工商照面/股东/对外投资，region=cn 不受 allow_overseas 闸控但连接器集合本身已过滤），命中即用工商主体规范名补 `aliases`、用统一社会信用代码补 `uscc`，并追加一条**绑定工商照面 evidence_id** 的核验 Claim 到 selection_reasons（约定 2：有据可查、未命中绝不伪造证据）；拉到的每条 Source 预分配 evidence_id 累加进 `evidence_sources`（TypedDict 无 reducer，读旧值合并返回），runner 成功事务统一落库连边；`MAX_VERIFY=20`/`VERIFY_CONCURRENCY=5` 控开放平台配额，无工商源 key 时全部未命中、链路无副作用。graph 接入 dedupe→verify→score。`tests/test_deal_sourcing_nodes.py` 新增 3 用例（命中富化+证据累加/未命中不造证据/空候选与无源透传），该文件 14 用例、全套 131 测试通过）
-- [x] 前端项目工作台详情页（`frontend/src/pages/WorkspacePage.tsx` 接通 `api/deals.py`：左侧项目库列表——全部/项目库/按管线状态筛选，已放弃项目按设计收起画像只留名+状态；右侧详情——项目画像/赛道判断、机构匹配度分项（FitScoreBreakdown 七维）、投资亮点/初步风险（Claim 渲染，inferred 标「推断」、有据标证据数，约定 2）、信息缺口/待验证问题、推荐下一步、材料事实、关联企业工商信息；顶部管线流转按钮据 `PIPELINE_NEXT`（镜像后端守卫）只显示合法下一态，用户反馈动作 add_to_library/follow/dismiss/abandon/create_workspace 显示当前态并写后端 domain_events。`lib/types.ts` 镜像 `objects/deal.py`（DealProfile/DealStatus/DealSummary/DealDetail 等），`lib/api.ts` 新增 listDeals/getDealDetail/transitionDeal/triggerDealAction 与 token 注入位（setAuthToken，待登录页落地，开发期依赖后端 AUTH_DEV_FALLBACK）。esbuild transform 校验三文件 TSX 语法通过）
-- [ ] Deal Intake 系统主动推送触发流；deal_sourcing 工商核验深度匹配（创始人/官网级实体对齐，待 Company 业务对象沉淀）；旧版 .doc/.xls 二进制与扫描件 OCR 解析；前端文件上传入口 + deal_ref 块渲染（消息流中的 deal_ref 块点击进工作台）
-- [x] 项目库 / 项目工作台后端 API（`api/deals.py` + `services/deals.py`：Deal Intake 创建的 Deal 此前无读取/推进入口，本增量补齐——`GET /api/deals` 项目库列表（租户过滤、按管线状态/是否入库筛、批量取 Company 名免 N+1、已放弃项目据 is_abandoned 收起）；`GET /api/deals/{id}` 项目工作台详情（完整画像 + 关联 Company）；`POST /transition` 管线状态流转——确定性守卫 `PIPELINE_TRANSITIONS`（sourced→screening→pre_dd→ic_ready→approved/rejected，reject 可从任意非终态、ic_ready 可回退 pre_dd、跳级/自环/终态出口一律 422），改 status 并记 `deal.{to_status}` 事件（deal.approved/rejected 已在历史回放白名单供经验沉淀，约定 4）；`POST /actions/{action}` 用户反馈——add_to_library/follow/dismiss/abandon/create_workspace 更新 data.user_feedback/workspace 块（follow 与 dismiss 互斥）并各记一条 domain_event。`objects/deal.py` 向后兼容扩展 DealUserFeedback（设计字段 11）/DealWorkspace（设计字段 12）可选块，默认值保证既有 deals.data 仍校验通过；动作补丁入库前经 DealProfile 强校验绝不落脏数据。`tests/test_deals.py` 16 用例覆盖流转守卫/动作互斥与校验/不可变输入/summary 投影/向后兼容，全部通过，compileall 通过）
-- [x] Thesis「生成项目池」专用端点（`POST /api/deliverables/{id}/generate-deal-pool`：加载存储的 Thesis 视图经 `services/thesis_context.thesis_context_from_payload` 压成精简上下文——赛道判断/子赛道/产业链位置/机构匹配度/风险/近期信号——喂给 deal_sourcing `gen_search_strategy` 据整个赛道判断拆策略，而非仅赛道名；产出 DealList 自动 `source_type=thesis_generated` 且 `source_thesis_id` 回链。流前完成租户过滤+类型校验（非 Thesis 422），生成器内 SessionLocal 短事务翻转 Thesis 状态→`deal_pool_generated`、记账 `thesis.deal_pool_requested`、新建会话承载 run 与 assistant 消息，再复用 `run_deal_sourcing` 同构编排，SSE 协议 progress/object/error/done 与对话端点一致。`thesis_context_from_payload` 纯函数对缺字段/脏数据宽容，`tests/test_thesis_context.py` 3 用例覆盖完整提取/空字段剔除/脏数据容错，全套 128 测试通过）
-- [ ] Agent 执行迁 ARQ 队列 + Postgres checkpointer（当前内联在请求流中执行，编排已收敛在 runner，整体搬迁即可）
-- [ ] Langfuse 接入（自部署或云版）
-- [ ] auth 接库集成测试（compose 起 postgres 后跑注册/登录全流程）
-- [ ] 用户邀请加入既有机构（多用户；注册仅做机构引导）
-- [x] preferences 写路径（`GET`/`PUT /api/preferences`；PUT 经 `InvestmentPreference` 校验后创建新 active 版本、旧版置否、写 `preference.updated` 事件；版本号由服务层分配并忽略入参；脏输入 422 不入库；经验沉淀 diff 确认流 Phase 4 复用本写路径）
-- [x] 前端登录页 + token 注入（`pages/LoginPage.tsx` 登录/注册机构双模式表单，调 `/api/auth/login`、`/api/auth/register`，成功拿 JWT 经 `lib/auth.tsx` AuthProvider 存 localStorage 并 `setAuthToken` 注入；`bootstrapAuth()` 在 main.tsx 渲染前回灌 token 保证首屏请求带 Authorization；`RequireAuth` 守卫包住 `/` 与 `/workspace`，未登录跳 /login 并记来源回跳；`api.ts` 的 `apiJson` 与 SSE `sendMessage` 统一注入 Bearer 头（此前 SSE 漏带）；ChatPage 侧栏加退出登录。后端 `settings.auth_dev_fallback` 默认已为 False——登录闭环就此打通，无需再依赖 dev 回退。esbuild 逐文件 TSX transform 校验 6 文件语法通过）
+开发时可把 `.env` 中 `AUTH_DEV_FALLBACK=true` 打开；生产必须关闭。
 
-## 经验沉淀 Agent 路线（按 `agent_design/经验沉淀Agent.docx`，2026-06-15 新增设计）
+### 2. 启动基础服务
 
-经验沉淀（投资学习）Agent 把用户行为转化为机构偏好，反哺赛道前瞻 / 项目获取 / Pre-DD 三个 Agent。设计文档定义四层管线（实时产生 → 经验归纳 → 偏好改进 → 最终沉淀）与五个对象（Message、UserAction、ExperienceEvent、Preference_Advice、Preference）。**与技术规划 Phase 4「周级 cron」的差异**：设计文档要求每 5 分钟增量扫描 + 每 1 小时聚合 + 强信号实时生成 Advice，且即便强信号也一律进人工审阅、绝不直接覆盖 Preference——经验沉淀的对象/字段/节奏以本设计文档为权威，技术规划仅保留架构主线。现状：`agents/experience/graph.py` 与 `worker/main.py` 仅有 `distill_experience` 周级 cron 桩。
+```bash
+docker compose up -d postgres redis litellm
+```
 
-落地按以下独立可验证的增量推进（建议顺序）：
+如果你希望后端和 worker 也用 Docker：
 
-- [x] **五对象 Schema + ORM/迁移**：`objects/experience.py` 落地 UserAction / ExperienceEvent / PreferenceAdvice 三系统对象（不进 SCHEMA_REGISTRY，类比 Message）+ 全部枚举（`UserActionType`/`SignalType`/`ExperienceEventType`/`ExperienceStatus`/`AdviceType`/`ReviewStatus`/`Polarity`/`SignalStrength`）+ 行为权重表常量 `ACTION_WEIGHTS`（查看详情+1…生成 Pre-DD Brief+5…放弃项目-5…标记风险不可接受-6）+ 嵌套子结构（target_snapshot/action_strength/observed_pattern/preference_impact/suggested_changes/review/application 等，全部带默认值便于增量填充）；`objects/preference.py` 的 `InvestmentPreference` 扩展为 `declared_strategy` + `learned_preference`（5 张 `WeightedItem` 权重表每项带 confidence）双块，并补 anti_preference/preferred_deal_profile/risk_boundary/scoring_weights/版本溯源字段，**保留早期扁平字段故旧 `preferences.data` 仍校验通过**；ORM 加 `UserActionRow`/`ExperienceEventRow`/`PreferenceAdviceRow` 三表（user_actions 带 `scanned` 标志供 5min 增量扫描去重、experience_events 带 `advice_generated` 标志供 1h 聚合筛选）；Alembic `0002_experience_objects` 迁移建三表+索引；`test_migration_contract` 重构为**跨 versions/ 全部迁移并集校验**（增量迁移不漂移）；新增 `test_experience_schemas.py` 7 用例（快照/权重表对账/生命周期默认/审阅队列默认/向后兼容旧 payload/双块），全套 **154 测试通过**，`alembic upgrade head --sql` 离线生成 0001→0002 全部 19 表 OK
-- [x] **UserAction 落库（约定 4 的强化）**：新增 `services/user_actions.py`——deal/thesis 动作端点在写 domain_events 的同一事务里落结构化 `UserAction`（`user_actions` 表，payload 存完整 UserAction + 去规范化列 action_type/target/polarity/weight/confidence/`scanned=False` 供 5min 增量扫描）。`record_user_action` 按动作映射表挂接：项目工作台反馈动作（add_to_library→加入项目库 / follow→关注 / dismiss→不感兴趣 / abandon→放弃 / create_workspace→建工作台）、管线流转（pre_dd→生成 Pre-DD Brief +5 / ic_ready→准备上会 +6 / rejected→放弃推进 -5）、赛道交付物（follow_track→关注赛道 +2 / generate_deal_pool→生成项目池 +2）。**必须保存 `target_snapshot`**：`snapshot_from_deal` 从 DealProfile 抽赛道（extraction.track 缺则回退 analysis.track_judgement）/子赛道/阶段/fit_score（缺字段不臆造），`snapshot_from_thesis` 抽赛道名，对象后续被更新也不丢复盘上下文。`action_strength` 取自设计文档行为权重表常量 `ACTION_WEIGHTS`、显式 UI 点击 confidence=1.0、未在表中记 neutral。**设计取舍**：sourced→screening（系统初筛推进，无偏好信号）与 approved（立项通过，UserActionType 枚举暂无对应类型）不落 UserAction，仅保留 domain_events 供经验沉淀历史回放，待补专用类型；开发回退无登录用户（user_id=None）跳过 UserAction（非空外键）但 domain_event 照常写，主链路不破。`tests/test_user_actions.py` 10 用例覆盖权重表对账/映射表合法性/快照抽取与回退与容空/UserAction 组装/无用户跳过，与 test_deals/test_experience_schemas 同跑 32 测试通过，compileall 通过
-- [x] **PreferenceSignal 抽取**（管线第 1 层，`agents/experience/extract.py` + `objects/experience.py` 新增 `ExtractedPreferenceSignal`/`SignalSourceType`/`PreferenceDirection`/`SignalTargetScope`）：**Message 路径** `extract_message_signal`（LLM STANDARD，`MessageSignalExtraction` 中间模型判 `is_preference_signal` + 抽 signal_type/正反向偏好/作用范围/strength/confidence/rationale；**区分长期偏好与单次任务指令**——`durable=False` 即「这次先帮我找下游」临时请求不沉淀、`durable=True` 即「以后这个赛道不看上游」才沉淀，`temporary_request` 恒强制 `durable=False` 防 LLM 误判；polarity 由正/反向偏好推断 MIXED/POSITIVE/NEGATIVE，空文本守卫不调 LLM，allow_overseas 透传约定 5，已知 thesis/sector 上下文回灌不覆盖 LLM 抽到值）。**UserAction 路径** `extract_user_action_signal`（纯函数零 LLM，据已落库的 `action_strength`（`ACTION_WEIGHTS`）出 polarity/weight、`strength_from_weight` 按权重绝对值 ±1~2 弱/±3~4 中/±5~6 强分档、`target_snapshot`→`SignalTargetScope`、正向→positive 反向→negative 取最具体画像维度；中性/零权重返回 None）。**本层只抽信号、不创建 ExperienceEvent**（Step 4 匹配层后续增量）。`tests/test_preference_signal.py` 12 用例离线全绿
-- [x] **ExperienceEvent 匹配/更新/创建 + 生命周期**（`agents/experience/match.py`：纯函数、不连库、不调 LLM——输入 Step 2/3 抽出的 `ExtractedPreferenceSignal` 与同用户已有 ExperienceEvent，输出新建或更新后的事件。**匹配**（Step 4）按「家族 + 主体 + 维度一致度 + 时间窗」判同一模式：信号/事件分 preference/anti/risk/correction 四家族先隔离正负方向；同机构、user 维度事件须同用户；维度特异度加权（related_thesis_id/sub_sector=3、sector/产业链位置=2、stage/region/risk=1）算一致度与冲突度，一致≥赛道级且压过冲突才命中——故同子赛道累积合并、不同子赛道默认不误并、但同赛道+同产业链位置可跨子赛道合并「整机品牌」式模式；`max_gap_seconds` 可选时间窗 staleness。**更新**（Step 5）不可变返回副本：追加 source_message/user_action_id、富化 target_scope、并 observed_pattern/preference_impact（按 field_path+target+operation 去重）、`_blend_confidence` 向 1 收缩半步单调饱和、强度取最强、扩 time_window.end。**创建**按信号建事件、preference_impact 草案绑定 learned_preference 字段路径。**生命周期**（Step 6）状态机 open→candidate→advice_generated→accepted/rejected→archived：`ALLOWED_STATUS_TRANSITIONS` 守卫非法流转，open→candidate 在累计≥3 条同向证据/置信度≥0.75/强信号时自然推进，advice_generated 及之后不被新证据回退；强且 durable 的信号首条即 candidate。`objects/experience.py` 的 ExperienceEvent 补 `target_scope` 维度身份字段（向后兼容、存 JSONB 不需迁移）。`ingest_signal`/`ingest_signals` 供 Step 5 每 5 分钟增量扫描复用。`tests/test_experience_match.py` 19 用例离线全绿。**顺带修复两处既有缺陷**：① `api/deliverables.py` 在 6e654b9 提交时被挂载同步截断（generate_deal_pool 尾部 run_deal_sourcing 调用与 SSE 收尾丢失、整个 backend 无法导入），按 fa77702 完整版 + 6e654b9 的 UserAction 增量重建；② `tests/test_preference_signal.py` 的 `_run` 改用 `asyncio.run` 修复全套运行时的事件循环隔离失败。compileall 通过、**全套 194 测试通过**）
-- [x] **每 5 分钟增量扫描 cron**：`services/experience_distillation.py` 的 `scan_experience` 增量读取未扫描的 Message / UserAction（Message 经 `experience.message_scanned` domain_event 去重、UserAction 用 `scanned` 列去重），调 Step 2/3 抽取器出 `ExtractedPreferenceSignal`，再用 `match.py` 的 `ingest_signal` 折叠进 ExperienceEvent（创建/更新并回写 row 去规范化列与 payload），写 `experience.event_created`/`event_updated` 事件；非偏好 Message 也标记 scanned 避免重复调 LLM。`worker/main.py` 的 `distill_experience` 改为每 5 分钟 cron 遍历所有机构（按 `allow_overseas_models` 透传约定 5），并提供 `POST /api/experience/scan` 手动触发端点便于离线验证。`tests/test_experience_distillation.py` 2 用例（UserAction 创建+更新事件并标 scanned / 非信号 Message 标 scanned）离线全绿
-- [x] **每 1 小时聚合 + 强信号 → Preference_Advice**：`services/preference_advice.py` 的 `generate_preference_advice` 扫 status=open/candidate 且 `advice_generated=False` 的事件，`_qualifies` 按设计阈值（strong 信号 / confidence≥0.75 / 证据数≥3 / 已是 candidate）筛选成熟事件，open 先 `promote_to_candidate` 再 `mark_advice_generated`，转成 `PreferenceAdvice`（suggested_changes 含 field_path/target/operation/delta/reason、advice_type 据 field_path 推断、priority 据强度与证据数分级、source_summary 统计消息/行为数与时间窗、expected_effect 标注影响赛道前瞻/项目获取/Pre-DD）。**即便强信号也只生成 advice、不直接改 Preference**，落 `preference_advice` 表 review_status=pending_review。`worker/main.py` 加 `generate_preference_advice_job` 每小时整点 cron。`tests/test_preference_advice.py` 覆盖生成标记与审阅落库，全套测试通过
-- [x] **Preference_Advice 人工审阅 API**：`api/preference_advice.py` 提供 `POST /api/preference-advice/generate`（手动聚合）、`GET /api/preference-advice`（pending 审阅队列，前端只展示自然语言解释与 suggested_changes）、`POST /{advice_id}/review`（接受/拒绝）。审阅经 `review_preference_advice`：幂等守卫（非 pending 报 422）、写 review 子结构与 review_status、对应 ExperienceEvent 据决定 `mark_accepted`/`mark_rejected`、记 `preference_advice.accepted`/`rejected` domain_event 并落一条 `UserActionType.ACCEPT/REJECT_PREFERENCE_ADVICE` 结构化行为（约定 4）；部分接受暂返回 422 留给偏好编辑流。前端审阅卡片随首页工作台一并迭代
-- [x] **审阅接受后版本化 Preference**（`agents/experience/apply.py` + `services/preference_advice.py`：纯函数 `apply_changes_to_preference` 把一条已接受 Advice 的 `suggested_changes` 应用到 `InvestmentPreference`——按 `field_path` 命中 `learned_preference` 五张权重表（sector/subsector/industry_chain_position/stage/region）与 `risk_boundary`，`increase_weight`/`decrease_weight`/`set` 操作裁剪到 [0,1]，缺 delta 回退默认步长 0.1，命中则更新权重并抬升 confidence、未命中则以基准 0.5±步长新建 `WeightedItem`，只动学习块**绝不碰 `declared_strategy` 与扁平遗留字段**，逐条记 applied/skipped 便于审计；非可执行 field_path/operation（如占位 `review`）一律 skipped。编排 `apply_accepted_advice` 在 `review_preference_advice` 的 accept 分支内：读当前 active 偏好为基底（无则空偏好可冷启动）→ 应用 → 经 `set_active_preference` 复用 preferences 写路径创建新 active 版本（旧版置否、版本号服务层分配）→ 写 `preference.updated` 事件（载新版本号/base_preference_version/逐条 applied_changes 供经验沉淀复盘）→ `PreferenceAdvice.application` 标 `applied=True` + `new_preference_version` + 行 `applied` 列；新偏好填溯源 `source_advice_ids`/`source_experience_event_ids`/`change_summary`/`reviewed_by`。**无任何可执行改动则不造噪声版本**（applied=True 但 new_preference_version=None）。`review` API 返回新增 `applied`/`new_preference_version`。`tests/test_preference_application.py` 12 用例覆盖增减/新建/set/裁剪/跳过/风险边界/声明块保全/输入不可变，`test_preference_advice.py` 接受用例断言版本化与无改动跳过，全套 **216 测试通过**）
-- [x] **三 Agent 读 learned_preference 反哺**（`agents/experience/influence.py` 纯函数反哺层：`assess_preference_fit` 据 learned_preference 五张权重表按维度特异度（子赛道>赛道/产业链>阶段/地域，对齐 match.py）算「置信度缩放后的加权平均偏好」×有界上限 MAX_FIT_DELTA，叠加 anti_preference 惩罚后裁剪到 ±MAX_TOTAL_DELTA；`screen_risk_boundary` 据 risk_boundary 低容忍维度对已识别风险关键词初筛旗标；`extract_preference_blocks` 统一取 learned/anti/risk 块。**空 learned_preference/risk_boundary → 零调整零旗标，严格非回归**；每条调整落 inferred Claim（约定 2 可解释）。三 Agent 接入：赛道前瞻 `fit_score` 节点对子赛道 total 微调并稳定重排（影响推荐排序）；项目获取·搜寻 `score_candidates` 对候选 initial_score 微调、按 _tier_from_score 重算分层、risk_boundary 旗标；项目获取·分析 `assemble_deal` 对 DealProfile overall_fit/fit_score.total 微调 + 风险初筛（Pre-DD 仍是 Phase 3 桩，风险初筛落在已实现的搜寻/分析风险）。`tests/test_preference_influence.py` 39 用例（纯函数边界 + 三 hook「空偏好恒等」非回归守卫），全套 **278 测试通过**）
+```bash
+docker compose up -d backend worker
+```
 
-## 近期增量（2026-06-18）
+### 3. 启动后端
 
-- [x] **修复通用对话发消息无响应**（`api/conversations.py`：`send_message` 的 SSE 流先做一次意图分类，而分类是额外的结构化 LLM 调用——`complete_structured` 最多两次串行调用、每次按请求超时阻塞。网关慢/不可达时整条流会静默卡在「正在理解你的问题」，通用对话 Agent 永远不被触发。本轮新增 `classify_intent_bounded`：用 `asyncio.wait_for(intent_classify_timeout_seconds, 默认 10s)` 限时，超时或异常一律降级为通用对话，保证通用 Agent 必被触发；进入通用对话前下发 `正在生成回答` 进度事件、LLM 失败时把真实错误透传给前端（不再静默）、空响应给明确提示。`config.py` 新增 `intent_classify_timeout_seconds`。新增 3 个单测覆盖限时/异常/正常透传）
-- [x] **首页聚合 API**（`api/home.py`：`GET /api/home` 以 CurrentUser.institution_id 做租户过滤，一次性聚合首屏所需的用户/机构、当前偏好、会话列表（按最近消息时间排序、带预览）、交付物、项目库与项目状态分布统计；深度详情仍由各领域端点按需读取）
-- [x] **LLM 直连 Provider 路由**（`config.py` + `llm/client.py`：`LLM_PROVIDER=auto` 时优先 DeepSeek，其次 OpenAI，都无 key 回退 LiteLLM 网关；`resolve_provider`/`resolve_model` 按 provider 映射档位模型名，客户端按连接签名懒构建并支持单测 monkeypatch、可配请求/连接超时与 HTTP 代理。`conftest.py` 强制测试走 litellm 档位别名并清空所有外部 key 保证离线隔离）
-- [x] **会话历史回放端点**（`api/conversations.py`：`GET /api/conversations/{id}/messages` 读取当前用户某会话完整消息，供首页「最近」打开真实上下文）
-- [x] **修复 `apply_deal_action` 截断**（`services/deals.py` 该函数在历史提交中被挂载同步截断为只剩守卫，本轮补全：取项目→应用补丁→DealProfile 强校验入库→记 `deal.{action}` 事件 + 结构化 UserAction；`list_deals` 支持 `limit=None` 供首页取全量）
-- [x] **前端首页工作台接真实数据**（`pages/ChatPage.tsx` 接入 `getHome`/`getConversationMessages`/`uploadMaterial`/`getDeliverable`，会话历史回放、文件上传入口与交付物详情；`lib/api.ts` 补齐对应端点与类型）
-- [x] **手动创建项目 / 赛道草稿 + 页面级助手**（`api/deals.py` `POST /api/deals` 与 `api/deliverables.py` `POST /api/deliverables/manual-thesis`：Deal Intake / 赛道前瞻 Agent 之外的人工录入口——手动建档落 `source_type=user_input` 的 screening 草稿（自动加入项目库并建工作台）/ `ThesisStatus.DRAFT` 赛道草稿，均经 DealProfile / SCHEMA_REGISTRY[THESIS] 强校验、Claim 无证据自动 `inferred=True`、记 `deal.created`/`thesis.created` 事件；`deals._manual_deal_profile` 提取为纯函数与 `deliverables._manual_thesis_payload` 对齐便于离线校验。新增 `components/PageAssistant.tsx` 页面级助手（注入当前页面上下文走通用对话 SSE，ChatPage 赛道库 / WorkspacePage 项目库底部均可随时追问），`lib/api.ts` 补 `createDeal`/`createManualThesis`。`tests/test_manual_create.py` 9 用例覆盖来源标记/库与工作台标志/子方向 3–7 边界/SCHEMA_REGISTRY 校验/推断标注，全套 225 测试通过）
-- [x] **对话框模型自动检测 + 切换**（核心约定「业务代码只用 fast/standard/premium 档位别名」前提下做模型切换）：`llm/client.py` 提取 `_provider_model_map` 并新增 `available_models(allow_overseas)`（自动检测当前 `resolve_provider()` 选中的 Provider 与各档位具体模型，premium 受机构海外开关约束标 `available`）与 `coerce_tier`（前端档位字符串收敛为合法对话档位，空/非法/embed 回退标准）；新增 `GET /api/models` 路由（`api/models.py`，按 `allow_overseas_models` 返回可选项）；`conversations.send_message` 的 `SendMessageRequest` 加 `model_tier`，通用对话分支据此 `coerce_tier` 选档并写入消息元数据。前端 `lib/api.ts` 加 `getModels`/`ModelOption` 与 `sendMessage` 可选 `modelTier`，`ChatPage` 挂载自检模型、`Composer` 输入区下拉切换、premium 未开海外则禁用。`tests/test_models.py` 5 用例覆盖档位收敛/各 Provider 检测/海外门控/空档位跳过，全套 230 测试通过）
+Windows PowerShell：
 
-## 近期增量（2026-06-19）
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+alembic upgrade head
+uvicorn app.main:app --reload
+```
 
-- [x] **对话框思考过程 + 每条消息 Token 数**（用户对话框需求 ②③，结构化流式协议扩展）：`llm/client.py` 新增 `StreamChunk`（text/reasoning/usage 三字段）与 `stream_chat` 生成器——`stream_options.include_usage` 取末块 token 用量、`delta.reasoning_content`（兼容 `model_extra`）透出思考增量；`complete_stream` 改为 `stream_chat` 的纯文本兼容封装（仅产正文，旧调用零改动）。`api/conversations.py` 通用对话分支改用 `stream_chat`：思考增量走新 `reasoning` SSE 事件、token 用量走新 `usage` SSE 事件并以 `usage` 块持久化进 assistant 消息（`services/conversations.assistant_blocks`/`usage_block`，迁移无关——`blocks_to_text`/`to_llm_messages` 只认 text/object_ref 块，故用量块对 LLM 上下文与历史正文完全透明），同时落 `message.completed` 事件 payload 供审计。前端 `lib/api.ts` 的 `SseHandlers` 加 `onReasoning`/`onUsage` 与两事件解析；`ChatPage` 的 `ChatMessage` 加 `reasoning`/`usage`，流式回调累积思考、`MessageBubble` 渲染可折叠「思考过程」卡（生成中标注）与气泡下方 token 行，历史回放从 usage 块回灌。`tests/test_stream_metadata.py` 9 用例（reasoning/text/usage 分流、model_extra 兜底、无用量块降级、海外降级、complete_stream 向后兼容、_chunk_usage 防御、usage 块上下文透明），全套 **239 测试通过**，esbuild 校验 api.ts/ChatPage.tsx 语法通过。思考过程实时展示不落库（避免 CoT 撑大 DB），token 用量持久化故刷新后历史仍显示。**注**：DeepSeek reasoner 的 `reasoning_content` 真实产出需真实 key 冒烟确认（普通模型无此字段，链路安全降级为只产正文）
+macOS / Linux：
 
-- [x] **会话历史列表端点 `GET /api/conversations`**（用户对话框需求 ④「会话历史窗口看全部历史」的后端）：`services/conversations.py` 抽出统一会话列表口径——纯函数 `project_conversations`（关键词过滤 + 最后活跃时间倒序 + 分页 + 标题兜底/预览投影，离线可测）与异步壳 `list_conversation_summaries`（`_fetch_conversation_records` 取会话/最后消息时间/预览，租户 + 用户过滤）；`api/conversations.py` 新增 `GET /api/conversations`（`limit` 收敛 1..100、`offset≥0`、`q` 在标题与最近消息预览里大小写无关匹配，返回 `{items,total,limit,offset}`，`total` 为过滤后总数供翻页）；`api/home.py` 的 `_conversation_items` 改为复用同一函数，删除重复的 last_message 子查询与预览逻辑（首页「最近会话」与历史窗口自此**同源、口径不再漂移**）。`tests/test_conversation_list.py` 12 用例（预览 80 字截断/object_ref 占位/空、排序与 updated 回退、并列稳定、标题兜底、关键词过滤、分页 total、异步壳 monkeypatch DB 委派），全套 **290 测试通过**。前端历史窗口 UI 待接（纯前端，可复用本端点）
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+alembic upgrade head
+uvicorn app.main:app --reload
+```
 
-- [x] **投资偏好界面：用户自建命名偏好卡片（创建 / 列表 / 详情编辑 + 维度 AI 推荐）**（基于 786fb50）：与「当前投资偏好」（机构唯一生效偏好 `/api/preferences`，经验沉淀 Agent 反哺、fit_score 单条读取）**分离**，新增用户在「投资偏好」界面手动创建的多张命名偏好卡片，五个固定维度（偏好赛道 / 融资阶段 / 所在地域 / 风险偏好 / 融资规模）均为「增量式配置」（点「添加」展开小下拉，给 AI 推荐候选 + 支持自定义输入）。**后端**：`objects/preference_profile.py`（`PreferenceProfile` 五维取值列表 + 名称，字段校验去空白去重）；`models.py` 加 `PreferenceProfileRow` 表（与 `Preference` 分离，`created_by` 可空兼容 AUTH_DEV_FALLBACK、`archived` 软删除）；Alembic `0003_preference_profiles` 建表（迁移契约跨 0001→0003 列集合校验）；`services/preference_profiles.py` 租户隔离 CRUD + 列表/详情投影；`services/preference_recommendations.py` 维度推荐——**LLM（fast 档，约定 3/5）生成优先、任意失败回退精选静态清单**（离线可用、确定性，无 key 环境即接口桩，本节点已离线验证降级路径）；`api/preference_profiles.py` 提供 `GET/POST /api/preference-profiles`、`GET/PUT /{id}`、`GET /recommendations`（创建/更新连带写 `preference_profile.created/updated` domain_events，约定 4；`/recommendations` 声明在 `/{profile_id}` 之前避免被 UUID 路径吞掉）。**前端**：新增 `pages/PreferencePage.tsx`（卡片列表 + 右上「创建偏好」按钮 + 创建弹窗 + 详情编辑界面，`DimensionField` 增量编辑器创建与编辑复用，下拉拉 `/recommendations`）；`App.tsx` 加 `/preferences` 与 `/preferences/:profileId` 路由；`ChatPage` 左栏「投资偏好」导航改指 `/preferences`；`lib/api.ts` 补客户端函数与类型。`tests/test_preference_profiles.py` 12 用例（schema 清洗/空名拒绝/维度推荐排除已选与限额/AI 合并优先与降级/未知维度跳过 LLM/CRUD 服务与投影），全套 **303 测试通过**，前端 `tsc --noEmit` + esbuild 语法校验通过，`alembic upgrade head --sql` 离线生成 0001→0003 OK。
-- [x] **投资偏好页交互修正**（用户反馈）：①页面改为带**左侧侧边栏**（logo/导航 新对话·项目库·赛道库·投资偏好/用户与退出）的整页布局，侧边栏不再消失；ChatPage `mode` 初始值支持从 `?view=tracks` 深链，供偏好页侧边栏跨页跳赛道库；②主区右下常驻**可打开/关闭的 AI 对话窗口**（复用 `PageAssistant` 走通用对话 SSE，注入当前偏好上下文：列表给已建偏好名，详情给该卡片五维），用户可用自然语言对偏好提需求；③列表加载 500 兜底——侧边栏始终在，并提示「首次使用请在 backend 执行 `alembic upgrade head` 完成迁移」（`preference_profiles` 表由 0003 迁移建，未迁移时查询 500）。前端 `tsc --noEmit` + esbuild 通过。
-- [x] **投资偏好页二次修正**（用户反馈）：①**彻底解 500**——`main.py` 加 FastAPI `lifespan` 启动钩子，`Base.metadata.create_all`（幂等、checkfirst 只建缺表，不动 Alembic 现有表，扩展与建表分两事务、全程 guarded 不阻断启动）确保 `preference_profiles` 等新表存在，免去用户手动迁移（生产仍以 `alembic upgrade head` 为权威；重启后端即生效）；②AI 对话窗口**改为页面正中弹出**，且开关时保持挂载（会话 id 连续）；③**对话纳入会话历史**——`SendMessageRequest` 新增 `context` 字段，页面级助手把页面上下文走 `context`（只进 LLM 输入），用户消息正文与会话标题保持干净，故 AI 助手发起的会话以用户真实问题为题进入会话历史；`services/conversations.compose_user_content` 纯函数拼装并补单测。后端全套 **304 通过**，前端 `tsc --noEmit` + esbuild 通过。
-- [x] **投资偏好页融回首页 shell（侧边栏完全一致）+ 全高对话框**（用户反馈）：原独立 `/preferences` 路由会重绘一个侧边栏，与首页不一致。改为**恢复为 ChatPage 的 `mode==='preference'`**（投资偏好回归首页内部模式，**复用同一套左侧侧边栏**，零重绘）：新增 `components/PreferenceManager.tsx`（卡片列表 + 创建偏好弹窗 + 详情编辑，内部 `selectedId` 切换免路由 + 全高对话框）内嵌进 ChatPage 主区；ChatPage 左栏「投资偏好」导航恢复 `setMode('preference')`；删除独立 `pages/PreferencePage.tsx` 与 `/preferences` 路由，并清理 ChatPage 旧偏好编辑残留（`PreferenceDialog`/`PreferenceDetail`/`InfoTile`/openPreferenceEditor/handleSavePreference 等，satisfy `noUnusedLocals`）。AI 对话框改为**水平居中、上下占满整屏高度**的浮层（`fixed inset-y-0 left-1/2`），可开关、始终挂载保持会话连续。前端 `tsc --noEmit` + esbuild 通过，后端未改（304 通过）。
-- [x] **投资偏好「AI 助手」三栏 + 自然语言指令驱动**（用户反馈）：点「AI 助手」后页面呈左中右三列（左=首页同款侧边栏 ｜ 中=会话栏 ｜ 右=偏好栏）。中间会话栏接受自然语言指令、系统自动在右侧完成：① `services/preference_assistant.py` 把指令解析为 create/filter/unrelated（LLM standard 档优先 + **启发式离线兜底**：按动词关键词分类、按维度精选清单匹配取值）；② `POST /api/preference-profiles/assistant`——create 落库+记账（source=assistant）返回新卡片、filter 返回关键词、unrelated 返回提示（端点声明在 `/{profile_id}` 之前）；③ 前端 `PreferenceManager` 三列布局 + `AssistantPanel` 会话组件：create 后刷新右栏并清筛选、filter 按关键词（空格/大小写无关，匹配名称与五维）过滤右栏卡片、unrelated 提示用户输入与偏好相关请求。`tests/test_preference_assistant.py` 8 用例（启发式 create/filter/unrelated/空 + LLM 成功/降级/create 缺 profile 兜底），全套 304→**312 通过**，前端 `tsc --noEmit` + esbuild 通过。
-- [x] **赛道库三栏重构（镜像投资偏好）**（用户反馈）：赛道库（ChatPage `mode==='tracks'`，本就复用首页侧边栏）点「AI 助手」后呈左中右三列（左=侧边栏 ｜ 中=会话栏 ｜ 右=赛道栏）。① `services/track_assistant.py` 解析指令为 create/filter/unrelated（LLM standard 档 + 启发式离线兜底：动词关键词分类 + 主题词抽取）；② `POST /api/deliverables/tracks/assistant`——create 复用 `_manual_thesis_payload` 落库（thesis.created，source=assistant）、filter 返回关键词、unrelated 提示（声明在 `/{deliverable_id}` 之前）；③ 前端 `components/TrackManager.tsx` 三列：中栏 `TrackAssistantPanel` 调 `trackAssistant`（create→刷新 home、filter→按 title 关键词过滤、unrelated→提示）、右栏赛道卡片 + 新建赛道弹窗（调 `createManualThesis`），点卡片走 onOpenTrack 在对话视图打开该交付物。ChatPage `mode==='tracks'` 内容换 `<TrackManager/>`，**清理旧 TrackList/CreateTrackDialog/DialogShell/Field/DataPanel/EmptyState/parseListInput/PageAssistant import 等残留**（noUnusedLocals，ChatPage 1383→1083 行）。`tests/test_track_assistant.py` 7 用例，全套 312→**319 通过**，前端 `tsc --noEmit` + esbuild 通过。
-- [x] **项目库三栏重构（镜像投资偏好）**（用户反馈）：项目库改为 ChatPage `mode==='deals'`（复用首页侧边栏），点「AI 助手」后呈左中右三列（左=侧边栏 ｜ 中=会话栏 ｜ 右=项目栏）。① `services/deal_assistant.py` 解析指令为 create/filter/unrelated（LLM standard 档 + 启发式离线兜底）；② `POST /api/deals/assistant`——create 复用 `_manual_deal_profile` 建 Company+Deal（deal.created，source=assistant）、filter 返回关键词、unrelated 提示（声明在 `/{deal_id}` 之前）；③ 前端 `components/DealManager.tsx` 三列：中栏 `DealAssistantPanel` 调 `dealAssistant`（create→`listDeals` 刷新、filter→按公司名/画像关键词过滤、unrelated→提示）、右栏项目卡片（含状态/匹配度/入库标签）+ 新建项目弹窗（调 `createDeal`），点卡片 `navigate(/workspace/:id)` 打开项目工作台（Pre-DD/管线推进等深度动作仍在 WorkspacePage）。ChatPage 加 `mode==='deals'`、`type HomeMode` 加 deals、`?view=deals` 深链、左栏「项目库」导航由 `navigate('/workspace')` 改 `setMode('deals')`。`tests/test_deal_assistant.py` 7 用例，全套 319→**326 通过**，前端 `tsc --noEmit` + esbuild 通过
+后端文档：
+
+- 健康检查：http://localhost:8000/healthz
+- OpenAPI：http://localhost:8000/docs
+
+### 4. 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端默认地址：http://localhost:5173
+
+### 5. 启动 Worker
+
+如果需要跑后台任务：
+
+```bash
+cd backend
+arq worker.main.WorkerSettings
+```
+
+## 测试和质量检查
+
+### 后端测试
+
+推荐使用项目虚拟环境：
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest
+```
+
+常用局部测试：
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_preference_profiles.py
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_preference_influence.py
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_deals.py
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_deal_sourcing_nodes.py
+```
+
+### 前端构建
+
+```bash
+cd frontend
+npm run build
+```
+
+### Lint
+
+后端配置了 Ruff：
+
+```bash
+cd backend
+ruff check app tests
+```
+
+## 开发指南
+
+### 新增一个后端业务对象
+
+建议顺序：
+
+1. 在 `backend/app/objects` 增加 Pydantic Schema。
+2. 如需落库，在 `backend/app/models/models.py` 增加 ORM 表或扩展 JSONB 字段。
+3. 在 `backend/app/services` 写纯业务读写逻辑。
+4. 在 `backend/app/api` 暴露路由。
+5. 如果对象会被 Agent 生成，接入 `agents/runner.py` 的强校验和落库。
+6. 增加 tests，优先覆盖 schema 清洗、服务层纯函数和 API 守卫。
+
+### 新增一个 Agent 节点
+
+建议顺序：
+
+1. 在对应 `agents/<agent>/schemas.py` 定义结构化输出。
+2. 在 `nodes.py` 实现节点，尽量保持节点纯函数或显式依赖注入。
+3. 在 `graph.py` 接入 LangGraph。
+4. 在 `runner.py` 对节点执行过程追加可见 ReAct 步骤。
+5. 对外部数据源和模型调用设置空输入守卫，避免无意义调用。
+6. 写离线单测；外部 API 用 MockTransport 或 monkeypatch。
+
+### 新增一个外部数据源
+
+建议顺序：
+
+1. 在 `connectors/base.py` 对齐 Source 字段。
+2. 新建 `connectors/<source>.py`。
+3. 在 `connectors/registry.py` 注册。
+4. 明确 region、合规开关和 key 缺失行为。
+5. 写解析契约测试，覆盖鉴权头、正常响应、空响应、错误降级。
+
+### 新增前端领域页面
+
+建议顺序：
+
+1. 在 `lib/api.ts` 增加 API 函数和类型。
+2. 在 `components` 新建领域管理器组件。
+3. 如需进入主工作台，在 `ChatPage.tsx` 增加 mode。
+4. 如需对象渲染，在 `components/objects/registry.tsx` 注册。
+5. 跑 `npm run build`，确保 noUnusedLocals 和类型检查通过。
+
+## 重要实现约定
+
+### 1. 业务代码只使用模型档位
+
+不要在业务逻辑中写具体模型名。使用：
+
+- `ModelTier.FAST`
+- `ModelTier.STANDARD`
+- `ModelTier.PREMIUM`
+
+具体模型由 `.env` 或 `litellm/config.yaml` 配置。
+
+### 2. 证据优先
+
+新增推荐理由、风险点、论点时，优先绑定已有 Source。没有证据时必须清楚标记为推断，避免把模型判断伪装成事实。
+
+### 3. domain_events 是审计主线
+
+用户关键行为、对象创建、偏好更新、Agent run 状态变化都应写 `domain_events`。
+
+### 4. 投资偏好分为三层
+
+- PreferenceProfile：用户在 UI 中维护的多张命名卡片。
+- InvestmentPreference：机构当前生效偏好，版本化，供 Agent 使用。
+- LearnedPreference / Experience：从用户行为中学习出的偏好反哺，必须经审阅。
+
+### 5. ReAct 展示不是隐藏推理
+
+前端展示的是模型生成的「状态评估、下一步计划、工具调用、观察结果」，不是模型隐藏思维链。新增 Agent 时应继续遵守这个边界。
+
+## 常见问题
+
+### 1. 前端提示后端未启动
+
+确认：
+
+- `uvicorn app.main:app --reload` 已启动。
+- 后端端口为 8000。
+- 前端 `api.ts` 中的 base URL 与后端一致。
+- 登录 token 存在或 `AUTH_DEV_FALLBACK=true`。
+
+### 2. 新表不存在导致 500
+
+开发环境：
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+另外，`main.py` 启动时会尝试自动 `create_all`，但生产仍应使用 Alembic。
+
+### 3. Agent 搜索不到结果
+
+检查：
+
+- 数据源 key 是否配置。
+- `allow_overseas_models` 是否阻断了海外源。
+- Redis 缓存是否返回旧空结果。
+- 市场信号搜索深度是否为 1。
+
+### 4. LLM 请求卡住
+
+检查：
+
+- `LLM_PROVIDER` 和 key。
+- `LLM_REQUEST_TIMEOUT_SECONDS`。
+- 本机是否需要 `LLM_HTTP_PROXY`。
+- LiteLLM 是否启动并可访问。
+
+## 近期重点维护区域
+
+当前代码仍在快速迭代，最容易受需求影响的区域：
+
+- `frontend/src/pages/ChatPage.tsx`：主工作台 shell，历史上承载了较多模式和会话展示逻辑。
+- `frontend/src/pages/WorkspacePage.tsx`：项目工作台，包含材料、Pre-DD、状态流转、市场信号等多个子域。
+- `frontend/src/components/PreferenceManager.tsx`：投资偏好 UI，包含偏好/反偏好、补充说明、历史版本、AI 助手。
+- `backend/app/api/conversations.py`：SSE、意图路由、ReAct 展示、通用对话和 Agent 分发都在这里汇合。
+- `backend/app/agents/runner.py`：交付对象落库、证据连边、ReAct 步骤和消息持久化的关键编排。
+- `backend/app/services/market_signal_research.py`：近期市场信号 ReAct 搜索和去噪逻辑。
+
+## 后续路线建议
+
+优先级较高的工程任务：
+
+- 把长 Agent run 从请求内联迁移到 ARQ 队列，SSE 只订阅 run 状态。
+- 增强市场信号真实数据源质量，减少技术文档、题库、教程类噪声。
+- 给项目材料增加 OCR 和旧版 Office 文档支持。
+- 强化候选项目实体对齐：官网、创始人、统一社会信用代码、融资主体多维匹配。
+- 引入 Langfuse 或等价观测平台，沉淀 Agent 运行质量数据。
+- 为前端关键页面补端到端测试或截图回归测试。
+
+## 参考资料
+
+- [技术规划.md](./技术规划.md)
+- [MVP功能设计.docx](./MVP功能设计.docx)
+- [AtomCAP_商业计划书_0616.docx](./AtomCAP_商业计划书_0616.docx)
+- [agent_design/](./agent_design)

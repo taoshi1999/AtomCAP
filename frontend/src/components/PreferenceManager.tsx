@@ -41,24 +41,32 @@ import {
 } from "../lib/api";
 
 const DIMENSIONS = [
-  { key: "sectors", label: "偏好赛道" },
-  { key: "stages", label: "融资阶段" },
-  { key: "regions", label: "所在地域" },
-  { key: "risk_levels", label: "风险偏好" },
-  { key: "check_sizes", label: "融资规模" },
+  { key: "sectors", antiKey: "anti_sectors", label: "赛道" },
+  { key: "stages", antiKey: "anti_stages", label: "融资阶段" },
+  { key: "regions", antiKey: "anti_regions", label: "所在地域" },
+  { key: "risk_levels", antiKey: "anti_risk_levels", label: "风险偏好" },
+  { key: "check_sizes", antiKey: "anti_check_sizes", label: "融资规模" },
 ] as const;
 
 type DimKey = (typeof DIMENSIONS)[number]["key"];
+type AntiDimKey = (typeof DIMENSIONS)[number]["antiKey"];
+type PreferenceTone = "preference" | "anti";
 
 const EMPTY_FORM: PreferenceProfileContent = {
   name: "",
   sectors: [],
+  anti_sectors: [],
   stages: [],
+  anti_stages: [],
   regions: [],
+  anti_regions: [],
   risk_levels: [],
+  anti_risk_levels: [],
   check_sizes: [],
+  anti_check_sizes: [],
   custom_dimensions: [],
-  notes: "",
+  supplemental_notes: [],
+  notes: null,
 };
 
 /* 关键词匹配（空格无关、大小写无关），供右侧栏按助手返回的关键词过滤 */
@@ -68,16 +76,23 @@ function normTerm(s: string): string {
 function matchesKeywords(p: PreferenceProfileSummary, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
   const customText = (p.custom_dimensions ?? [])
-    .flatMap((item) => [item.label, ...item.values])
+    .flatMap((item) => [item.label, ...item.values, ...(item.anti_values ?? [])])
     .join("\n");
   const hay = normTerm(
     [
       p.name,
       ...p.sectors,
+      ...(p.anti_sectors ?? []),
       ...p.stages,
+      ...(p.anti_stages ?? []),
       ...p.regions,
+      ...(p.anti_regions ?? []),
       ...p.risk_levels,
+      ...(p.anti_risk_levels ?? []),
       ...p.check_sizes,
+      ...(p.anti_check_sizes ?? []),
+      ...(p.supplemental_notes ?? []),
+      p.notes ?? "",
       customText,
     ].join("\n")
   );
@@ -87,16 +102,23 @@ function matchesSearch(p: PreferenceProfileSummary, query: string): boolean {
   const term = normTerm(query);
   if (!term) return true;
   const customText = (p.custom_dimensions ?? [])
-    .flatMap((item) => [item.label, ...item.values])
+    .flatMap((item) => [item.label, ...item.values, ...(item.anti_values ?? [])])
     .join("\n");
   const hay = normTerm(
     [
       p.name,
       ...p.sectors,
+      ...(p.anti_sectors ?? []),
       ...p.stages,
+      ...(p.anti_stages ?? []),
       ...p.regions,
+      ...(p.anti_regions ?? []),
       ...p.risk_levels,
+      ...(p.anti_risk_levels ?? []),
       ...p.check_sizes,
+      ...(p.anti_check_sizes ?? []),
+      ...(p.supplemental_notes ?? []),
+      p.notes ?? "",
       customText,
     ].join("\n")
   );
@@ -108,30 +130,43 @@ function makeCustomDimensionKey(label: string) {
   return `custom-${normalized}-${Date.now().toString(36)}`;
 }
 
+function supplementalNotesOf(profile: Pick<PreferenceProfileContent, "supplemental_notes" | "notes">): string[] {
+  if (profile.supplemental_notes?.length) return profile.supplemental_notes;
+  const legacyNote = profile.notes?.trim();
+  return legacyNote ? [legacyNote] : [];
+}
+
 /* ---------------------- 单维度增量编辑器 ---------------------- */
 function DimensionField({
   label,
   dimensionKey,
   values,
+  antiValues,
   profileName,
   onChange,
+  onAntiChange,
 }: {
   label: string;
   dimensionKey: DimKey;
   values: string[];
+  antiValues: string[];
   profileName: string;
   onChange: (next: string[]) => void;
+  onAntiChange: (next: string[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openTone, setOpenTone] = useState<PreferenceTone | null>(null);
   const [recs, setRecs] = useState<string[]>([]);
   const [source, setSource] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [custom, setCustom] = useState("");
 
-  const loadRecs = useCallback(async () => {
+  const activeValues = openTone === "anti" ? antiValues : values;
+
+  const loadRecs = useCallback(async (tone: PreferenceTone) => {
     setLoading(true);
     try {
-      const res = await getPreferenceRecommendations(dimensionKey, { name: profileName, existing: values });
+      const existing = tone === "anti" ? antiValues : values;
+      const res = await getPreferenceRecommendations(dimensionKey, { name: profileName, existing });
       setRecs(res.recommendations);
       setSource(res.source);
     } catch {
@@ -140,21 +175,32 @@ function DimensionField({
     } finally {
       setLoading(false);
     }
-  }, [dimensionKey, profileName, values]);
+  }, [antiValues, dimensionKey, profileName, values]);
 
-  function toggle() {
-    const next = !open;
-    setOpen(next);
-    if (next) void loadRecs();
+  function toggle(tone: PreferenceTone) {
+    const next = openTone === tone ? null : tone;
+    setOpenTone(next);
+    setCustom("");
+    if (next) void loadRecs(next);
   }
-  function add(value: string) {
+  function add(value: string, tone: PreferenceTone = openTone ?? "preference") {
     const v = value.trim();
-    if (!v || values.includes(v)) return;
-    onChange([...values, v]);
+    if (!v) return;
+    if (tone === "anti") {
+      onAntiChange(antiValues.includes(v) ? antiValues : [...antiValues, v]);
+      onChange(values.filter((item) => item !== v));
+    } else {
+      onChange(values.includes(v) ? values : [...values, v]);
+      onAntiChange(antiValues.filter((item) => item !== v));
+    }
     setRecs((prev) => prev.filter((r) => r !== v));
   }
-  function remove(value: string) {
-    onChange(values.filter((v) => v !== value));
+  function remove(value: string, tone: PreferenceTone) {
+    if (tone === "anti") {
+      onAntiChange(antiValues.filter((v) => v !== value));
+    } else {
+      onChange(values.filter((v) => v !== value));
+    }
   }
   function submitCustom() {
     if (!custom.trim()) return;
@@ -162,33 +208,56 @@ function DimensionField({
     setCustom("");
   }
 
+  function renderLane(tone: PreferenceTone, title: string, laneValues: string[]) {
+    const isAnti = tone === "anti";
+    return (
+      <div className="rounded-md bg-slate-50 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className={`text-xs font-semibold ${isAnti ? "text-rose-600" : "text-indigo-600"}`}>
+            {title}
+          </span>
+          <button
+            type="button"
+            onClick={() => toggle(tone)}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ${
+              isAnti
+                ? "text-rose-600 hover:bg-rose-50"
+                : "text-indigo-600 hover:bg-indigo-50"
+            }`}
+          >
+            <Plus className="h-3.5 w-3.5" /> 添加
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {laneValues.length === 0 && <span className="text-xs text-slate-400">尚未配置</span>}
+          {laneValues.map((v) => (
+            <span
+              key={v}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
+                isAnti ? "bg-rose-50 text-rose-700" : "bg-white text-slate-700"
+              }`}
+            >
+              {v}
+              <button type="button" onClick={() => remove(v, tone)} className="text-slate-400 hover:text-rose-500" aria-label={`删除 ${v}`}>
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 p-3">
-      <div className="flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <span className="text-sm font-medium text-slate-700">{label}</span>
-        <button
-          type="button"
-          onClick={toggle}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
-        >
-          <Plus className="h-3.5 w-3.5" /> 添加
-        </button>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {values.length === 0 && <span className="text-xs text-slate-400">尚未配置</span>}
-        {values.map((v) => (
-          <span
-            key={v}
-            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700"
-          >
-            {v}
-            <button type="button" onClick={() => remove(v)} className="text-slate-400 hover:text-rose-500" aria-label={`删除 ${v}`}>
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {renderLane("preference", "偏好", values)}
+        {renderLane("anti", "反偏好", antiValues)}
       </div>
-      {open && (
+      {openTone && (
         <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
           <div className="flex items-center gap-2">
             <input
@@ -200,7 +269,7 @@ function DimensionField({
                   submitCustom();
                 }
               }}
-              placeholder="自定义输入，回车添加"
+              placeholder={`添加${openTone === "anti" ? "反偏好" : "偏好"}，回车确认`}
               className="flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400"
             />
             <button type="button" onClick={submitCustom} className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
@@ -224,6 +293,11 @@ function DimensionField({
               )}
             </div>
           )}
+          {activeValues.length > 0 && (
+            <div className="mt-2 text-[11px] text-slate-400">
+              已配置：{activeValues.join("、")}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -241,16 +315,61 @@ function CustomDimensionField({
 }) {
   const [custom, setCustom] = useState("");
   const values = dimension.values ?? [];
+  const antiValues = dimension.anti_values ?? [];
+  const [targetTone, setTargetTone] = useState<PreferenceTone>("preference");
 
-  function addValue(value: string) {
+  function addValue(value: string, tone: PreferenceTone = targetTone) {
     const next = value.trim();
-    if (!next || values.includes(next)) return;
-    onChange({ ...dimension, values: [...values, next] });
+    if (!next) return;
+    if (tone === "anti") {
+      onChange({
+        ...dimension,
+        values: values.filter((item) => item !== next),
+        anti_values: antiValues.includes(next) ? antiValues : [...antiValues, next],
+      });
+    } else {
+      onChange({
+        ...dimension,
+        values: values.includes(next) ? values : [...values, next],
+        anti_values: antiValues.filter((item) => item !== next),
+      });
+    }
     setCustom("");
   }
 
-  function removeValue(value: string) {
-    onChange({ ...dimension, values: values.filter((item) => item !== value) });
+  function removeValue(value: string, tone: PreferenceTone) {
+    if (tone === "anti") {
+      onChange({ ...dimension, anti_values: antiValues.filter((item) => item !== value) });
+    } else {
+      onChange({ ...dimension, values: values.filter((item) => item !== value) });
+    }
+  }
+
+  function renderLane(tone: PreferenceTone, title: string, laneValues: string[]) {
+    const isAnti = tone === "anti";
+    return (
+      <div className="rounded-md bg-white p-2.5">
+        <div className={`text-xs font-semibold ${isAnti ? "text-rose-600" : "text-indigo-600"}`}>
+          {title}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {laneValues.length === 0 && <span className="text-xs text-slate-400">尚未配置</span>}
+          {laneValues.map((value) => (
+            <span
+              key={value}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${
+                isAnti ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-700"
+              }`}
+            >
+              {value}
+              <button type="button" onClick={() => removeValue(value, tone)} className="text-slate-400 hover:text-rose-500">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -270,21 +389,31 @@ function CustomDimensionField({
           删除维度
         </button>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {values.length === 0 && <span className="text-xs text-slate-400">尚未配置</span>}
-        {values.map((value) => (
-          <span
-            key={value}
-            className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-slate-700"
-          >
-            {value}
-            <button type="button" onClick={() => removeValue(value)} className="text-slate-400 hover:text-rose-500">
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {renderLane("preference", "偏好", values)}
+        {renderLane("anti", "反偏好", antiValues)}
       </div>
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-indigo-100 bg-white p-0.5">
+          <button
+            type="button"
+            onClick={() => setTargetTone("preference")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+              targetTone === "preference" ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            偏好
+          </button>
+          <button
+            type="button"
+            onClick={() => setTargetTone("anti")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+              targetTone === "anti" ? "bg-rose-500 text-white" : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            反偏好
+          </button>
+        </div>
         <input
           value={custom}
           onChange={(event) => setCustom(event.target.value)}
@@ -294,13 +423,79 @@ function CustomDimensionField({
               addValue(custom);
             }
           }}
-          placeholder="输入该维度的取值，回车添加"
+          placeholder={`输入${targetTone === "anti" ? "反偏好" : "偏好"}取值，回车添加`}
           className="min-w-0 flex-1 rounded-md border border-indigo-100 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-indigo-300"
         />
         <button
           type="button"
           onClick={() => addValue(custom)}
           className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+        >
+          添加
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SupplementalNotesField({
+  notes,
+  onChange,
+}: {
+  notes: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function addNote() {
+    const note = draft.trim();
+    if (!note || notes.includes(note)) return;
+    onChange([...notes, note]);
+    setDraft("");
+  }
+
+  function removeNote(note: string) {
+    onChange(notes.filter((item) => item !== note));
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <div className="text-sm font-medium text-slate-700">补充说明</div>
+      <div className="mt-2 space-y-2">
+        {notes.length === 0 && <div className="text-xs text-slate-400">尚未添加补充说明</div>}
+        {notes.map((note) => (
+          <div key={note} className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <span className="min-w-0 flex-1 leading-6">{note}</span>
+            <button
+              type="button"
+              onClick={() => removeNote(note)}
+              className="mt-0.5 shrink-0 rounded-md p-1 text-slate-400 hover:bg-white hover:text-rose-500"
+              aria-label="删除补充说明"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-end gap-2">
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              addNote();
+            }
+          }}
+          rows={2}
+          placeholder="输入补充说明，回车添加"
+          className="min-w-0 flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+        />
+        <button
+          type="button"
+          onClick={addNote}
+          disabled={!draft.trim()}
+          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           添加
         </button>
@@ -318,8 +513,13 @@ function ProfileForm({
   onChange: (next: PreferenceProfileContent) => void;
 }) {
   const customDimensions = form.custom_dimensions ?? [];
+  const supplementalNotes = supplementalNotesOf(form);
 
   function setDim(key: DimKey, next: string[]) {
+    onChange({ ...form, [key]: next });
+  }
+
+  function setAntiDim(key: AntiDimKey, next: string[]) {
     onChange({ ...form, [key]: next });
   }
 
@@ -329,7 +529,7 @@ function ProfileForm({
       ...form,
       custom_dimensions: [
         ...customDimensions,
-        { key: makeCustomDimensionKey(label), label, values: [] },
+        { key: makeCustomDimensionKey(label), label, values: [], anti_values: [] },
       ],
     });
   }
@@ -366,9 +566,11 @@ function ProfileForm({
           key={d.key}
           label={d.label}
           dimensionKey={d.key}
-          values={form[d.key]}
+          values={form[d.key] ?? []}
+          antiValues={form[d.antiKey] ?? []}
           profileName={form.name}
           onChange={(next) => setDim(d.key, next)}
+          onAntiChange={(next) => setAntiDim(d.antiKey, next)}
         />
       ))}
       <div className="rounded-lg border border-dashed border-indigo-200 bg-white p-3">
@@ -398,16 +600,10 @@ function ProfileForm({
           </div>
         )}
       </div>
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">备注（可选）</label>
-        <textarea
-          value={form.notes ?? ""}
-          onChange={(e) => onChange({ ...form, notes: e.target.value })}
-          rows={2}
-          placeholder="补充策略说明"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
-        />
-      </div>
+      <SupplementalNotesField
+        notes={supplementalNotes}
+        onChange={(next) => onChange({ ...form, supplemental_notes: next, notes: next.join("\n") || null })}
+      />
     </div>
   );
 }
@@ -487,12 +683,14 @@ function versionChips(profile: PreferenceProfileContent) {
   const fixed = DIMENSIONS.map((d) => ({
     label: d.label,
     values: profile[d.key],
+    antiValues: profile[d.antiKey] ?? [],
   }));
   const custom = (profile.custom_dimensions ?? []).map((item) => ({
     label: item.label,
     values: item.values ?? [],
+    antiValues: item.anti_values ?? [],
   }));
-  return [...fixed, ...custom].filter((item) => item.values.length > 0);
+  return [...fixed, ...custom].filter((item) => item.values.length > 0 || item.antiValues.length > 0);
 }
 
 function PreferenceHistoryModal({
@@ -539,6 +737,7 @@ function PreferenceHistoryModal({
                 .reverse()
                 .map((version) => {
                   const chips = versionChips(version.profile);
+                  const supplementalNotes = supplementalNotesOf(version.profile);
                   return (
                     <article key={`${version.version}-${version.occurred_at}`} className="rounded-lg border border-slate-200 p-4">
                       <div className="flex items-start justify-between gap-3">
@@ -559,13 +758,20 @@ function PreferenceHistoryModal({
                         {chips.map((chip) => (
                           <div key={`${version.version}-${chip.label}`} className="grid grid-cols-[96px_1fr] gap-2 text-xs">
                             <span className="font-medium text-slate-400">{chip.label}</span>
-                            <span className="text-slate-700">{chip.values.join("、")}</span>
+                            <div className="space-y-1 text-slate-700">
+                              {chip.values.length > 0 && <span className="block">偏好：{chip.values.join("、")}</span>}
+                              {chip.antiValues.length > 0 && <span className="block text-rose-600">反偏好：{chip.antiValues.join("、")}</span>}
+                            </div>
                           </div>
                         ))}
-                        {version.profile.notes && (
+                        {supplementalNotes.length > 0 && (
                           <div className="grid grid-cols-[96px_1fr] gap-2 text-xs">
-                            <span className="font-medium text-slate-400">备注</span>
-                            <span className="text-slate-700">{version.profile.notes}</span>
+                            <span className="font-medium text-slate-400">补充说明</span>
+                            <div className="space-y-1 text-slate-700">
+                              {supplementalNotes.map((note) => (
+                                <span key={note} className="block">{note}</span>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -581,14 +787,19 @@ function PreferenceHistoryModal({
 }
 
 /* ---------------------- 卡片 ---------------------- */
-function summaryChips(profile: PreferenceProfileSummary): { label: string; values: string[] }[] {
+function summaryChips(profile: PreferenceProfileSummary): { label: string; values: string[]; antiValues: string[] }[] {
   return [
-    ...DIMENSIONS.map((d) => ({ label: d.label, values: profile[d.key] })),
+    ...DIMENSIONS.map((d) => ({
+      label: d.label,
+      values: profile[d.key] ?? [],
+      antiValues: profile[d.antiKey] ?? [],
+    })),
     ...(profile.custom_dimensions ?? []).map((item) => ({
       label: item.label,
       values: item.values ?? [],
+      antiValues: item.anti_values ?? [],
     })),
-  ].filter((x) => x.values.length > 0);
+  ].filter((x) => x.values.length > 0 || x.antiValues.length > 0);
 }
 function PreferenceCard({
   profile,
@@ -623,9 +834,12 @@ function PreferenceCard({
       <div className="mt-2 space-y-1.5">
         {chips.length === 0 && <span className="text-xs text-slate-400">尚未配置维度</span>}
         {chips.slice(0, 3).map((c) => (
-          <div key={c.label} className="flex gap-1.5 text-xs">
+          <div key={c.label} className="grid grid-cols-[56px_1fr] gap-1.5 text-xs">
             <span className="shrink-0 text-slate-400">{c.label}</span>
-            <span className="truncate text-slate-600">{c.values.join("、")}</span>
+            <div className="min-w-0 space-y-0.5 text-slate-600">
+              {c.values.length > 0 && <span className="block truncate">偏好：{c.values.join("、")}</span>}
+              {c.antiValues.length > 0 && <span className="block truncate text-rose-600">反偏好：{c.antiValues.join("、")}</span>}
+            </div>
           </div>
         ))}
         {chips.length > 3 && <span className="text-xs text-slate-400">等 {chips.length} 个维度</span>}
@@ -884,7 +1098,7 @@ function CardList({
           <input
             value={searchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
-            placeholder="搜索偏好名称、赛道、阶段、地域或备注"
+            placeholder="搜索偏好名称、赛道、阶段、地域或补充说明"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none"
           />
           {searchQuery && (

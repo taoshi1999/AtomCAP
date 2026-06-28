@@ -18,7 +18,11 @@ from pydantic import BaseModel, Field
 
 from app.llm import client as llm_client
 from app.llm.client import ModelTier
-from app.objects.preference_profile import PROFILE_DIMENSIONS, PreferenceProfile
+from app.objects.preference_profile import (
+    ANTI_PROFILE_DIMENSION_FIELD,
+    PROFILE_DIMENSIONS,
+    PreferenceProfile,
+)
 from app.services.preference_recommendations import CURATED_RECOMMENDATIONS
 
 logger = logging.getLogger(__name__)
@@ -35,8 +39,9 @@ UNRELATED_MESSAGE = (
 # 启发式动词关键词
 _CREATE_KW = ("创建", "新建", "新增", "添加", "建一个", "建个", "帮我建", "生成一个", "做一个", "加一个")
 _FILTER_KW = ("筛选", "过滤", "找出", "只看", "查看", "显示", "列出", "搜索", "找一下", "找找", "看看")
+_ANTI_KW = ("不要", "不想", "不投", "不看", "排除", "避开", "厌恶", "讨厌", "反偏好", "不喜欢")
 # 偏好领域词（用于判断是否与投资偏好相关）
-_DOMAIN_KW = ("偏好", "赛道", "阶段", "地域", "风险", "规模", "投资", "轮", "项目")
+_DOMAIN_KW = ("偏好", "反偏好", "赛道", "阶段", "地域", "风险", "规模", "投资", "轮", "项目")
 
 
 class PreferenceInstructionResult(BaseModel):
@@ -74,12 +79,29 @@ def _matched_terms(instruction: str) -> list[str]:
 def _extract_dimension_values(instruction: str) -> dict[str, list[str]]:
     """按维度从指令里匹配精选取值（空格无关）。"""
     norm_instr = _norm(instruction)
-    out: dict[str, list[str]] = {d: [] for d in PROFILE_DIMENSIONS}
+    out: dict[str, list[str]] = {
+        **{d: [] for d in PROFILE_DIMENSIONS},
+        **{field: [] for field in ANTI_PROFILE_DIMENSION_FIELD.values()},
+    }
     for dim, values in CURATED_RECOMMENDATIONS.items():
         for v in values:
-            if _norm(v) in norm_instr:
-                out[dim].append(v)
+            term = _norm(v)
+            if term not in norm_instr:
+                continue
+            field_name = ANTI_PROFILE_DIMENSION_FIELD[dim] if _is_anti_term(norm_instr, term) else dim
+            out[field_name].append(v)
     return out
+
+
+def _is_anti_term(norm_instruction: str, norm_term: str) -> bool:
+    """用局部窗口判断某个取值是否处于“不看/排除/反偏好”等负向语境。"""
+    start = norm_instruction.find(norm_term)
+    if start < 0:
+        return False
+    end = start + len(norm_term)
+    before = norm_instruction[max(0, start - 12): start]
+    after = norm_instruction[end: min(len(norm_instruction), end + 8)]
+    return any(keyword in before for keyword in _ANTI_KW) or "反偏好" in after
 
 
 def heuristic_interpret(instruction: str) -> PreferenceInstructionResult:
@@ -98,6 +120,8 @@ def heuristic_interpret(instruction: str) -> PreferenceInstructionResult:
         dims = _extract_dimension_values(text)
         if dims["sectors"]:
             name = f"{dims['sectors'][0]}相关偏好"
+        elif dims["anti_sectors"]:
+            name = f"排除{dims['anti_sectors'][0]}偏好"
         elif terms:
             name = f"{terms[0]}相关偏好"
         else:
@@ -143,7 +167,9 @@ async def interpret_instruction(
         "你是 AtomCAP 的投资偏好管理助手，只处理与投资偏好相关的指令。"
         "把用户指令判定为三类之一：create=创建一个新的投资偏好；filter=在已有偏好中筛选；"
         "unrelated=与投资偏好管理无关。create 时填 profile（name 必填，五维 sectors/stages/"
-        "regions/risk_levels/check_sizes 按指令填、取值简洁规范）；filter 时填 filter_keywords；"
+        "regions/risk_levels/check_sizes 按指令填、取值简洁规范；反偏好写入 anti_sectors/"
+        "anti_stages/anti_regions/anti_risk_levels/anti_check_sizes；自定义维度的反偏好写入"
+        "custom_dimensions[].anti_values；用户额外策略说明写入 supplemental_notes）；filter 时填 filter_keywords；"
         "message 为给用户的简洁中文回复，unrelated 时提示用户输入与投资偏好相关的请求。只输出 JSON。"
     )
     try:

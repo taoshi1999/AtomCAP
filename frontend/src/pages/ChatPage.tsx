@@ -165,7 +165,9 @@ function getRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function preferenceList(home: HomeData | null, key: "sectors" | "stages" | "regions") {
+type PreferenceDimensionKey = "sectors" | "stages" | "regions";
+
+function preferenceList(home: HomeData | null, key: PreferenceDimensionKey) {
   const preference = home?.preference.preference ?? {};
   const declared = getRecord(preference.declared_strategy);
   if (key === "sectors") {
@@ -186,9 +188,37 @@ function preferenceList(home: HomeData | null, key: "sectors" | "stages" | "regi
   ];
 }
 
+function antiPreferenceList(home: HomeData | null, key: PreferenceDimensionKey) {
+  const preference = home?.preference.preference ?? {};
+  const declared = getRecord(preference.declared_strategy);
+  const anti = getRecord(preference.anti_preference);
+  if (key === "sectors") {
+    return [
+      ...getStringList(declared.anti_focus_sectors),
+      ...getStringList(anti.disliked_sectors),
+      ...getStringList(preference.excluded_tracks),
+    ];
+  }
+  if (key === "stages") {
+    return [
+      ...getStringList(declared.anti_focus_stages),
+      ...getStringList(anti.disliked_stages),
+    ];
+  }
+  return [
+    ...getStringList(declared.anti_focus_regions),
+    ...getStringList(anti.disliked_regions),
+  ];
+}
+
 function displayList(items: string[], empty = "未设置") {
   const normalized = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
   return normalized.length > 0 ? normalized.join(" / ") : empty;
+}
+
+function displayNotes(items: string[], empty = "未设置") {
+  const normalized = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+  return normalized.length > 0 ? normalized.join("；") : empty;
 }
 
 function displayPreferenceValue(value: unknown, empty = "未设置") {
@@ -208,30 +238,83 @@ function currentPreferenceName(home: HomeData | null) {
 
 type PreferenceDisplayLine = {
   label: string;
-  value: string;
+  preferenceValue?: string;
+  antiValue?: string;
+  value?: string;
 };
+
+function hasPreferenceValue(value: unknown) {
+  if (typeof value === "string") return Boolean(value.trim());
+  return getStringList(value).length > 0;
+}
 
 function preferenceDisplayLines(home: HomeData | null): PreferenceDisplayLine[] {
   const preference = home?.preference.preference ?? {};
   const declared = getRecord(preference.declared_strategy);
+  const anti = getRecord(preference.anti_preference);
   const customDimensions = getRecord(declared.custom_dimensions);
-  const notes = optionalPreferenceText(preference.notes) ?? optionalPreferenceText(declared.description);
+  const antiCustomDimensions = getRecord(declared.anti_custom_dimensions);
+  const supplementalNotes = [
+    ...getStringList(declared.supplemental_notes),
+    ...getStringList(preference.supplemental_notes),
+  ];
+  const legacyNotes = optionalPreferenceText(preference.notes) ?? optionalPreferenceText(declared.description);
   const lines: PreferenceDisplayLine[] = [
-    { label: "赛道", value: displayList(preferenceList(home, "sectors")) },
-    { label: "阶段", value: displayList(preferenceList(home, "stages")) },
-    { label: "地域", value: displayList(preferenceList(home, "regions")) },
-    { label: "风险", value: displayPreferenceValue(preference.risk_appetite) },
-    { label: "规模", value: displayPreferenceValue(preference.check_size) },
+    {
+      label: "赛道",
+      preferenceValue: displayList(preferenceList(home, "sectors")),
+      antiValue: displayList(antiPreferenceList(home, "sectors")),
+    },
+    {
+      label: "阶段",
+      preferenceValue: displayList(preferenceList(home, "stages")),
+      antiValue: displayList(antiPreferenceList(home, "stages")),
+    },
+    {
+      label: "地域",
+      preferenceValue: displayList(preferenceList(home, "regions")),
+      antiValue: displayList(antiPreferenceList(home, "regions")),
+    },
+    {
+      label: "风险",
+      preferenceValue: displayPreferenceValue(preference.risk_appetite),
+      antiValue: displayList([
+        ...getStringList(declared.anti_risk_levels),
+        ...getStringList(anti.disliked_risk_levels),
+      ]),
+    },
+    {
+      label: "规模",
+      preferenceValue: displayPreferenceValue(preference.check_size),
+      antiValue: displayList([
+        ...getStringList(declared.anti_check_sizes),
+        ...getStringList(anti.disliked_check_sizes),
+      ]),
+    },
   ];
 
-  for (const [label, value] of Object.entries(customDimensions)) {
+  const customLabels = new Set([
+    ...Object.keys(customDimensions),
+    ...Object.keys(antiCustomDimensions),
+  ]);
+  for (const label of customLabels) {
     const normalizedLabel = label.trim();
     if (!normalizedLabel) continue;
-    lines.push({ label: normalizedLabel, value: displayPreferenceValue(value) });
+    const preferenceValue = customDimensions[label];
+    const antiValue = antiCustomDimensions[label];
+    if (!hasPreferenceValue(preferenceValue) && !hasPreferenceValue(antiValue)) continue;
+    lines.push({
+      label: normalizedLabel,
+      preferenceValue: displayPreferenceValue(preferenceValue),
+      antiValue: displayPreferenceValue(antiValue),
+    });
   }
 
-  if (notes) {
-    lines.push({ label: "备注", value: notes });
+  if (supplementalNotes.length > 0 || legacyNotes) {
+    lines.push({
+      label: "补充说明",
+      value: supplementalNotes.length > 0 ? displayNotes(supplementalNotes) : legacyNotes ?? "",
+    });
   }
 
   return lines;
@@ -712,7 +795,7 @@ export default function ChatPage() {
           />
         </nav>
 
-        <section className="mt-5 min-h-0 flex-1 border-t border-slate-200 pt-4">
+        <section className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4">
           <div className="mb-2 flex items-center justify-between px-1">
             <div className="text-sm font-semibold text-slate-500">最近</div>
             <button
@@ -724,7 +807,7 @@ export default function ChatPage() {
               <History className="h-4 w-4" />
             </button>
           </div>
-          <div className="space-y-1 overflow-hidden">
+          <div className="preference-card-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
             {isHomeLoading && <SidebarHint>正在读取数据库...</SidebarHint>}
             {homeError && <SidebarHint tone="error">{homeError}</SidebarHint>}
             {!isHomeLoading && !homeError && recentItems.length === 0 && (
@@ -759,7 +842,7 @@ export default function ChatPage() {
           </div>
         </section>
 
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 shrink-0 space-y-3">
           <PreferenceCard home={home} loading={isHomeLoading} onOpen={() => switchMode("preference")} />
           <button
             type="button"
@@ -1315,9 +1398,9 @@ function PreferenceCard({
           <div className="mb-2 truncate text-xs font-semibold text-slate-700" title={preferenceName}>
             {preferenceName}
           </div>
-          <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1 text-xs leading-5 text-slate-800">
+          <div className="preference-card-scrollbar max-h-48 divide-y divide-slate-100 overflow-y-auto overscroll-contain pr-1 text-xs leading-5 text-slate-800">
             {lines.map((line, index) => (
-              <PreferenceLine key={`${line.label}-${index}`} label={line.label} value={line.value} />
+              <PreferenceLine key={`${line.label}-${index}`} line={line} />
             ))}
           </div>
         </>
@@ -1326,12 +1409,35 @@ function PreferenceCard({
   );
 }
 
-function PreferenceLine({ label, value }: { label: string; value: string }) {
+function PreferenceLine({ line }: { line: PreferenceDisplayLine }) {
+  if (line.value !== undefined) {
+    return (
+      <div className="grid grid-cols-[8px_64px_minmax(0,1fr)] items-start gap-2 py-2 first:pt-0 last:pb-0">
+        <span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-400" />
+        <span className="font-semibold text-slate-500">{line.label}</span>
+        <span className="min-w-0 break-words text-slate-700">{line.value}</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-[8px_56px_minmax(0,1fr)] items-start gap-2">
+    <div className="grid grid-cols-[8px_64px_minmax(0,1fr)] items-start gap-2 py-2 first:pt-0 last:pb-0">
       <span className="mt-2 h-1.5 w-1.5 rounded-full bg-indigo-600" />
-      <span className="font-semibold text-slate-500">{label}</span>
-      <span className="min-w-0 break-words">{value}</span>
+      <span className="font-semibold text-slate-500">{line.label}</span>
+      <span className="min-w-0 space-y-1">
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="mt-0.5 shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-indigo-600">
+            偏好
+          </span>
+          <span className="min-w-0 break-words">{line.preferenceValue ?? "未设置"}</span>
+        </span>
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="mt-0.5 shrink-0 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-rose-600">
+            反偏好
+          </span>
+          <span className="min-w-0 break-words text-slate-700">{line.antiValue ?? "未设置"}</span>
+        </span>
+      </span>
     </div>
   );
 }

@@ -33,19 +33,29 @@ def test_profile_schema_cleans_lists_and_name():
     p = PreferenceProfile(
         name="  硬科技  ",
         sectors=[" 半导体 ", "半导体", "", "人工智能"],
+        anti_sectors=[" 太阳能 ", "太阳能", ""],
         stages=["A 轮"],
+        supplemental_notes=[" 优先参考产业资源协同 ", "优先参考产业资源协同", ""],
         custom_dimensions=[
-            {"key": "team", "label": "团队背景", "values": [" 科研背景 ", "科研背景", ""]},
+            {
+                "key": "team",
+                "label": "团队背景",
+                "values": [" 科研背景 ", "科研背景", ""],
+                "anti_values": ["纯销售背景", " 纯销售背景 "],
+            },
             {"key": "team", "label": "重复维度", "values": ["不应保留"]},
         ],
     )
     assert p.name == "硬科技"  # 裁剪
     assert p.sectors == ["半导体", "人工智能"]  # 去空白去重保序
+    assert p.anti_sectors == ["太阳能"]
     assert p.stages == ["A 轮"]
     assert p.regions == [] and p.risk_levels == [] and p.check_sizes == []
+    assert p.supplemental_notes == ["优先参考产业资源协同"]
     assert len(p.custom_dimensions) == 1
     assert p.custom_dimensions[0].label == "团队背景"
     assert p.custom_dimensions[0].values == ["科研背景"]
+    assert p.custom_dimensions[0].anti_values == ["纯销售背景"]
 
 
 def test_profile_schema_rejects_empty_name():
@@ -53,6 +63,11 @@ def test_profile_schema_rejects_empty_name():
         PreferenceProfile(name="   ")  # 纯空白裁剪后为空
     with pytest.raises(ValidationError):
         PreferenceProfile(name="")  # 长度不足
+
+
+def test_profile_schema_promotes_legacy_notes():
+    p = PreferenceProfile(name="旧偏好", notes="看重产业资源")
+    assert p.supplemental_notes == ["看重产业资源"]
 
 
 def test_dimensions_metadata_consistent():
@@ -143,7 +158,11 @@ class _FakeDb:
 
 
 def test_create_profile_persists_clean_payload():
-    prof = PreferenceProfile(name="硬科技", sectors=["半导体", "半导体", " 人工智能 "])
+    prof = PreferenceProfile(
+        name="硬科技",
+        sectors=["半导体", "半导体", " 人工智能 "],
+        anti_sectors=["太阳能", "太阳能"],
+    )
     db = _FakeDb()
     row = asyncio.run(
         profiles_service.create_profile(
@@ -154,6 +173,7 @@ def test_create_profile_persists_clean_payload():
     assert row.institution_id == INST and row.created_by == USER
     assert row.archived is False
     assert row.payload["sectors"] == ["半导体", "人工智能"]
+    assert row.payload["anti_sectors"] == ["太阳能"]
     assert db.added == [row] and db.flushed == 1
 
 
@@ -194,17 +214,29 @@ def test_profile_matches_query_covers_core_and_custom_dimensions():
         payload={
             "name": "AI 早期",
             "sectors": ["人工智能"],
+            "anti_sectors": ["太阳能"],
             "stages": ["Pre-A"],
             "regions": ["华东"],
             "risk_levels": ["中高风险"],
             "check_sizes": ["1000-3000万"],
-            "custom_dimensions": [{"key": "team", "label": "团队背景", "values": ["科研背景"]}],
+            "custom_dimensions": [
+                {
+                    "key": "team",
+                    "label": "团队背景",
+                    "values": ["科研背景"],
+                    "anti_values": ["纯销售背景"],
+                }
+            ],
+            "supplemental_notes": ["优先参考产业资源协同"],
             "notes": "关注硬科技上游",
         },
     )
 
     assert profiles_service.profile_matches_query(row, "AI早期")
     assert profiles_service.profile_matches_query(row, "科研背景")
+    assert profiles_service.profile_matches_query(row, "太阳能")
+    assert profiles_service.profile_matches_query(row, "纯销售背景")
+    assert profiles_service.profile_matches_query(row, "产业资源协同")
     assert profiles_service.profile_matches_query(row, "1000 3000万")
     assert profiles_service.profile_matches_query(row, "硬科技")
     assert not profiles_service.profile_matches_query(row, "消费连锁")
@@ -218,11 +250,20 @@ def test_profile_projections():
         payload={
             "name": "均衡型",
             "sectors": ["人工智能"],
+            "anti_sectors": ["太阳能"],
             "stages": [],
             "regions": ["北京"],
             "risk_levels": [],
             "check_sizes": [],
-            "custom_dimensions": [{"key": "team", "label": "团队背景", "values": ["科研背景"]}],
+            "custom_dimensions": [
+                {
+                    "key": "team",
+                    "label": "团队背景",
+                    "values": ["科研背景"],
+                    "anti_values": ["纯销售背景"],
+                }
+            ],
+            "supplemental_notes": ["优先参考产业资源协同"],
             "notes": "备注",
         },
     )
@@ -233,31 +274,60 @@ def test_profile_projections():
     summary = profiles_service.profile_summary(row)
     assert summary["name"] == "均衡型"
     assert summary["sectors"] == ["人工智能"] and summary["regions"] == ["北京"]
+    assert summary["anti_sectors"] == ["太阳能"]
     assert summary["custom_dimensions"][0]["label"] == "团队背景"
+    assert summary["custom_dimensions"][0]["anti_values"] == ["纯销售背景"]
+    assert summary["supplemental_notes"] == ["优先参考产业资源协同"]
     assert summary["created_at"] is None  # 容空
 
     detail = profiles_service.profile_detail(row)
     assert detail["archived"] is False
     assert detail["profile"]["name"] == "均衡型"
     assert detail["profile"]["custom_dimensions"][0]["values"] == ["科研背景"]
+    assert detail["profile"]["custom_dimensions"][0]["anti_values"] == ["纯销售背景"]
+    assert detail["profile"]["supplemental_notes"] == ["优先参考产业资源协同"]
     assert detail["profile"]["notes"] == "备注"
 
 
 def test_profile_to_investment_preference_payload():
     prof = PreferenceProfile(
         name="AI 早期",
-        sectors=["人工智能"],
+        sectors=["人工智能", "电池"],
+        anti_sectors=["太阳能"],
         stages=["Pre-A"],
+        anti_stages=["Pre-IPO"],
         regions=["中国"],
+        anti_regions=["海外"],
         risk_levels=["高风险"],
+        anti_risk_levels=["低风险"],
         check_sizes=["1000-3000万"],
-        custom_dimensions=[{"key": "team", "label": "团队背景", "values": ["科研背景"]}],
+        anti_check_sizes=["1 亿以上"],
+        custom_dimensions=[
+            {
+                "key": "team",
+                "label": "团队背景",
+                "values": ["科研背景"],
+                "anti_values": ["纯销售背景"],
+            }
+        ],
+        supplemental_notes=["优先参考产业资源协同", "不追逐短期热点"],
         notes="重点看上游",
     )
     payload = profiles_service.profile_to_investment_preference(prof)
     assert payload["name"] == "AI 早期"
-    assert payload["track_preferences"] == ["人工智能"]
+    assert payload["track_preferences"] == ["人工智能", "电池"]
+    assert payload["excluded_tracks"] == ["太阳能"]
+    assert payload["anti_preference"]["disliked_sectors"] == ["太阳能"]
+    assert payload["anti_preference"]["disliked_stages"] == ["Pre-IPO"]
+    assert payload["anti_preference"]["disliked_regions"] == ["海外"]
+    assert payload["anti_preference"]["disliked_custom_dimensions"] == {"团队背景": ["纯销售背景"]}
+    assert payload["learned_preference"]["sector_weights"][0]["name"] == "人工智能"
     assert payload["declared_strategy"]["focus_stages"] == ["Pre-A"]
+    assert payload["declared_strategy"]["anti_focus_stages"] == ["Pre-IPO"]
     assert payload["declared_strategy"]["custom_dimensions"] == {"团队背景": ["科研背景"]}
+    assert payload["declared_strategy"]["anti_custom_dimensions"] == {"团队背景": ["纯销售背景"]}
+    assert payload["declared_strategy"]["supplemental_notes"] == ["优先参考产业资源协同", "不追逐短期热点"]
+    assert payload["supplemental_notes"] == ["优先参考产业资源协同", "不追逐短期热点"]
+    assert payload["notes"] == "优先参考产业资源协同\n不追逐短期热点"
     assert payload["risk_appetite"] == "高风险"
     assert payload["check_size"] == "1000-3000万"

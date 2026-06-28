@@ -100,6 +100,14 @@ def test_anti_preference_penalty():
     assert infl.penalties and infl.delta == -ANTI_PREF_PENALTY
 
 
+def test_anti_preference_penalty_supports_stage_and_region():
+    anti = {"disliked_stages": ["Pre-IPO"], "disliked_regions": ["海外"]}
+    infl = assess_preference_fit(None, stage="Pre-IPO", region="海外", anti_preference=anti)
+    assert infl.delta == -ANTI_PREF_PENALTY * 2
+    assert "阶段『Pre-IPO』" in infl.penalties
+    assert "地域『海外』" in infl.penalties
+
+
 def test_anti_preference_stacks_with_learned():
     learned = _learned(sector_weights=[("消费", 1.0, 1.0)])
     anti = {"disliked_subsectors": ["社区团购"]}
@@ -160,6 +168,38 @@ def test_extract_blocks_from_dict():
         "risk_boundary": {"a": "low"},
     }
     assert extract_preference_blocks(pref) == ({"sector_weights": []}, {"x": 1}, {"a": "low"})
+
+
+def test_extract_blocks_promotes_declared_strategy_to_scoring_blocks():
+    pref = {
+        "declared_strategy": {
+            "focus_sectors": ["新能源"],
+            "focus_stages": ["A 轮"],
+            "anti_focus_sectors": ["太阳能"],
+            "anti_focus_regions": ["海外"],
+        },
+        "risk_boundary": {},
+    }
+    learned, anti, rb = extract_preference_blocks(pref)
+    assert learned["sector_weights"] == [{"name": "新能源", "weight": 1.0, "confidence": 1.0}]
+    assert learned["stage_weights"] == [{"name": "A 轮", "weight": 1.0, "confidence": 1.0}]
+    assert anti["disliked_sectors"] == ["太阳能"]
+    assert anti["disliked_regions"] == ["海外"]
+    assert rb == {}
+
+
+def test_declared_positive_and_anti_affect_fit_together():
+    pref = {
+        "declared_strategy": {
+            "focus_sectors": ["新能源"],
+            "anti_focus_sectors": ["太阳能"],
+        }
+    }
+    learned, anti, _ = extract_preference_blocks(pref)
+    positive = assess_preference_fit(learned, sector="新能源", anti_preference=anti)
+    negative = assess_preference_fit(learned, sector="太阳能", anti_preference=anti)
+    assert positive.delta == MAX_FIT_DELTA
+    assert negative.delta == -ANTI_PREF_PENALTY
 
 
 def test_extract_blocks_none():

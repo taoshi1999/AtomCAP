@@ -51,6 +51,14 @@ def _join(items: list[str], *, limit: int = 8) -> str:
     return "、".join(normalized[:limit]) + suffix
 
 
+def _join_notes(items: list[str], *, limit: int = 6) -> str:
+    normalized = _unique(items)
+    if not normalized:
+        return ""
+    suffix = " 等" if len(normalized) > limit else ""
+    return "；".join(normalized[:limit]) + suffix
+
+
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else ""
 
@@ -85,6 +93,16 @@ def describe_for_agent(preference: dict[str, Any] | None) -> str:
     if sectors:
         lines.append(f"- 关注赛道：{sectors}")
 
+    anti = preference.get("anti_preference")
+    anti = anti if isinstance(anti, dict) else {}
+    anti_sectors = _join(
+        _string_list(declared.get("anti_focus_sectors"))
+        + _string_list(anti.get("disliked_sectors"))
+        + _string_list(preference.get("excluded_tracks"))
+    )
+    if anti_sectors:
+        lines.append(f"- 反偏好赛道：{anti_sectors}")
+
     stages = _join(
         _string_list(declared.get("focus_stages"))
         + _string_list(preference.get("stages"))
@@ -92,12 +110,26 @@ def describe_for_agent(preference: dict[str, Any] | None) -> str:
     if stages:
         lines.append(f"- 投资阶段：{stages}")
 
+    anti_stages = _join(
+        _string_list(declared.get("anti_focus_stages"))
+        + _string_list(anti.get("disliked_stages"))
+    )
+    if anti_stages:
+        lines.append(f"- 反偏好阶段：{anti_stages}")
+
     regions = _join(
         _string_list(declared.get("focus_regions"))
         + _string_list(preference.get("geographies"))
     )
     if regions:
         lines.append(f"- 地域偏好：{regions}")
+
+    anti_regions = _join(
+        _string_list(declared.get("anti_focus_regions"))
+        + _string_list(anti.get("disliked_regions"))
+    )
+    if anti_regions:
+        lines.append(f"- 反偏好地域：{anti_regions}")
 
     risk_appetite = _text(preference.get("risk_appetite"))
     if risk_appetite:
@@ -107,6 +139,20 @@ def describe_for_agent(preference: dict[str, Any] | None) -> str:
     if check_size:
         lines.append(f"- 单笔规模：{check_size}")
 
+    anti_risk_levels = _join(
+        _string_list(declared.get("anti_risk_levels"))
+        + _string_list(anti.get("disliked_risk_levels"))
+    )
+    if anti_risk_levels:
+        lines.append(f"- 反偏好风险特征：{anti_risk_levels}")
+
+    anti_check_sizes = _join(
+        _string_list(declared.get("anti_check_sizes"))
+        + _string_list(anti.get("disliked_check_sizes"))
+    )
+    if anti_check_sizes:
+        lines.append(f"- 反偏好单笔规模：{anti_check_sizes}")
+
     custom_dimensions = declared.get("custom_dimensions")
     if isinstance(custom_dimensions, dict):
         for label, values in custom_dimensions.items():
@@ -115,9 +161,26 @@ def describe_for_agent(preference: dict[str, Any] | None) -> str:
             if label_text and value_text:
                 lines.append(f"- {label_text}：{value_text}")
 
-    notes = _text(preference.get("notes")) or _text(declared.get("description"))
+    anti_custom_dimensions = declared.get("anti_custom_dimensions")
+    if isinstance(anti_custom_dimensions, dict):
+        for label, values in anti_custom_dimensions.items():
+            label_text = _text(label)
+            value_text = _join(_string_list(values))
+            if label_text and value_text:
+                lines.append(f"- 反偏好{label_text}：{value_text}")
+
+    supplemental_notes = _join_notes(
+        _string_list(declared.get("supplemental_notes"))
+        + _string_list(preference.get("supplemental_notes"))
+    )
+    if supplemental_notes:
+        lines.append(f"- 补充说明：{supplemental_notes}")
+
+    notes = ""
+    if not supplemental_notes:
+        notes = _text(preference.get("notes")) or _text(declared.get("description"))
     if notes:
-        lines.append(f"- 备注：{notes}")
+        lines.append(f"- 补充说明：{notes}")
 
     if len(lines) == 1:
         lines.append("- 已配置，但未填写具体维度。")
