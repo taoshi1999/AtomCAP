@@ -36,11 +36,23 @@ class DealSourceType(StrEnum):
     INTERNAL_EXCEL = "internal_excel"
 
 
+class CandidateReferenceLink(BaseModel):
+    title: str = Field(description="资料标题")
+    url: str = Field(description="可打开的资料链接")
+    source_type: str | None = Field(default=None, description="资料类型，如 web_search/company_registry")
+    evidence_id: uuid.UUID | None = Field(default=None, description="若来自 evidence_items，则保留证据 id")
+
+
 class DealCandidate(BaseModel):
     company_name: str = Field(description="规范化后的公司主体名")
     company_id: uuid.UUID | None = Field(default=None)
     uscc: str | None = Field(default=None)
     aliases: list[str] = Field(default_factory=list)
+    official_website: str | None = Field(default=None, description="候选公司的官网或主页链接")
+    reference_links: list[CandidateReferenceLink] = Field(
+        default_factory=list,
+        description="候选项目相关资料，如官网、新闻、融资信息、专利或工商资料网页",
+    )
     sub_direction: str | None = Field(default=None)
     source_type: DealSourceType = Field(default=DealSourceType.PUBLIC_SIGNAL_MINING)
 

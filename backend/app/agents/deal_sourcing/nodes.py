@@ -23,7 +23,8 @@ import asyncio
 import json
 import re
 import uuid
-from typing import TypeVar
+from typing import Any, TypeVar
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
@@ -34,6 +35,7 @@ from app.agents.deal_sourcing.schemas import (
     SearchStrategy,
 )
 from app.agents.deal_sourcing.state import DealSourcingState
+from app.connectors.base import Source
 from app.connectors.registry import active_connectors, cached_gather_signals, lookup_company
 from app.llm.client import ModelTier, complete_structured
 from app.objects.deal_list import DealSourceType, RecommendationTier
@@ -95,6 +97,77 @@ async def gen_search_strategy(state: DealSourcingState) -> dict:
 
 # ---------- Step 3：公开数据挖掘 ----------
 
+MIN_SIGNAL_COUNT = 5
+MAX_SIGNAL_SEARCH_ROUNDS = 3
+
+
+def _uniq_text(values: list[object], *, limit: int | None = None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def _signal_search_rounds(strat: dict, query: str | None) -> list[list[str]]:
+    """Build increasingly broad query rounds for public signal search.
+
+    The first round follows the LLM strategy closely. Later rounds combine themes with
+    priority signal words and common deal-sourcing hints, so a weak first search does
+    not immediately collapse into an empty deal pool.
+    """
+    themes = _uniq_text(strat.get("themes") or [])
+    keywords = _uniq_text(strat.get("keywords") or [])
+    signals = _uniq_text(strat.get("priority_signals") or [])
+    regions = _uniq_text(strat.get("regions") or [])
+    query_text = str(query or "").strip()
+
+    rounds: list[list[str]] = []
+    rounds.append(_uniq_text([*keywords, *themes, query_text], limit=6))
+
+    signal_terms = signals or ["融资", "产品发布", "专利", "工商", "官网", "招聘"]
+    rounds.append(
+        _uniq_text(
+            [
+                f"{theme} {signal}"
+                for theme in (themes or [query_text])
+                for signal in signal_terms[:4]
+            ],
+            limit=6,
+        )
+    )
+
+    rounds.append(
+        _uniq_text(
+            [
+                *(f"{region} {theme} 初创 公司" for region in regions[:3] for theme in themes[:3]),
+                *(f"{theme} 融资 新闻 官网 专利" for theme in themes[:4]),
+                query_text,
+            ],
+            limit=6,
+        )
+    )
+
+    unique_rounds: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for round_keywords in rounds:
+        key = tuple(round_keywords)
+        if round_keywords and key not in seen:
+            seen.add(key)
+            unique_rounds.append(round_keywords)
+    return unique_rounds[:MAX_SIGNAL_SEARCH_ROUNDS]
+
+
+def _source_key(source: Source) -> str:
+    return str(source.url or source.title or "").strip().lower()
+
 
 async def mine_signals(state: DealSourcingState) -> dict:
     """Step 3：多 Connector 并发挖掘公开数据信号，每条预分配 evidence_id。
@@ -105,10 +178,6 @@ async def mine_signals(state: DealSourcingState) -> dict:
     闸控（检索词出境合规，约定 5）；未配置任何数据源 key 时走空信号路径。
     """
     strat = state.get("search_strategy") or {}
-    keywords = [k for k in (strat.get("keywords") or []) if k]
-    keywords += [t for t in (strat.get("themes") or []) if t]
-    if not keywords and state.get("query"):
-        keywords = [state["query"]]
     # themes 第一项作为 track（驱动 funding_events 检索），缺失回退用户需求
     track = ""
     themes = strat.get("themes") or []
@@ -119,12 +188,23 @@ async def mine_signals(state: DealSourcingState) -> dict:
 
     allow_overseas = state.get("allow_overseas", False)
     connectors = active_connectors(allow_overseas=allow_overseas)
-    sources = await cached_gather_signals(
-        connectors,
-        keywords=keywords,
-        track=track,
-        allow_overseas=allow_overseas,
-    )
+    sources: list[Source] = []
+    seen_sources: set[str] = set()
+    for round_keywords in _signal_search_rounds(strat, state.get("query")):
+        batch = await cached_gather_signals(
+            connectors,
+            keywords=round_keywords,
+            track=track,
+            allow_overseas=allow_overseas,
+        )
+        for source in batch:
+            key = _source_key(source)
+            if not key or key in seen_sources:
+                continue
+            seen_sources.add(key)
+            sources.append(source)
+        if len(sources) >= MIN_SIGNAL_COUNT:
+            break
 
     evidence_sources: list[dict] = []
     raw_signals: list[dict] = []
@@ -158,26 +238,79 @@ CANDIDATE_SYSTEM = """你是一级市场项目搜寻分析师。采用 Signal-to
 4. selection_reasons：入选理由，必须在 evidence_ids 里填触发它的信号 evidence_id；
    严禁伪造不存在的 id，没有就留空（系统会标记为模型推断）
 要求：宁缺毋滥，只产出信号确实支撑的候选；同一家公司不同信号合并成一条；
-不要凭空编造公司名。信号为空时返回空候选列表。"""
+不要凭空编造公司名。
+若市场信号为空，但搜索策略、来源 Thesis 或机构偏好已经明确到具体细分方向，
+可以生成 3-8 个“待核验候选”：必须选择真实存在且名称尽量规范的公司/项目，
+selection_reasons 的 evidence_ids 必须留空，并说明需要后续公开资料核验。
+只有在方向完全无法判断时才返回空候选列表。"""
 
 
 async def generate_candidates(state: DealSourcingState) -> dict:
-    """Step 4-7：从信号反推候选公司（Signal-to-Deal）。无信号不调 LLM（控成本）。"""
+    """Step 4-7：从信号反推候选公司；信号不足时生成待核验候选兜底。"""
     raw = state.get("raw_signals") or []
-    if not raw:
-        return {"candidates": [], "progress": "正在生成候选项目…"}
+    fallback_mode = not raw
+    payload = {
+        "搜索策略": state.get("search_strategy", {}),
+        "市场信号": raw,
+    }
+    if fallback_mode:
+        payload.update(
+            {
+                "补充要求": (
+                    "当前公开信号为空。请基于搜索策略、来源 Thesis、机构偏好和用户需求，"
+                    "生成少量待核验候选；不要伪造 evidence_id，入选理由必须说明待公开资料核验。"
+                ),
+                "来源Thesis": state.get("thesis_context", {}),
+                "机构偏好": state.get("preference_input", {}),
+                "用户需求": state.get("query", ""),
+            }
+        )
     result = await _ask(
         state,
         ModelTier.STANDARD,
         CANDIDATE_SYSTEM,
-        {
-            "搜索策略": state.get("search_strategy", {}),
-            "市场信号": raw,
-        },
+        payload,
         CandidateDrafts,
     )
+    candidates = [c.model_dump(mode="json") for c in result.candidates]
+    if raw and not candidates:
+        fallback_mode = True
+        result = await _ask(
+            state,
+            ModelTier.STANDARD,
+            CANDIDATE_SYSTEM,
+            {
+                "搜索策略": state.get("search_strategy", {}),
+                "市场信号": [],
+                "已检索但未形成候选的信号摘要": raw[:8],
+                "补充要求": (
+                    "已有公开搜索结果不足以支撑直接反推候选。请改用搜索策略、来源 Thesis、"
+                    "机构偏好和用户需求生成少量待核验候选；不要伪造 evidence_id。"
+                ),
+                "来源Thesis": state.get("thesis_context", {}),
+                "机构偏好": state.get("preference_input", {}),
+                "用户需求": state.get("query", ""),
+            },
+            CandidateDrafts,
+        )
+        candidates = [c.model_dump(mode="json") for c in result.candidates]
+    if fallback_mode:
+        for candidate in candidates:
+            reasons = []
+            for reason in candidate.get("selection_reasons") or []:
+                text = str(reason.get("text") or "").strip()
+                if text and "待" not in text and "核验" not in text:
+                    text = f"{text}（待公开资料进一步核验）"
+                reasons.append({**reason, "text": text, "evidence_ids": [], "inferred": True})
+            candidate["selection_reasons"] = reasons or [
+                {
+                    "text": "基于搜索策略和机构偏好的待核验候选，需补充公开资料确认匹配度。",
+                    "evidence_ids": [],
+                    "inferred": True,
+                }
+            ]
     return {
-        "candidates": [c.model_dump(mode="json") for c in result.candidates],
+        "candidates": candidates,
         "progress": "正在生成候选项目…",
     }
 
@@ -267,6 +400,9 @@ def dedupe_candidates(state: DealSourcingState) -> dict:
 
 MAX_VERIFY = 20          # 单次最多核验候选数（控开放平台配额/调用成本）
 VERIFY_CONCURRENCY = 5   # 工商查询并发上限
+MAX_REFERENCE_CANDIDATES = 12
+REFERENCE_CONCURRENCY = 3
+MAX_REFERENCE_SOURCES_PER_CANDIDATE = 8
 
 
 def _registry_basic(sources: list) -> dict | None:
@@ -443,6 +579,273 @@ async def score_candidates(state: DealSourcingState) -> dict:
     return {"candidates": enriched, "progress": "正在计算机构匹配度并排序…"}
 
 
+# ---------- 候选项目资料链接归集 ----------
+
+_WEBSITE_RAW_KEYS = (
+    "Website",
+    "WebSite",
+    "WebSiteUrl",
+    "WebUrl",
+    "Url",
+    "CompanyUrl",
+    "OfficialWebsite",
+    "HomePage",
+    "Homepage",
+)
+
+
+def _claim_evidence_ids(candidate: dict) -> set[str]:
+    ids: set[str] = set()
+    for key in ("selection_reasons", "recommendation_reasons", "initial_risks"):
+        for claim in candidate.get(key) or []:
+            if not isinstance(claim, dict):
+                continue
+            for evidence_id in claim.get("evidence_ids") or []:
+                if evidence_id:
+                    ids.add(str(evidence_id))
+    return ids
+
+
+def _url(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.startswith("www."):
+        text = f"https://{text}"
+    parsed = urlparse(text)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return text
+    return None
+
+
+def _raw_website(raw: object) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    for key in _WEBSITE_RAW_KEYS:
+        value = _url(raw.get(key))
+        if value:
+            return value
+    for value in raw.values():
+        if isinstance(value, dict):
+            nested = _raw_website(value)
+            if nested:
+                return nested
+    return None
+
+
+def _valid_uuid(value: object) -> str | None:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _norm_text(value: object) -> str:
+    return re.sub(r"\s+", "", str(value or "")).lower()
+
+
+def _source_matches_candidate(source: dict, candidate: dict) -> bool:
+    raw = source.get("raw") if isinstance(source.get("raw"), dict) else {}
+    tagged_name = str(source.get("candidate_name") or raw.get("_candidate_reference_for") or "")
+    if tagged_name and tagged_name == str(candidate.get("company_name") or ""):
+        return True
+    haystack = _norm_text(" ".join(str(source.get(key) or "") for key in ("title", "snippet", "url")))
+    names = [candidate.get("company_name"), *(candidate.get("aliases") or [])]
+    return any(_norm_text(name) and _norm_text(name) in haystack for name in names)
+
+
+def _looks_like_official_source(source: dict) -> bool:
+    text = _norm_text(" ".join(str(source.get(key) or "") for key in ("title", "snippet", "url")))
+    if any(token in text for token in ("官网", "官方网站", "公司官网", "首页", "homepage", "officialwebsite")):
+        return True
+    parsed = urlparse(str(source.get("url") or ""))
+    path = parsed.path.strip("/")
+    return bool(parsed.netloc and path in {"", "index.html", "index.htm"})
+
+
+def _candidate_references(candidate: dict, evidence_sources: list[dict]) -> tuple[str | None, list[dict[str, Any]]]:
+    """Attach homepage/reference URLs from real evidence sources.
+
+    Priority:
+    1. URLs whose evidence_ids are explicitly cited by the candidate.
+    2. URLs whose title/snippet mentions the company or aliases.
+    3. Official website-like fields from company registry raw payloads.
+    """
+    cited_ids = _claim_evidence_ids(candidate)
+    links: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    official_website = _url(candidate.get("official_website"))
+
+    def add_link(source: dict) -> None:
+        url = _url(source.get("url"))
+        if not url or url in seen_urls:
+            return
+        seen_urls.add(url)
+        links.append(
+            {
+                "title": str(source.get("title") or source.get("source_type") or "相关资料"),
+                "url": url,
+                "source_type": source.get("source_type"),
+                "evidence_id": _valid_uuid(source.get("evidence_id")),
+            }
+        )
+
+    for source in evidence_sources:
+        if str(source.get("evidence_id") or "") in cited_ids:
+            add_link(source)
+        website = _raw_website(source.get("raw"))
+        if website and not official_website and (
+            str(source.get("evidence_id") or "") in cited_ids or _source_matches_candidate(source, candidate)
+        ):
+            official_website = website
+        if (
+            not official_website
+            and _source_matches_candidate(source, candidate)
+            and _looks_like_official_source(source)
+        ):
+            official_website = _url(source.get("url"))
+
+    for source in evidence_sources:
+        if len(links) >= 5:
+            break
+        if _source_matches_candidate(source, candidate):
+            add_link(source)
+
+    if official_website and official_website not in seen_urls:
+        links.insert(
+            0,
+            {
+                "title": f"{candidate.get('company_name') or '候选项目'} 官网/主页",
+                "url": official_website,
+                "source_type": "official_website",
+                "evidence_id": None,
+            },
+        )
+
+    return official_website, links[:5]
+
+
+def attach_candidate_reference_links(candidates: list[dict], evidence_sources: list[dict]) -> list[dict]:
+    """Enrich final candidates with homepage/reference links without changing ranking."""
+    if not candidates:
+        return []
+    out: list[dict] = []
+    for candidate in candidates:
+        official_website, links = _candidate_references(candidate, evidence_sources)
+        enriched = dict(candidate)
+        if official_website:
+            enriched["official_website"] = official_website
+        enriched["reference_links"] = links
+        out.append(enriched)
+    return out
+
+
+def _reference_queries(candidate: dict) -> list[str]:
+    names = [
+        str(name).strip()
+        for name in [candidate.get("company_name"), *(candidate.get("aliases") or [])]
+        if str(name or "").strip()
+    ]
+    queries: list[str] = []
+    for name in names[:2]:
+        queries.extend(
+            [
+                f"{name} 官网 官方网站",
+                f"{name} 融资 新闻 专利 工商",
+                f"{name} 最新 重要 进展",
+            ]
+        )
+    return list(dict.fromkeys(queries))[:6]
+
+
+def _reference_source_dump(source: Source, *, candidate_name: str, kind: str) -> dict[str, Any]:
+    payload = source.model_dump(mode="json")
+    raw = dict(payload.get("raw") or {})
+    raw["_candidate_reference_for"] = candidate_name
+    raw["_candidate_reference_kind"] = kind
+    payload["raw"] = raw
+    payload["candidate_name"] = candidate_name
+    payload["reference_kind"] = kind
+    return payload
+
+
+async def _candidate_reference_sources(
+    connectors,
+    *,
+    candidate: dict,
+    allow_overseas: bool,
+) -> list[dict[str, Any]]:
+    company_name = str(candidate.get("company_name") or "").strip()
+    if not company_name:
+        return []
+
+    registry_sources, search_sources = await asyncio.gather(
+        lookup_company(connectors, company_name),
+        cached_gather_signals(
+            connectors,
+            keywords=_reference_queries(candidate),
+            track=company_name,
+            days=3650,
+            allow_overseas=allow_overseas,
+        ),
+    )
+
+    payloads: list[dict[str, Any]] = []
+    for source in registry_sources:
+        payloads.append(_reference_source_dump(source, candidate_name=company_name, kind="registry"))
+    for source in search_sources:
+        payloads.append(_reference_source_dump(source, candidate_name=company_name, kind="company_reference"))
+    return payloads[:MAX_REFERENCE_SOURCES_PER_CANDIDATE]
+
+
+def _evidence_key(source: dict) -> str:
+    return str(source.get("url") or source.get("title") or "").strip().lower()
+
+
+async def collect_candidate_reference_materials(state: DealSourcingState) -> dict:
+    """Supplement each shortlisted candidate with recent, important reference materials.
+
+    This node intentionally runs after scoring: it focuses limited search quota on the candidates
+    that will actually be shown in the generated project pool.
+    """
+    candidates = state.get("candidates") or []
+    if not candidates:
+        return {"candidates": candidates, "progress": "正在补充候选项目相关资料…"}
+
+    allow_overseas = state.get("allow_overseas", False)
+    connectors = active_connectors(allow_overseas=allow_overseas)
+    if not connectors:
+        return {"candidates": candidates, "progress": "正在补充候选项目相关资料…"}
+
+    sem = asyncio.Semaphore(REFERENCE_CONCURRENCY)
+
+    async def collect(candidate: dict) -> list[dict[str, Any]]:
+        async with sem:
+            return await _candidate_reference_sources(
+                connectors,
+                candidate=candidate,
+                allow_overseas=allow_overseas,
+            )
+
+    batches = await asyncio.gather(*(collect(candidate) for candidate in candidates[:MAX_REFERENCE_CANDIDATES]))
+    evidence_sources: list[dict] = list(state.get("evidence_sources") or [])
+    seen = {_evidence_key(source) for source in evidence_sources if _evidence_key(source)}
+
+    for batch in batches:
+        for source in batch:
+            key = _evidence_key(source)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            evidence_sources.append({"evidence_id": str(uuid.uuid4()), **source})
+
+    return {
+        "candidates": candidates,
+        "evidence_sources": evidence_sources,
+        "progress": "正在补充候选项目相关资料…",
+    }
+
+
 def _system_claim(text: str) -> dict:
     """系统推断 Claim（无证据→inferred=True，约定 2）；候选 initial_risks/reasons 用 dict 形态。"""
     return {"text": text, "evidence_ids": [], "inferred": True}
@@ -538,7 +941,10 @@ async def assemble_deal_list(state: DealSourcingState) -> dict:
     候选评分与证据绑定已在前序节点完成，组装阶段不再过 LLM 重写候选——避免丢失
     evidence_ids 与结构化评分。落库不在节点内做，由 agents/runner.py 编排。
     """
-    cands = state.get("candidates") or []
+    cands = attach_candidate_reference_links(
+        state.get("candidates") or [],
+        state.get("evidence_sources") or [],
+    )
     strat = state.get("search_strategy") or {}
     themes = strat.get("themes") or []
 

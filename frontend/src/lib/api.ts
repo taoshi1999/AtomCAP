@@ -47,6 +47,19 @@ export interface TokenUsage {
   estimated?: boolean;
 }
 
+export interface ReactStep {
+  id: string;
+  loop: number;
+  phase: "analysis" | "action" | "observation" | "summary" | string;
+  summary: string;
+  details: string[];
+  status?: "running" | "completed" | "failed" | string;
+  tool_id?: string;
+  tool_name?: string;
+  created_at?: string;
+  received_at?: string;
+}
+
 export interface SseObjectRef {
   type: string;
   deliverable_id?: string | null;
@@ -58,6 +71,7 @@ export interface SseHandlers {
   onToken?: (text: string) => void;
   onReasoning?: (text: string) => void;
   onProgress?: (text: string) => void;
+  onReactStep?: (step: ReactStep) => void;
   onObject?: (ref: SseObjectRef) => void;
   onUsage?: (usage: TokenUsage) => void;
   onError?: (text: string) => void;
@@ -145,6 +159,9 @@ export async function sendMessage(
           break;
         case "progress":
           handlers.onProgress?.(ev.data);
+          break;
+        case "react_step":
+          handlers.onReactStep?.(JSON.parse(ev.data));
           break;
         case "object":
           handlers.onObject?.(JSON.parse(ev.data));
@@ -257,6 +274,7 @@ export interface HomeConversation {
   updated_at: string;
   conversation_type?: "normal" | "project_workspace" | string;
   source_deal_id?: string | null;
+  is_pinned?: boolean;
 }
 
 export interface HomeDeliverable {
@@ -663,6 +681,8 @@ export interface MessageBlock {
   deliverable_id?: string;
   deal_id?: string;
   company_id?: string;
+  steps?: ReactStep[];
+  usage?: TokenUsage;
 }
 
 export interface ConversationMessage {
@@ -713,6 +733,28 @@ export async function getConversationMessages(
 ): Promise<ConversationMessagesResponse> {
   return apiJson<ConversationMessagesResponse>(
     `/api/conversations/${conversationId}/messages`
+  );
+}
+
+export async function pinConversation(
+  conversationId: string,
+  isPinned: boolean
+): Promise<{ conversation_id: string; is_pinned: boolean; pinned_at?: string | null; event_recorded: boolean }> {
+  return apiJson<{ conversation_id: string; is_pinned: boolean; pinned_at?: string | null; event_recorded: boolean }>(
+    `/api/conversations/${conversationId}/pin`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ is_pinned: isPinned }),
+    }
+  );
+}
+
+export async function deleteConversation(
+  conversationId: string
+): Promise<{ conversation_id: string; deleted_at?: string | null; event_recorded: boolean }> {
+  return apiJson<{ conversation_id: string; deleted_at?: string | null; event_recorded: boolean }>(
+    `/api/conversations/${conversationId}`,
+    { method: "DELETE" }
   );
 }
 

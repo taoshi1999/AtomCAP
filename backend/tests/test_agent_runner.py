@@ -13,7 +13,6 @@ import asyncio
 import json
 import uuid
 
-import pytest
 from sqlalchemy.dialects import postgresql
 
 import app.agents.runner as runner
@@ -172,6 +171,11 @@ def _run(monkeypatch, graph: _FakeGraph):
     monkeypatch.setattr(runner.preferences_service, "get_active", _fake_pref)
     monkeypatch.setattr(runner, "recent_history", _fake_hist)
 
+    async def _fake_visible_plan(**kwargs):
+        return f"可见规划：{kwargs.get('progress')} / {kwargs.get('agent')}"
+
+    monkeypatch.setattr(runner, "generate_visible_react_plan", _fake_visible_plan)
+
     async def collect():
         return [
             ev
@@ -210,9 +214,14 @@ def test_success_full_pipeline(monkeypatch):
     # SSE：progress 去重 + object 推真实 deliverable_id
     progresses = [e["data"] for e in events if e["event"] == "progress"]
     assert progresses == ["正在拆解赛道定义…", "正在收集市场信号…", "Thesis 已生成"]
-    reasonings = [e["data"] for e in events if e["event"] == "reasoning"]
-    assert reasonings
-    assert "正在拆解赛道定义" in reasonings[0]
+    react_steps = [json.loads(e["data"]) for e in events if e["event"] == "react_step"]
+    assert {step["phase"] for step in react_steps} >= {"summary", "action", "observation"}
+    assert any(step["summary"].startswith("可见规划：正在拆解赛道定义") for step in react_steps)
+    assert not any(
+        step.get("tool_name") in {"赛道前瞻 Agent", "项目挖掘 Agent", "项目 Intake Agent"}
+        for step in react_steps
+    )
+    assert any(step.get("tool_name") == "公开信息检索" for step in react_steps)
     [obj_ev] = [e for e in events if e["event"] == "object"]
     obj = json.loads(obj_ev["data"])
 
@@ -228,6 +237,8 @@ def test_success_full_pipeline(monkeypatch):
     [m] = store.of(Message)
     assert m.role == "assistant"
     assert {"type": "object_ref", "deliverable_id": str(d.id)} in m.content
+    react_step_blocks = [block for block in m.content if block.get("type") == "react_steps"]
+    assert react_step_blocks and react_step_blocks[0]["steps"]
 
     # thesis.created 事件带赛道上下文（load_history 按赛道回放的匹配依据）
     created = [e for e in store.of(DomainEvent) if e.event_type == "thesis.created"]
@@ -303,11 +314,10 @@ def test_graph_exception_finishes_run_failed(monkeypatch):
     graph = _FakeGraph([{"progress": "正在拆解赛道定义…"}], exc=RuntimeError("网关超时"))
     events, store = _run(monkeypatch, graph)
 
-    assert events == [
-        {"event": "progress", "data": "正在拆解赛道定义…"},
-        {"event": "reasoning", "data": "正在拆解赛道定义…\n"},
-        {"event": "error", "data": AGENT_FAILED_MSG},
-    ]
+    assert events[0] == {"event": "progress", "data": "正在拆解赛道定义…"}
+    react_steps = [json.loads(e["data"]) for e in events if e["event"] == "react_step"]
+    assert [step["phase"] for step in react_steps] == ["summary", "observation"]
+    assert events[-1] == {"event": "error", "data": AGENT_FAILED_MSG}
     assert store.of(Deliverable) == [] and store.of(Message) == []
     assert store.events() == ["agent_run.started", "agent_run.failed"]
     [params] = store.update_params

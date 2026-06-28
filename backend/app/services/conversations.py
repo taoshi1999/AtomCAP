@@ -73,8 +73,15 @@ def usage_block(usage: dict[str, Any]) -> dict[str, Any]:
     return {"type": "usage", "usage": usage}
 
 
+def react_steps_block(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "react_steps", "steps": steps}
+
+
 def assistant_blocks(
-    text: str, *, usage: dict[str, Any] | None = None
+    text: str,
+    *,
+    usage: dict[str, Any] | None = None,
+    react_steps: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """assistant 消息块：正文文本块 + 可选 token 用量块。
 
@@ -84,6 +91,8 @@ def assistant_blocks(
     blocks: list[dict[str, Any]] = text_blocks(text)
     if usage:
         blocks.append(usage_block(usage))
+    if react_steps:
+        blocks.append(react_steps_block(react_steps))
     return blocks
 
 
@@ -154,6 +163,8 @@ async def ensure_conversation(
         )
     ).scalar_one_or_none()
     if conv is not None:
+        if conv.deleted_at is not None:
+            raise ConversationTypeMismatch("会话已删除，不能继续写入")
         existing_type = normalize_conversation_type(conv.conversation_type)
         if existing_type != normalized_type:
             raise ConversationTypeMismatch("会话类型已经固定，不能切换为其他类型")
@@ -185,6 +196,83 @@ async def ensure_conversation(
         payload={
             "conversation_type": normalized_type,
             "source_deal_id": str(source_deal_id) if source_deal_id else None,
+        },
+    )
+    return conv
+
+
+async def set_conversation_pinned(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    is_pinned: bool,
+) -> Conversation | None:
+    """置顶/取消置顶当前用户的一条未删除会话，并写审计事件。"""
+    conv = (
+        await db.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.institution_id == institution_id,
+                Conversation.user_id == user_id,
+                Conversation.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if conv is None:
+        return None
+
+    conv.is_pinned = is_pinned
+    conv.pinned_at = datetime.utcnow() if is_pinned else None
+    await db.flush()
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="conversation.pinned" if is_pinned else "conversation.unpinned",
+        subject_type="conversation",
+        subject_id=conv.id,
+        payload={"is_pinned": is_pinned},
+    )
+    return conv
+
+
+async def soft_delete_conversation(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+) -> Conversation | None:
+    """软删除当前用户的一条会话：隐藏列表，保留消息与事件。"""
+    conv = (
+        await db.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.institution_id == institution_id,
+                Conversation.user_id == user_id,
+                Conversation.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if conv is None:
+        return None
+
+    conv.deleted_at = datetime.utcnow()
+    conv.is_pinned = False
+    conv.pinned_at = None
+    await db.flush()
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="conversation.deleted",
+        subject_type="conversation",
+        subject_id=conv.id,
+        payload={
+            "conversation_type": normalize_conversation_type(conv.conversation_type),
+            "source_deal_id": str(conv.source_deal_id) if conv.source_deal_id else None,
         },
     )
     return conv
@@ -274,6 +362,9 @@ class ConversationRecord:
     preview: str | None
     conversation_type: str = CONVERSATION_TYPE_NORMAL
     source_deal_id: uuid.UUID | None = None
+    is_pinned: bool = False
+    pinned_at: datetime | None = None
+    deleted_at: datetime | None = None
 
 
 def _record_sort_key(record: "ConversationRecord") -> datetime:
@@ -301,10 +392,19 @@ def project_conversations(
     这里补上只影响并列项的确定性，不改变可观察行为）。
     """
     needle = (query or "").strip().lower()
-    filtered = [r for r in records if not needle or _record_matches_query(r, needle)]
+    filtered = [
+        r
+        for r in records
+        if r.deleted_at is None and (not needle or _record_matches_query(r, needle))
+    ]
     ordered = sorted(
         filtered,
-        key=lambda r: (_record_sort_key(r), str(r.id)),
+        key=lambda r: (
+            bool(r.is_pinned),
+            r.pinned_at or datetime.min,
+            _record_sort_key(r),
+            str(r.id),
+        ),
         reverse=True,
     )
     total = len(ordered)
@@ -318,6 +418,7 @@ def project_conversations(
             "updated_at": _record_sort_key(r).isoformat(),
             "conversation_type": normalize_conversation_type(r.conversation_type),
             "source_deal_id": str(r.source_deal_id) if r.source_deal_id else None,
+            "is_pinned": bool(r.is_pinned),
         }
         for r in page
     ]
@@ -347,6 +448,7 @@ async def _fetch_conversation_records(
             .where(
                 Conversation.institution_id == institution_id,
                 Conversation.user_id == user_id,
+                Conversation.deleted_at.is_(None),
             )
         )
     ).all()
@@ -373,6 +475,9 @@ async def _fetch_conversation_records(
                 preview=preview_from_content(latest.content) if latest else None,
                 conversation_type=normalize_conversation_type(conversation.conversation_type),
                 source_deal_id=conversation.source_deal_id,
+                is_pinned=bool(conversation.is_pinned),
+                pinned_at=conversation.pinned_at,
+                deleted_at=conversation.deleted_at,
             )
         )
     return records

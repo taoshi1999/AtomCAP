@@ -10,13 +10,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-import pytest
-
 import app.llm.client as llm_client
 from app.llm.client import ModelTier, complete_stream, resolve_model, resolve_provider
 from app.models.models import Message
 from app.services.conversations import (
     CHAT_SYSTEM_PROMPT,
+    assistant_blocks,
     blocks_to_text,
     compose_user_content,
     text_blocks,
@@ -150,6 +149,23 @@ def test_blocks_to_text_mixed():
     ]
     assert blocks_to_text(blocks) == "请看[交付对象 abc-123]的结论"
     assert blocks_to_text({"blocks": [{"type": "text", "text": "兼容"}]}) == "兼容"
+
+
+def test_assistant_blocks_persist_react_steps_without_polluting_text():
+    steps = [
+        {
+            "id": "loop-1-summary-none",
+            "loop": 1,
+            "phase": "summary",
+            "summary": "读取项目材料。",
+            "details": ["读取材料索引"],
+        }
+    ]
+
+    blocks = assistant_blocks("已完成。", react_steps=steps)
+
+    assert blocks_to_text(blocks) == "已完成。"
+    assert blocks[-1] == {"type": "react_steps", "steps": steps}
 
 
 def test_to_llm_messages_order_and_filter():

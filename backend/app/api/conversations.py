@@ -2,7 +2,7 @@
 
 事件协议（前端据此渲染）：
 - token:     通用对话的增量正文
-- reasoning: 通用对话的思考过程增量（DeepSeek reasoner 等，供前端折叠展示）
+- react_step: Agent 可见工作过程（下一步计划、工具调用、执行结果）
 - usage:     本轮 token 用量（{prompt_tokens, completion_tokens, total_tokens}），每条消息 token 数
 - progress:  专用 Agent 长任务的步骤进度（如“正在收集市场信号…”）
 - object:   交付结果对象就绪，payload 为 {type, deliverable_id}，前端经渲染注册表展示
@@ -18,12 +18,15 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse
 
+from app.agents.react_planner import generate_visible_react_plan
 from app.agents.router import Intent, classify_intent
 from app.agents.runner import run_deal_intake, run_deal_sourcing, run_thesis_scout
 from app.api.deps import CurrentUser, get_current_user
@@ -35,7 +38,7 @@ from app.services.document_extract import (
 )
 from app.db import SessionLocal
 from app.llm.client import coerce_tier, stream_chat
-from app.models.models import Company, Conversation, Deal, Deliverable, Message
+from app.models.models import Company, Conversation, Deal, Deliverable, Document, Message
 from app.objects import DeliverableType
 from app.services.conversations import (
     CONVERSATION_TYPE_PROJECT_WORKSPACE,
@@ -48,6 +51,8 @@ from app.services.conversations import (
     load_history,
     normalize_conversation_type,
     save_message,
+    set_conversation_pinned,
+    soft_delete_conversation,
     text_blocks,
     to_llm_messages,
 )
@@ -81,6 +86,96 @@ class SendMessageRequest(BaseModel):
     source_thesis_id: uuid.UUID | None = None
     # 项目工作台绑定的 Deal id，仅 project_workspace 使用。
     source_deal_id: uuid.UUID | None = None
+
+
+class PinConversationRequest(BaseModel):
+    is_pinned: bool
+
+
+AGENT_TOOL_CATALOG: list[dict[str, object]] = [
+    {
+        "id": "conversation_history",
+        "name": "对话历史",
+        "category": "上下文",
+        "description": "读取当前会话最近消息，帮助保持上下文连续。",
+        "enabled_by_default": True,
+    },
+    {
+        "id": "investment_preference",
+        "name": "投资偏好",
+        "category": "机构知识",
+        "description": "读取当前机构的投资偏好、反偏好、阶段与地域约束。",
+        "enabled_by_default": True,
+    },
+    {
+        "id": "project_library",
+        "name": "项目库",
+        "category": "内部数据",
+        "description": "读取近期项目画像、状态和匹配度，用于项目相关问答。",
+        "enabled_by_default": True,
+    },
+    {
+        "id": "thesis_library",
+        "name": "赛道库",
+        "category": "内部数据",
+        "description": "读取近期赛道 Thesis，用于赛道、产业链和投资方向问答。",
+        "enabled_by_default": True,
+    },
+    {
+        "id": "workspace_context",
+        "name": "当前工作台",
+        "category": "页面上下文",
+        "description": "读取当前项目或赛道详情页传入的结构化上下文。",
+        "enabled_by_default": True,
+    },
+    {
+        "id": "document_reader",
+        "name": "项目材料",
+        "category": "私有材料",
+        "description": "读取当前项目已上传材料和解析状态，用于材料补全与尽调问答。",
+        "enabled_by_default": True,
+    },
+    {
+        "id": "market_signal_search",
+        "name": "市场信号检索",
+        "category": "公开信息",
+        "description": "触发或参考公开市场信号检索能力，包括财经新闻、工商、专利、论文和人事变动。",
+        "enabled_by_default": True,
+    },
+]
+
+AGENT_TOOL_BY_ID = {str(tool["id"]): tool for tool in AGENT_TOOL_CATALOG}
+DEFAULT_AGENT_TOOL_IDS = {
+    str(tool["id"]) for tool in AGENT_TOOL_CATALOG if tool.get("enabled_by_default")
+}
+
+
+def tool_name(tool_id: str) -> str:
+    return str(AGENT_TOOL_BY_ID.get(tool_id, {}).get("name") or tool_id)
+
+
+def react_step(
+    *,
+    loop: int,
+    phase: str,
+    summary: str,
+    details: list[str] | None = None,
+    tool_id: str | None = None,
+    status: str = "completed",
+) -> dict:
+    payload = {
+        "id": f"loop-{loop}-{phase}-{tool_id or 'none'}",
+        "loop": loop,
+        "phase": phase,
+        "summary": summary,
+        "details": details or [],
+        "status": status,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if tool_id:
+        payload["tool_id"] = tool_id
+        payload["tool_name"] = tool_name(tool_id)
+    return {"event": "react_step", "data": json.dumps(payload, ensure_ascii=False)}
 
 
 def _preference_target_hint(content: str) -> str:
@@ -123,6 +218,133 @@ def _preference_advice_fallback(content: str) -> str:
             "说明：我只生成建议，不会直接改写当前投资偏好；需要你在投资偏好页确认后应用。",
         ]
     )
+
+
+def _compact_text(value: object, *, limit: int = 160) -> str:
+    text = str(value or "").strip().replace("\n", " ")
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+
+async def collect_agent_tool_context(
+    db,
+    *,
+    institution_id: uuid.UUID,
+    enabled_tools: set[str],
+    history: list[Message],
+    active_preference,
+    workspace_context: str,
+    source_deal_id: uuid.UUID | None,
+) -> tuple[str, list[str]]:
+    """Collect high-level tool observations for the ReAct loop.
+
+    This is intentionally summary-only: it gives the model useful context without exposing
+    hidden reasoning or pretending that a tool was called when it was not available.
+    """
+    context_parts: list[str] = []
+    observations: list[str] = []
+
+    if "conversation_history" in enabled_tools:
+        recent_lines: list[str] = []
+        for message in history[-6:]:
+            if message.role not in ("user", "assistant"):
+                continue
+            text = _compact_text(blocks_to_text(message.content), limit=120)
+            if text:
+                recent_lines.append(f"{message.role}: {text}")
+        if recent_lines:
+            context_parts.append("【工具：对话历史】\n" + "\n".join(recent_lines))
+            observations.append(f"对话历史：读取最近 {len(recent_lines)} 条消息。")
+        else:
+            observations.append("对话历史：当前会话暂无可复用历史。")
+
+    if "investment_preference" in enabled_tools:
+        preference_context = preferences_service.describe_for_agent(active_preference)
+        if preference_context.strip():
+            context_parts.append("【工具：投资偏好】\n" + preference_context)
+            observations.append("投资偏好：已读取当前机构偏好。")
+        else:
+            observations.append("投资偏好：当前机构暂无可用偏好记录。")
+
+    if "workspace_context" in enabled_tools and workspace_context.strip():
+        context_parts.append("【工具：当前工作台】\n" + workspace_context.strip())
+        observations.append("当前工作台：已读取页面结构化上下文。")
+
+    if "project_library" in enabled_tools:
+        rows = (
+            await db.execute(
+                select(Deal, Company)
+                .join(Company, Deal.company_id == Company.id)
+                .where(
+                    Deal.institution_id == institution_id,
+                    Deal.status != "deleted",
+                )
+                .order_by(Deal.updated_at.desc())
+                .limit(5)
+            )
+        ).all()
+        if rows:
+            lines: list[str] = []
+            for deal, company in rows:
+                data = deal.data or {}
+                analysis = data.get("analysis") or {}
+                extraction = data.get("extraction") or {}
+                lines.append(
+                    " / ".join(
+                        part
+                        for part in (
+                            company.name if company else extraction.get("company_name"),
+                            f"状态={deal.status}",
+                            extraction.get("track"),
+                            _compact_text(analysis.get("portrait"), limit=80),
+                        )
+                        if part
+                    )
+                )
+            context_parts.append("【工具：项目库】\n" + "\n".join(lines))
+            observations.append(f"项目库：读取最近 {len(lines)} 个项目。")
+        else:
+            observations.append("项目库：暂无可读取项目。")
+
+    if "thesis_library" in enabled_tools:
+        rows = (
+            await db.execute(
+                select(Deliverable)
+                .where(
+                    Deliverable.institution_id == institution_id,
+                    Deliverable.type == DeliverableType.THESIS.value,
+                )
+                .order_by(Deliverable.updated_at.desc())
+                .limit(5)
+            )
+        ).scalars().all()
+        if rows:
+            lines = []
+            for row in rows:
+                payload = row.payload or {}
+                name = payload.get("thesis_name") or payload.get("track_name") or payload.get("name") or "未命名赛道"
+                summary = payload.get("one_line_thesis") or payload.get("summary") or payload.get("recommendation")
+                lines.append(f"{name} / {_compact_text(summary, limit=100)}")
+            context_parts.append("【工具：赛道库】\n" + "\n".join(lines))
+            observations.append(f"赛道库：读取最近 {len(lines)} 条 Thesis。")
+        else:
+            observations.append("赛道库：暂无可读取 Thesis。")
+
+    if "document_reader" in enabled_tools:
+        query = select(Document).where(Document.institution_id == institution_id)
+        if source_deal_id is not None:
+            query = query.where(Document.deal_id == source_deal_id)
+        rows = (await db.execute(query.order_by(Document.updated_at.desc()).limit(6))).scalars().all()
+        if rows:
+            lines = [f"{doc.filename} / {doc.doc_type or '未分类'} / {doc.parse_status}" for doc in rows]
+            context_parts.append("【工具：项目材料】\n" + "\n".join(lines))
+            observations.append(f"项目材料：读取 {len(lines)} 份材料索引。")
+        else:
+            observations.append("项目材料：暂无可读取材料。")
+
+    if "market_signal_search" in enabled_tools:
+        observations.append("市场信号检索：已开放；若任务需要实时公开信息，会交由专用 Agent 或市场信号服务执行。")
+
+    return "\n\n".join(part for part in context_parts if part.strip()), observations
 
 
 async def classify_intent_bounded(content: str):
@@ -176,6 +398,53 @@ async def list_conversations(
     }
 
 
+@router.patch("/{conversation_id}/pin")
+async def pin_conversation(
+    conversation_id: uuid.UUID,
+    body: PinConversationRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """置顶或取消置顶当前用户的一条会话。"""
+    async with SessionLocal() as db, db.begin():
+        conversation = await set_conversation_pinned(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            conversation_id=conversation_id,
+            is_pinned=body.is_pinned,
+        )
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return {
+            "conversation_id": str(conversation.id),
+            "is_pinned": bool(conversation.is_pinned),
+            "pinned_at": conversation.pinned_at.isoformat() if conversation.pinned_at else None,
+            "event_recorded": True,
+        }
+
+
+@router.delete("/{conversation_id}")
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """软删除当前用户的一条会话：从列表隐藏，保留消息和事件流水。"""
+    async with SessionLocal() as db, db.begin():
+        conversation = await soft_delete_conversation(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            conversation_id=conversation_id,
+        )
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return {
+            "conversation_id": str(conversation.id),
+            "deleted_at": conversation.deleted_at.isoformat() if conversation.deleted_at else None,
+            "event_recorded": True,
+        }
+
+
 @router.get("/{conversation_id}/messages")
 async def get_messages(
     conversation_id: uuid.UUID,
@@ -188,6 +457,7 @@ async def get_messages(
                 Conversation.id == conversation_id,
                 Conversation.institution_id == user.institution_id,
                 Conversation.user_id == user.user_id,
+                Conversation.deleted_at.is_(None),
             )
         )
         if conversation is None:
@@ -241,6 +511,26 @@ async def send_message(
         workspace_deal_context: dict | None = None
         workspace_deal_name: str | None = None
         conversation_type = normalize_conversation_type(body.conversation_type)
+        enabled_tools = set(DEFAULT_AGENT_TOOL_IDS)
+        tool_context = ""
+        tool_observations: list[str] = []
+        react_steps: list[dict[str, Any]] = []
+
+        def emit_react_step(**kwargs) -> dict:
+            event = react_step(**kwargs)
+            react_steps.append(json.loads(event["data"]))
+            return event
+
+        yield emit_react_step(
+            loop=1,
+            phase="analysis",
+            summary="已收到指令，正在分析任务类型和可用上下文。",
+            details=[
+                f"会话类型：{conversation_type}",
+                "系统将按默认策略读取必要上下文。",
+            ],
+            status="running",
+        )
         # 赛道页 AI 助手只注入赛道上下文，会话仍归为普通会话。
         source_thesis_id = body.source_thesis_id
         source_deal_id = (
@@ -328,6 +618,28 @@ async def send_message(
             active_preference = await preferences_service.get_active(
                 db, institution_id=user.institution_id
             )
+            workspace_context_for_tools = ""
+            if workspace_thesis_context:
+                workspace_context_for_tools = json.dumps(
+                    workspace_thesis_context,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            if workspace_deal_context:
+                workspace_context_for_tools = json.dumps(
+                    workspace_deal_context,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            tool_context, tool_observations = await collect_agent_tool_context(
+                db,
+                institution_id=user.institution_id,
+                enabled_tools=enabled_tools,
+                history=history,
+                active_preference=active_preference,
+                workspace_context=workspace_context_for_tools,
+                source_deal_id=source_deal_id,
+            )
             await save_message(
                 db,
                 institution_id=user.institution_id,
@@ -349,14 +661,60 @@ async def send_message(
         #    开始 flush（排除中间层缓冲）。分类限时见 classify_intent_bounded。
         yield {"event": "progress", "data": "正在理解你的问题"}
         intent = None if source_deal_id else await classify_intent_bounded(body.content)
+        selected_intent = intent.intent.value if intent else "chat"
+        route_plan = await generate_visible_react_plan(
+            user_request=body.content,
+            intent=selected_intent,
+            progress="完成任务分类，准备选择处理流程",
+            observations=tool_observations,
+            allow_overseas=user.allow_overseas_models,
+        )
+        yield emit_react_step(
+            loop=1,
+            phase="action",
+            summary=route_plan,
+            details=[
+                f"识别意图：{selected_intent}",
+                "下一步会根据意图、页面上下文和工具反馈决定执行路径。",
+            ],
+        )
+        yield emit_react_step(
+            loop=1,
+            phase="observation",
+            summary="工具上下文读取完成，已形成第一轮反馈。",
+            details=tool_observations or ["本轮没有可用工具反馈。"],
+        )
+        yield emit_react_step(
+            loop=1,
+            phase="summary",
+            summary="已确定任务类型和下一轮执行方向。",
+            details=[
+                f"识别意图：{selected_intent}",
+                "下一轮会进入专用 Agent、工具增强问答或普通回答生成。",
+            ],
+        )
 
         if intent and intent.intent is Intent.PREFERENCE_ADVICE and intent.confidence >= 0.7:
             tier = coerce_tier(body.model_tier)
+            preference_plan = await generate_visible_react_plan(
+                user_request=body.content,
+                agent="preference_advice",
+                intent=Intent.PREFERENCE_ADVICE.value,
+                progress="进入投资偏好建议流程",
+                observations=tool_observations,
+                allow_overseas=user.allow_overseas_models,
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="action",
+                summary=preference_plan,
+                details=tool_observations,
+                status="running",
+            )
             yield {"event": "progress", "data": "正在生成投资偏好优化建议"}
-            preference_context = preferences_service.describe_for_agent(active_preference)
             runtime_context = "\n\n".join(
                 part
-                for part in ((body.context or "").strip(), preference_context)
+                for part in ((body.context or "").strip(), tool_context)
                 if part
             )
             llm_messages: list[dict[str, str]] = [{"role": "system", "content": PREFERENCE_ADVICE_SYSTEM}]
@@ -382,8 +740,6 @@ async def send_message(
                     llm_messages,
                     allow_overseas=user.allow_overseas_models,
                 ):
-                    if chunk.reasoning:
-                        yield {"event": "reasoning", "data": chunk.reasoning}
                     if chunk.text:
                         parts.append(chunk.text)
                         yield {"event": "token", "data": chunk.text}
@@ -397,6 +753,21 @@ async def send_message(
 
             if usage:
                 yield {"event": "usage", "data": json.dumps(usage, ensure_ascii=False)}
+            yield emit_react_step(
+                loop=2,
+                phase="observation",
+                summary="偏好优化工具已返回结果，准备进入本轮总结。",
+                details=[
+                    "已生成可审阅的偏好调整建议。",
+                    "如模型不可用，本轮会使用确定性兜底建议。",
+                ],
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="summary",
+                summary="已基于偏好上下文生成建议。",
+                details=["输出为建议草稿，不会直接修改机构偏好。"],
+            )
 
             answer = "".join(parts)
             if answer:
@@ -407,16 +778,32 @@ async def send_message(
                         user_id=user.user_id,
                         conversation_id=conversation_id,
                         role="assistant",
-                        blocks=assistant_blocks(answer, usage=usage),
+                        blocks=assistant_blocks(answer, usage=usage, react_steps=react_steps),
                         event_payload={
                             "intent": Intent.PREFERENCE_ADVICE.value,
                             "tier": tier.value,
                             "truncated": failed,
                             "usage": usage,
+                            "react_step_count": len(react_steps),
                             "conversation_type": conversation_type,
                         },
                     )
         elif intent and intent.intent is Intent.THESIS_SCOUT and intent.confidence >= 0.7:
+            thesis_plan = await generate_visible_react_plan(
+                user_request=body.content,
+                agent="thesis_scout",
+                intent=Intent.THESIS_SCOUT.value,
+                progress="进入赛道前瞻 Agent 流程",
+                observations=tool_observations,
+                allow_overseas=user.allow_overseas_models,
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="action",
+                summary=thesis_plan,
+                details=["流程：赛道定义拆解、市场信号收集、产业链分析、机构匹配度计算。"],
+                status="running",
+            )
             # 3a) 专用 Agent：run 生命周期 + 子图执行 + deliverable 入库 +
             #     assistant 消息（object_ref）全部由 agents/runner.py 编排，
             #     状态流转写 domain_events。生产形态迁 ARQ 队列 + checkpointer。
@@ -428,7 +815,34 @@ async def send_message(
                 query=body.content,
             ):
                 yield ev
+            yield emit_react_step(
+                loop=2,
+                phase="observation",
+                summary="赛道前瞻 Agent 已完成工具链执行，准备整理生成结果。",
+                details=["已接收专用 Agent 返回的进度、对象引用或执行结果。"],
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="summary",
+                summary="赛道前瞻 Agent 已返回执行结果。",
+                details=["若生成 Thesis，结果会以交付物卡片展示。"],
+            )
         elif intent and intent.intent is Intent.DEAL_SOURCING and intent.confidence >= 0.7:
+            sourcing_plan = await generate_visible_react_plan(
+                user_request=body.content,
+                agent="deal_sourcing",
+                intent=Intent.DEAL_SOURCING.value,
+                progress="进入项目挖掘 Agent 流程",
+                observations=tool_observations,
+                allow_overseas=user.allow_overseas_models,
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="action",
+                summary=sourcing_plan,
+                details=["流程：项目搜索策略、公开信号挖掘、实体识别、工商核验、匹配度排序。"],
+                status="running",
+            )
             # 3a') 项目获取（Deal Sourcing 搜寻流）：同 run 生命周期编排，产出 DealList。
             #      自然语言触发走公开信号挖掘；从 Thesis「生成项目池」触发由专用端点传 thesis_id。
             async for ev in run_deal_sourcing(
@@ -441,7 +855,34 @@ async def send_message(
                 thesis_context=workspace_thesis_context,
             ):
                 yield ev
+            yield emit_react_step(
+                loop=2,
+                phase="observation",
+                summary="项目挖掘 Agent 已完成工具链执行，准备整理生成结果。",
+                details=["已接收专用 Agent 返回的进度、对象引用或执行结果。"],
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="summary",
+                summary="项目挖掘 Agent 已返回执行结果。",
+                details=["若生成项目池，结果会以交付物卡片展示。"],
+            )
         elif intent and intent.intent is Intent.DEAL_INTAKE and intent.confidence >= 0.7:
+            intake_plan = await generate_visible_react_plan(
+                user_request=body.content,
+                agent="deal_intake",
+                intent=Intent.DEAL_INTAKE.value,
+                progress="进入项目 Intake Agent 流程",
+                observations=tool_observations,
+                allow_overseas=user.allow_overseas_models,
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="action",
+                summary=intake_plan,
+                details=["流程：材料解析、外部信息补全、实体对齐、项目画像和初筛分析。"],
+                status="running",
+            )
             # 3a'') 项目获取（Deal Intake 分析流）：用户带入某个具体项目（粘贴介绍/公司名/BP 文本）。
             #       产出 Company + Deal 业务对象并进入项目工作台。文件型 BP 解析（上传 PDF/Word）
             #       由专用上传端点抽取文本后再走本流，自然语言触发以消息正文为材料。
@@ -454,14 +895,39 @@ async def send_message(
                 source_type="user_input",
             ):
                 yield ev
+            yield emit_react_step(
+                loop=2,
+                phase="observation",
+                summary="项目 Intake Agent 已完成工具链执行，准备整理生成结果。",
+                details=["已接收专用 Agent 返回的进度、对象引用或执行结果。"],
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="summary",
+                summary="项目 Intake Agent 已返回执行结果。",
+                details=["若生成项目，结果会以项目工作台卡片展示。"],
+            )
         else:
             # 3b) 通用对话：llm.stream_chat() 结构化流式。
-            #     正文走 token 事件；思考过程（reasoning_content）走 reasoning 事件供前端折叠
+            #     正文走 token 事件；可见工作过程统一走 react_step 事件。
             #     展示；末块 token 用量走 usage 事件并落库，用于统计每条消息 token 数。
             #     先发进度事件，让前端确认通用 Agent 已接管（与分类阶段区分开）。
             tier = coerce_tier(body.model_tier)
+            chat_plan = await generate_visible_react_plan(
+                user_request=body.content,
+                intent=selected_intent,
+                progress="进入通用回答生成流程",
+                observations=tool_observations,
+                allow_overseas=user.allow_overseas_models,
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="action",
+                summary=chat_plan,
+                details=tool_observations or ["没有额外工具上下文，直接进入回答生成。"],
+                status="running",
+            )
             yield {"event": "progress", "data": "正在生成回答"}
-            preference_context = preferences_service.describe_for_agent(active_preference)
             workspace_context = ""
             if source_thesis_id and workspace_thesis_context:
                 workspace_context = "\n".join(
@@ -495,7 +961,7 @@ async def send_message(
                 )
             runtime_context = "\n\n".join(
                 part
-                for part in ((body.context or "").strip(), workspace_context, preference_context)
+                for part in ((body.context or "").strip(), workspace_context, tool_context)
                 if part
             )
             llm_messages = to_llm_messages(
@@ -510,8 +976,6 @@ async def send_message(
                     llm_messages,
                     allow_overseas=user.allow_overseas_models,
                 ):
-                    if chunk.reasoning:
-                        yield {"event": "reasoning", "data": chunk.reasoning}
                     if chunk.text:
                         parts.append(chunk.text)
                         yield {"event": "token", "data": chunk.text}
@@ -527,6 +991,24 @@ async def send_message(
             # token 用量末事件：让前端在气泡下方显示本条消息的 token 数
             if usage:
                 yield {"event": "usage", "data": json.dumps(usage, ensure_ascii=False)}
+            yield emit_react_step(
+                loop=2,
+                phase="observation",
+                summary="模型生成已返回，准备输出本轮结论。",
+                details=[
+                    f"模型档位：{tier.value}",
+                    "已完成默认上下文增强。",
+                ],
+            )
+            yield emit_react_step(
+                loop=2,
+                phase="summary",
+                summary="已结合工具观察生成最终回答。",
+                details=[
+                    f"模型档位：{tier.value}",
+                    "本轮回答已写入当前会话。",
+                ],
+            )
 
             # 4) assistant 消息落库 + 记账（部分成功也落，保住已生成内容）
             answer = "".join(parts)
@@ -542,12 +1024,13 @@ async def send_message(
                         user_id=user.user_id,
                         conversation_id=conversation_id,
                         role="assistant",
-                        blocks=assistant_blocks(answer, usage=usage),
+                        blocks=assistant_blocks(answer, usage=usage, react_steps=react_steps),
                         event_payload={
                             "intent": intent.intent.value if intent else "chat",
                             "tier": tier.value,
                             "truncated": failed,
                             "usage": usage,
+                            "react_step_count": len(react_steps),
                             "conversation_type": conversation_type,
                             "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
                             "source_thesis_name": workspace_thesis_name,

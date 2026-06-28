@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -61,6 +61,9 @@ class Conversation(Base, TimestampMixin):
     institution_id: Mapped[uuid.UUID] = tenant_fk()
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     # normal: 普通会话；project_workspace: 绑定单个项目的工作台会话。
     conversation_type: Mapped[str] = mapped_column(String(30), default="normal", index=True)
     source_deal_id: Mapped[uuid.UUID | None] = mapped_column(

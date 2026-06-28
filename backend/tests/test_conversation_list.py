@@ -37,6 +37,9 @@ def _record(
     rid=None,
     conversation_type="normal",
     source_deal_id=None,
+    is_pinned=False,
+    pinned_at=None,
+    deleted_at=None,
 ) -> ConversationRecord:
     return ConversationRecord(
         id=rid or uuid.uuid4(),
@@ -46,6 +49,9 @@ def _record(
         preview=preview,
         conversation_type=conversation_type,
         source_deal_id=source_deal_id,
+        is_pinned=is_pinned,
+        pinned_at=pinned_at,
+        deleted_at=deleted_at,
     )
 
 
@@ -90,6 +96,38 @@ def test_tie_breaks_are_deterministic():
     assert [it["id"] for it in first] == [it["id"] for it in second]
 
 
+def test_pinned_conversations_sort_before_recent_unpinned():
+    pinned_old = _record(
+        title="置顶旧会话",
+        last=datetime(2026, 6, 1),
+        is_pinned=True,
+        pinned_at=datetime(2026, 6, 3),
+    )
+    pinned_new = _record(
+        title="置顶新会话",
+        last=datetime(2026, 6, 2),
+        is_pinned=True,
+        pinned_at=datetime(2026, 6, 5),
+    )
+    unpinned_recent = _record(title="最近未置顶", last=datetime(2026, 6, 20))
+
+    items, total = project_conversations([unpinned_recent, pinned_old, pinned_new])
+
+    assert total == 3
+    assert [it["title"] for it in items] == ["置顶新会话", "置顶旧会话", "最近未置顶"]
+    assert items[0]["is_pinned"] is True
+
+
+def test_deleted_conversations_are_hidden_from_projection():
+    active = _record(title="保留")
+    deleted = _record(title="已删除", deleted_at=datetime(2026, 6, 10))
+
+    items, total = project_conversations([active, deleted])
+
+    assert total == 1
+    assert [it["title"] for it in items] == ["保留"]
+
+
 # ---------- 标题兜底 / 预览透传 ----------
 
 def test_title_fallback_when_blank():
@@ -117,6 +155,7 @@ def test_projection_includes_fixed_conversation_metadata():
     )
     assert items[0]["conversation_type"] == "project_workspace"
     assert items[0]["source_deal_id"] == str(deal_id)
+    assert items[0]["is_pinned"] is False
 
 
 def test_normalize_conversation_type_keeps_only_two_durable_types():

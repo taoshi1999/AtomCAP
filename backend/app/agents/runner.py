@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from typing import Any
 
 from app.agents.deal_intake.graph import deal_intake_graph
 from app.agents.deal_sourcing.graph import deal_sourcing_graph
+from app.agents.react_planner import agent_label, generate_visible_react_plan
 from app.agents.thesis_scout.graph import thesis_scout_graph
 from app.db import SessionLocal
 from app.evidence import service as evidence_service
@@ -17,7 +19,7 @@ from app.objects import DeliverableType
 from app.services import business as business_service
 from app.services import preferences as preferences_service
 from app.services.agent_runs import finish_run, start_run
-from app.services.conversations import save_message, usage_block
+from app.services.conversations import react_steps_block, save_message, usage_block
 from app.services.deliverables import save_deliverable
 from app.services.events import recent_history, record_event
 
@@ -108,21 +110,159 @@ def _usage_blocks(usage_total: dict[str, int]) -> list[dict[str, Any]]:
     return [usage_block(_usage_payload(usage_total))] if usage_total else []
 
 
-def _agent_step_events(
+def _react_step_payload(
     *,
     agent: str,
+    loop: int,
+    phase: str,
+    summary: str,
+    details: list[str] | None = None,
+    status: str = "completed",
+    tool_id: str | None = None,
+    tool_name: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": f"{agent}-loop-{loop}-{phase}",
+        "loop": loop,
+        "phase": phase,
+        "summary": summary,
+        "details": details or [],
+        "status": status,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if tool_id or tool_name:
+        payload["tool_id"] = tool_id or tool_name
+        payload["tool_name"] = tool_name or tool_id
+    return payload
+
+
+def _progress_details(agent: str, progress: str, state: dict[str, Any]) -> list[str]:
+    return [
+        part.strip()
+        for part in _agent_reasoning(agent, progress, state).strip().split("；")
+        if part.strip()
+    ]
+
+
+def _progress_tool(progress: str) -> tuple[str, str] | tuple[None, None]:
+    text = progress or ""
+    if "市场信号" in text or "公开数据" in text or "相关资料" in text:
+        return "public_signal_search", "公开信息检索"
+    if "工商核验" in text:
+        return "business_registry_check", "工商信息核验"
+    if "解析项目材料" in text or "材料解析" in text:
+        return "document_reader", "项目材料读取"
+    return None, None
+
+
+def _append_react_step(
+    events: list[dict[str, str]],
+    react_steps: list[dict[str, Any]],
+    **kwargs,
+) -> None:
+    payload = _react_step_payload(**kwargs)
+    react_steps.append(payload)
+    events.append({"event": "react_step", "data": json.dumps(payload, ensure_ascii=False)})
+
+
+def _trail_react_steps(agent: str, trail: list[str]) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    for index, progress in enumerate(trail, start=1):
+        details = [progress]
+        tool_id, tool_name = _progress_tool(progress)
+        steps.append(
+            _react_step_payload(
+                agent=agent,
+                loop=index,
+                phase="summary",
+                summary=f"{agent_label(agent)}已进入“{progress}”阶段，系统会结合当前状态评估下一步需要补充的信息。",
+                details=details,
+            )
+        )
+        if tool_id or tool_name:
+            steps.append(
+                _react_step_payload(
+                    agent=agent,
+                    loop=index,
+                    phase="action",
+                    summary=f"使用{tool_name}支撑当前步骤。",
+                    details=details,
+                    tool_id=tool_id,
+                    tool_name=tool_name,
+                )
+            )
+        steps.append(
+            _react_step_payload(
+                agent=agent,
+                loop=index,
+                phase="observation",
+                summary="当前步骤执行完成，已进入下一轮规划。",
+                details=[progress],
+            )
+        )
+    return steps
+
+
+async def _agent_step_events(
+    *,
+    agent: str,
+    user_request: str,
     progress: str | None,
     state: dict[str, Any],
     trail: list[str],
+    react_steps: list[dict[str, Any]],
     usage_events: list[dict[str, int]],
     usage_cursor: int,
     usage_total: dict[str, int],
+    allow_overseas: bool,
 ) -> tuple[int, list[dict[str, str]]]:
     events: list[dict[str, str]] = []
     if progress and (not trail or trail[-1] != progress):
         trail.append(progress)
+        loop = len(trail)
+        details = _progress_details(agent, progress, state)
+        plan = await generate_visible_react_plan(
+            user_request=user_request,
+            agent=agent,
+            intent=agent,
+            progress=progress,
+            observations=details,
+            state_snapshot="；".join(details),
+            allow_overseas=allow_overseas,
+        )
+        tool_id, tool_name = _progress_tool(progress)
         events.append({"event": "progress", "data": progress})
-        events.append({"event": "reasoning", "data": _agent_reasoning(agent, progress, state)})
+        _append_react_step(
+            events,
+            react_steps,
+            agent=agent,
+            loop=loop,
+            phase="summary",
+            summary=plan,
+            details=details,
+        )
+        if tool_id or tool_name:
+            _append_react_step(
+                events,
+                react_steps,
+                agent=agent,
+                loop=loop,
+                phase="action",
+                summary=f"我会使用{tool_name}支撑当前步骤。",
+                details=details,
+                status="running",
+                tool_id=tool_id,
+                tool_name=tool_name,
+            )
+        _append_react_step(
+            events,
+            react_steps,
+            agent=agent,
+            loop=loop,
+            phase="observation",
+            summary="当前阶段已完成，系统会基于新状态继续规划下一步。",
+            details=details,
+        )
     usage_cursor, usage_event = _drain_usage_events(usage_events, usage_cursor, usage_total)
     if usage_event:
         events.append(usage_event)
@@ -152,6 +292,7 @@ async def run_thesis_scout(
     run_id = run.id
 
     trail: list[str] = []
+    react_steps: list[dict[str, Any]] = []
     final_state: dict[str, Any] = {}
     usage_token, usage_events = begin_usage_collection()
     usage_cursor = 0
@@ -169,14 +310,17 @@ async def run_thesis_scout(
             stream_mode="values",
         ):
             final_state = chunk
-            usage_cursor, events = _agent_step_events(
+            usage_cursor, events = await _agent_step_events(
                 agent="thesis_scout",
+                user_request=query,
                 progress=chunk.get("progress"),
                 state=chunk,
                 trail=trail,
+                react_steps=react_steps,
                 usage_events=usage_events,
                 usage_cursor=usage_cursor,
                 usage_total=usage_total,
+                allow_overseas=allow_overseas,
             )
             for event in events:
                 yield event
@@ -240,6 +384,7 @@ async def run_thesis_scout(
                     {"type": "text", "text": f"赛道前瞻分析完成：{one_line}"},
                     {"type": "object_ref", "deliverable_id": str(deliverable.id)},
                     *_usage_blocks(usage_total),
+                    react_steps_block(react_steps or _trail_react_steps("thesis_scout", trail)),
                 ],
                 event_payload={
                     "intent": "thesis_scout",
@@ -316,6 +461,7 @@ async def run_deal_sourcing(
     run_id = run.id
 
     trail: list[str] = []
+    react_steps: list[dict[str, Any]] = []
     final_state: dict[str, Any] = {}
     usage_token, usage_events = begin_usage_collection()
     usage_cursor = 0
@@ -335,14 +481,17 @@ async def run_deal_sourcing(
             stream_mode="values",
         ):
             final_state = chunk
-            usage_cursor, events = _agent_step_events(
+            usage_cursor, events = await _agent_step_events(
                 agent="deal_sourcing",
+                user_request=query,
                 progress=chunk.get("progress"),
                 state=chunk,
                 trail=trail,
+                react_steps=react_steps,
                 usage_events=usage_events,
                 usage_cursor=usage_cursor,
                 usage_total=usage_total,
+                allow_overseas=allow_overseas,
             )
             for event in events:
                 yield event
@@ -408,6 +557,7 @@ async def run_deal_sourcing(
                     {"type": "text", "text": f"项目获取完成：{summary}"},
                     {"type": "object_ref", "deliverable_id": str(deliverable.id)},
                     *_usage_blocks(usage_total),
+                    react_steps_block(react_steps or _trail_react_steps("deal_sourcing", trail)),
                 ],
                 event_payload={
                     "intent": "deal_sourcing",
@@ -496,6 +646,7 @@ async def run_deal_intake(
     run_id = run.id
 
     trail: list[str] = []
+    react_steps: list[dict[str, Any]] = []
     final_state: dict[str, Any] = {}
     usage_token, usage_events = begin_usage_collection()
     usage_cursor = 0
@@ -515,14 +666,17 @@ async def run_deal_intake(
             stream_mode="values",
         ):
             final_state = chunk
-            usage_cursor, events = _agent_step_events(
+            usage_cursor, events = await _agent_step_events(
                 agent="deal_intake",
+                user_request=material,
                 progress=chunk.get("progress"),
                 state=chunk,
                 trail=trail,
+                react_steps=react_steps,
                 usage_events=usage_events,
                 usage_cursor=usage_cursor,
                 usage_total=usage_total,
+                allow_overseas=allow_overseas,
             )
             for event in events:
                 yield event
@@ -595,6 +749,7 @@ async def run_deal_intake(
                     {"type": "text", "text": f"项目分析完成：{portrait}（已进入项目工作台）"},
                     {"type": "deal_ref", "deal_id": str(deal.id), "company_id": str(company.id)},
                     *_usage_blocks(usage_total),
+                    react_steps_block(react_steps or _trail_react_steps("deal_intake", trail)),
                 ],
                 event_payload={
                     "intent": "deal_intake",

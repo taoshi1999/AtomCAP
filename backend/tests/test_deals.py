@@ -296,6 +296,65 @@ def test_update_pre_dd_material_status_persists_manual_override(monkeypatch):
     assert events[0]["event_type"] == "deal.pre_dd_material_status_updated"
     assert events[0]["payload"]["task_key"] == "financials"
 
+    out = asyncio.run(
+        update_pre_dd_material_status(
+            db,
+            institution_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            deal_id=deal.id,
+            task_key="financials",
+            collection_status=PreDDMaterialCollectionStatus.PENDING,
+        )
+    )
+
+    assert out.data["pre_dd_material_statuses"]["financials"] == "pending"
+    assert DealProfile.model_validate(out.data).pre_dd_material_statuses["financials"] == PreDDMaterialCollectionStatus.PENDING
+    assert db.flushes == 2
+    assert events[1]["event_type"] == "deal.pre_dd_material_status_updated"
+    assert events[1]["payload"]["collection_status"] == "pending"
+
+
+def test_pre_dd_material_status_endpoint_switches_both_directions(monkeypatch):
+    deal = _fake_deal(_valid_data())
+    db = _FakeDealDb(deal)
+    events = []
+    user = CurrentUser(user_id=uuid.uuid4(), institution_id=uuid.uuid4())
+
+    async def fake_record_event(*_args, **kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr("app.services.deals.record_event", fake_record_event)
+
+    collected = asyncio.run(
+        deals_api.set_pre_dd_material_status(
+            deal_id=deal.id,
+            task_key="bp_product",
+            body=deals_api.PreDDMaterialStatusBody(
+                collection_status=PreDDMaterialCollectionStatus.COLLECTED
+            ),
+            user=user,
+            db=db,
+        )
+    )
+    assert collected["collection_status"] == "collected"
+    assert deal.data["pre_dd_material_statuses"]["bp_product"] == "collected"
+
+    pending = asyncio.run(
+        deals_api.set_pre_dd_material_status(
+            deal_id=deal.id,
+            task_key="bp_product",
+            body=deals_api.PreDDMaterialStatusBody(
+                collection_status=PreDDMaterialCollectionStatus.PENDING
+            ),
+            user=user,
+            db=db,
+        )
+    )
+    assert pending["collection_status"] == "pending"
+    assert deal.data["pre_dd_material_statuses"]["bp_product"] == "pending"
+    assert db.flushes == 2
+    assert [event["payload"]["collection_status"] for event in events] == ["collected", "pending"]
+
 
 class _FakeMarketSignalDb:
     def __init__(self, deal):

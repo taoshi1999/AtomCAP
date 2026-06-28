@@ -5,7 +5,9 @@ import {
   BriefcaseBusiness,
   CheckCircle2,
   CircleAlert,
+  ExternalLink,
   FileText,
+  Link2,
   Loader2,
   Plus,
   ShieldAlert,
@@ -61,6 +63,18 @@ const SOURCE_LABEL: Record<string, string> = {
   internal_excel: "内部表格",
 };
 
+const REFERENCE_SOURCE_LABEL: Record<string, string> = {
+  official_website: "官网",
+  web_search: "网页",
+  news: "新闻",
+  funding: "融资",
+  patent: "专利",
+  academic: "论文",
+  company_registry: "工商",
+  company_shareholder: "股东",
+  company_investment: "对外投资",
+};
+
 const SCORE_FIELDS: Array<[keyof FitScoreBreakdown, string]> = [
   ["track_preference", "赛道"],
   ["stage_match", "阶段"],
@@ -112,6 +126,31 @@ function compactText(text: string, maxLength = 180): string {
   return `${normalized.slice(0, maxLength)}...`;
 }
 
+function safeLinks(candidate: DealCandidate) {
+  const links = Array.isArray(candidate.reference_links) ? candidate.reference_links : [];
+  const seen = new Set<string>();
+  const normalized = links.filter((link) => {
+    const url = link.url?.trim();
+    if (!url || !/^https?:\/\//i.test(url) || seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+  const official = candidate.official_website?.trim();
+  if (official && /^https?:\/\//i.test(official) && !seen.has(official)) {
+    normalized.unshift({
+      title: `${candidate.company_name} 官网/主页`,
+      url: official,
+      source_type: "official_website",
+    });
+  }
+  return normalized.slice(0, 5);
+}
+
+function referenceSourceLabel(source?: string | null): string {
+  if (!source) return "资料";
+  return REFERENCE_SOURCE_LABEL[source] ?? source;
+}
+
 function clampMultiline(text: string, maxLength = 1900): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength)}\n...`;
@@ -138,8 +177,13 @@ function buildSourceNote(pool: DealListDeliverable, candidate: DealCandidate): s
   if (pool.search_themes?.length) sections.push(`搜索主题：${pool.search_themes.join("、")}`);
   if (candidate.sub_direction) sections.push(`子方向：${candidate.sub_direction}`);
   if (candidate.uscc) sections.push(`统一社会信用代码：${candidate.uscc}`);
+  if (candidate.official_website) sections.push(`官网/主页：${candidate.official_website}`);
   if (scoreValue(candidate) != null) sections.push(`初始评分：${formatScore(candidate)}`);
   if (fitScore?.rationale) sections.push(`匹配度说明：${fitScore.rationale}`);
+  const links = safeLinks(candidate);
+  if (links.length) {
+    sections.push("相关资料：", ...links.map((link) => `- ${link.title || "相关资料"}：${link.url}`));
+  }
 
   if (selectionReasons.length) {
     sections.push(
@@ -228,6 +272,44 @@ function FitScoreDetails({ score }: { score?: FitScoreBreakdown | null }) {
       </div>
       {score.rationale && <p className="mt-2 text-xs leading-5 text-slate-500">{score.rationale}</p>}
     </details>
+  );
+}
+
+function CandidateReferenceLinks({ candidate }: { candidate: DealCandidate }) {
+  const links = safeLinks(candidate);
+  if (!links.length) {
+    return (
+      <div className="mt-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+        暂无可打开的相关资料。
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+        <Link2 className="h-3.5 w-3.5 text-indigo-500" />
+        相关资料
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {links.map((link) => (
+          <a
+            key={link.url}
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-indigo-200 hover:text-indigo-600"
+            title={link.title || link.url}
+          >
+            <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] text-indigo-600">
+              {referenceSourceLabel(link.source_type)}
+            </span>
+            <span className="max-w-[16rem] truncate">{link.title || link.url}</span>
+            <ExternalLink className="h-3 w-3 shrink-0" />
+          </a>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -399,6 +481,8 @@ export default function DealListView({ payload }: { payload: DealListDeliverable
                     <div className="text-xs text-slate-400">初始评分</div>
                   </div>
                 </div>
+
+                <CandidateReferenceLinks candidate={candidate} />
 
                 <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
                   <section>

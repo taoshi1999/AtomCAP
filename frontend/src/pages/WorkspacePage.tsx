@@ -140,6 +140,49 @@ function transitionActionLabel(from: DealStatus, to: DealStatus) {
   return TRANSITION_ACTION_LABELS[`${from}->${to}`] ?? "推进";
 }
 
+export function updatePreDDMaterialStatusInDetail(
+  detail: DealDetail,
+  taskKey: string,
+  status: PreDDMaterialCollectionStatus
+): DealDetail {
+  const preDD = detail.pre_dd;
+  const currentStatuses = detail.data.pre_dd_material_statuses ?? {};
+  const nextStatuses = { ...currentStatuses, [taskKey]: status };
+
+  if (!preDD) {
+    return {
+      ...detail,
+      data: {
+        ...detail.data,
+        pre_dd_material_statuses: nextStatuses,
+      },
+    };
+  }
+
+  const items = preDD.items.map((item) =>
+    item.key === taskKey ? { ...item, collection_status: status } : item
+  );
+  const collected = items.filter((item) => item.collection_status === "collected").length;
+  const pending = items.length - collected;
+
+  return {
+    ...detail,
+    data: {
+      ...detail.data,
+      pre_dd_material_statuses: nextStatuses,
+    },
+    pre_dd: {
+      ...preDD,
+      items,
+      completion: {
+        ...preDD.completion,
+        collected,
+        pending,
+      },
+    },
+  };
+}
+
 function deriveStatusPath(current: DealStatus, history: DealStatus[] = []): DealStatus[] {
   const known = new Set<DealStatus>([
     "sourced",
@@ -547,15 +590,17 @@ function PreDDTaskCard({
                 <button
                   key={status}
                   type="button"
-                  disabled={busy || active}
-                  onClick={() => onStatusChange(item.key, status)}
-                  className={`h-7 rounded-md px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed ${
+                  disabled={busy}
+                  onClick={() => {
+                    if (!active) onStatusChange(item.key, status);
+                  }}
+                  className={`h-7 rounded-md px-2 text-[11px] font-semibold transition disabled:cursor-wait ${
                     active
                       ? "bg-white text-slate-900 shadow-sm"
                       : "text-slate-500 hover:bg-white hover:text-slate-800"
                   }`}
                 >
-                  {PRE_DD_COLLECTION_META[status].label}
+                  {busy ? "切换中..." : PRE_DD_COLLECTION_META[status].label}
                 </button>
               );
             })}
@@ -937,6 +982,7 @@ function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: s
 function PreDDPanel({
   workspace,
   materialUploadError,
+  materialStatusError,
   materialStatusBusyKey,
   materialUploadBusyKey,
   onMaterialStatusChange,
@@ -944,6 +990,7 @@ function PreDDPanel({
 }: {
   workspace: PreDDWorkspace;
   materialUploadError: string | null;
+  materialStatusError: string | null;
   materialStatusBusyKey: string | null;
   materialUploadBusyKey: string | null;
   onMaterialStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
@@ -970,7 +1017,7 @@ function PreDDPanel({
             <PreDDTaskCard
               key={item.key}
               item={item}
-              busy={materialStatusBusyKey !== null}
+              busy={materialStatusBusyKey === item.key}
               uploadBusy={materialUploadBusyKey === item.key}
               uploadDisabled={materialUploadBusyKey !== null}
               onStatusChange={onMaterialStatusChange}
@@ -987,6 +1034,11 @@ function PreDDPanel({
       {materialUploadError && (
         <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600">
           {materialUploadError}
+        </div>
+      )}
+      {materialStatusError && (
+        <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600">
+          {materialStatusError}
         </div>
       )}
 
@@ -1102,6 +1154,7 @@ export function DealDetailPanel({
   onMaterialUploaded,
   onPreDDMaterialStatusChange,
   preDDMaterialStatusBusyKey,
+  preDDMaterialStatusError,
 }: {
   detail: DealDetail;
   busy: boolean;
@@ -1110,6 +1163,7 @@ export function DealDetailPanel({
   onMaterialUploaded?: () => Promise<void> | void;
   onPreDDMaterialStatusChange?: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
   preDDMaterialStatusBusyKey?: string | null;
+  preDDMaterialStatusError?: string | null;
 }) {
   const { data, company } = detail;
   const a = data.analysis;
@@ -1385,6 +1439,7 @@ export function DealDetailPanel({
           <PreDDPanel
             workspace={detail.pre_dd}
             materialUploadError={preDDMaterialUploadError}
+            materialStatusError={preDDMaterialStatusError ?? null}
             materialStatusBusyKey={preDDMaterialStatusBusyKey ?? null}
             materialUploadBusyKey={preDDMaterialUploadBusyKey}
             onMaterialStatusChange={onPreDDMaterialStatusChange ?? (() => undefined)}
@@ -1436,6 +1491,7 @@ export default function WorkspacePage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [preDDMaterialStatusBusyKey, setPreDDMaterialStatusBusyKey] = useState<string | null>(null);
+  const [preDDMaterialStatusError, setPreDDMaterialStatusError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createDraft, setCreateDraft] = useState({
@@ -1483,6 +1539,7 @@ export default function WorkspacePage() {
       const d = await getDealDetail(id);
       setDetail(d);
       setDetailError(null);
+      setPreDDMaterialStatusError(null);
     } catch (e) {
       setDetail(null);
       setDetailError(
@@ -1541,12 +1598,29 @@ export default function WorkspacePage() {
     status: PreDDMaterialCollectionStatus
   ) {
     if (!dealId) return;
+    const previousDetail = detail;
     setPreDDMaterialStatusBusyKey(taskKey);
+    setPreDDMaterialStatusError(null);
+    setDetail((current) =>
+      current && current.id === dealId
+        ? updatePreDDMaterialStatusInDetail(current, taskKey, status)
+        : current
+    );
     try {
       await updatePreDDMaterialStatus(dealId, taskKey, status);
-      await loadDetail(dealId);
+      try {
+        const refreshed = await getDealDetail(dealId);
+        setDetail(refreshed);
+        setDetailError(null);
+        setPreDDMaterialStatusError(null);
+      } catch {
+        setPreDDMaterialStatusError("状态已更新，但刷新项目详情失败，请稍后刷新页面确认。");
+      }
     } catch (e) {
-      setDetailError(e instanceof ApiError ? e.message : "更新 Pre-DD 资料状态失败");
+      setDetail((current) =>
+        previousDetail && current?.id === previousDetail.id ? previousDetail : current
+      );
+      setPreDDMaterialStatusError(e instanceof ApiError ? e.message : "更新 Pre-DD 资料状态失败");
     } finally {
       setPreDDMaterialStatusBusyKey(null);
     }
@@ -1745,6 +1819,7 @@ export default function WorkspacePage() {
               onMaterialUploaded={() => loadDetail(dealId)}
               onPreDDMaterialStatusChange={handlePreDDMaterialStatusChange}
               preDDMaterialStatusBusyKey={preDDMaterialStatusBusyKey}
+              preDDMaterialStatusError={preDDMaterialStatusError}
             />
           )}
         </section>

@@ -18,7 +18,6 @@ import {
   ArrowUp,
   Atom,
   Bot,
-  Brain,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -30,14 +29,19 @@ import {
   Loader2,
   Minus,
   MessageSquare,
+  MoreVertical,
   Paperclip,
+  Pin,
+  PinOff,
   Plus,
   RefreshCcw,
   Save,
   Search,
   Settings,
   Target,
+  Trash2,
   UserRound,
+  Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -51,13 +55,16 @@ import {
   getDeliverable,
   getHome,
   getModels,
+  deleteConversation,
   listConversations,
+  pinConversation,
   triggerDealAction,
   type ConversationMessage,
   type HomeConversation,
   type HomeData,
   type MessageBlock,
   type ModelOption,
+  type ReactStep,
   type TokenUsage,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -80,6 +87,7 @@ type RecentItem =
       updated_at: string;
       conversation_type?: "normal" | "project_workspace" | string;
       source_deal_id?: string | null;
+      is_pinned?: boolean;
     }
   | {
       kind: "deliverable";
@@ -132,6 +140,19 @@ function usageFromBlocks(blocks: MessageBlock[]): TokenUsage | undefined {
     | (MessageBlock & { usage?: TokenUsage })
     | undefined;
   return block?.usage;
+}
+
+function reactStepsFromBlocks(blocks: MessageBlock[]): ReactStep[] | undefined {
+  const block = blocks.find((b) => b.type === "react_steps");
+  if (!Array.isArray(block?.steps)) return undefined;
+  return block.steps.filter(
+    (step): step is ReactStep =>
+      !!step &&
+      typeof step === "object" &&
+      typeof step.summary === "string" &&
+      typeof step.phase === "string" &&
+      typeof step.loop === "number"
+  );
 }
 
 function getStringList(value: unknown): string[] {
@@ -287,6 +308,11 @@ export default function ChatPage() {
     getMarketSignalSearchDepth
   );
   const [activeRecentKey, setActiveRecentKey] = useState<string | null>(null);
+  const [openRecentMenuKey, setOpenRecentMenuKey] = useState<string | null>(null);
+  const [busyConversationAction, setBusyConversationAction] = useState<string | null>(null);
+  const [hiddenConversationIds, setHiddenConversationIds] = useState<Set<string>>(
+    () => new Set()
+  );
   useEffect(() => {
     let active = true;
     getModels()
@@ -309,6 +335,7 @@ export default function ChatPage() {
       active = false;
     };
   }, []);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { signOut } = useAuth();
   const navigate = useNavigate();
@@ -342,6 +369,13 @@ export default function ChatPage() {
     return () => window.clearTimeout(timer);
   }, [historyDialogOpen, historyQuery]);
 
+  useEffect(() => {
+    if (!openRecentMenuKey) return;
+    const close = () => setOpenRecentMenuKey(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [openRecentMenuKey]);
+
   async function refreshConversationHistory(query = historyQuery) {
     try {
       setIsHistoryLoading(true);
@@ -372,7 +406,7 @@ export default function ChatPage() {
     ];
 
     return [
-      ...conversations.map((item) => ({
+      ...conversations.filter((item) => !hiddenConversationIds.has(item.id)).map((item) => ({
         kind: "conversation" as const,
         id: item.id,
         title: item.title,
@@ -380,6 +414,7 @@ export default function ChatPage() {
         updated_at: item.updated_at,
         conversation_type: item.conversation_type,
         source_deal_id: item.source_deal_id,
+        is_pinned: item.is_pinned,
       })),
       ...(home?.deliverables ?? []).map((item) => ({
         kind: "deliverable" as const,
@@ -396,9 +431,14 @@ export default function ChatPage() {
         updated_at: item.updated_at,
       })),
     ]
-      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      .sort((a, b) => {
+        const leftPinned = a.kind === "conversation" && a.is_pinned ? 1 : 0;
+        const rightPinned = b.kind === "conversation" && b.is_pinned ? 1 : 0;
+        if (leftPinned !== rightPinned) return rightPinned - leftPinned;
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      })
       .slice(0, 5);
-  }, [home, recentConversationOverrides]);
+  }, [home, recentConversationOverrides, hiddenConversationIds]);
 
   const userName = home?.user.name || "你好";
   const userSubtitle = home?.user.email || home?.institution.name || "";
@@ -499,6 +539,7 @@ export default function ChatPage() {
               content: blocksToText(blocks),
               deliverables: await fetchMessageDeliverables(blocks),
               deals: await fetchMessageDeals(blocks),
+              reactSteps: reactStepsFromBlocks(blocks),
               usage: usageFromBlocks(blocks),
             };
           })
@@ -546,6 +587,7 @@ export default function ChatPage() {
   }
 
   function handleRecentClick(item: RecentItem) {
+    setOpenRecentMenuKey(null);
     if (item.kind === "conversation") {
       if (item.conversation_type === "project_workspace" && item.source_deal_id) {
         openProjectWorkspaceFromConversation(item.source_deal_id);
@@ -557,6 +599,55 @@ export default function ChatPage() {
     } else {
       setActiveRecentKey(recentItemKey(item));
       navigate(`/workspace/${item.id}`);
+    }
+  }
+
+  async function handleToggleConversationPin(item: Extract<RecentItem, { kind: "conversation" }>) {
+    const actionKey = `${item.id}:pin`;
+    try {
+      setBusyConversationAction(actionKey);
+      setOpenRecentMenuKey(null);
+      await pinConversation(item.id, !item.is_pinned);
+      setHistoryItems((current) =>
+        current.map((conversation) =>
+          conversation.id === item.id
+            ? { ...conversation, is_pinned: !item.is_pinned }
+            : conversation
+        )
+      );
+      await refreshHome();
+      if (historyDialogOpen) await refreshConversationHistory();
+    } catch (error) {
+      window.alert(compactError(error));
+    } finally {
+      setBusyConversationAction(null);
+    }
+  }
+
+  async function handleDeleteConversation(item: Extract<RecentItem, { kind: "conversation" }>) {
+    if (
+      !window.confirm(
+        `确认删除「${item.title}」吗？删除后会从会话列表隐藏，但历史消息仍会保留。`
+      )
+    ) {
+      return;
+    }
+    const actionKey = `${item.id}:delete`;
+    try {
+      setBusyConversationAction(actionKey);
+      setOpenRecentMenuKey(null);
+      await deleteConversation(item.id);
+      setHiddenConversationIds((current) => new Set([...current, item.id]));
+      setHistoryItems((current) => current.filter((conversation) => conversation.id !== item.id));
+      if (conversationId === item.id) {
+        handleNewConversation();
+      }
+      await refreshHome();
+      if (historyDialogOpen) await refreshConversationHistory();
+    } catch (error) {
+      window.alert(compactError(error));
+    } finally {
+      setBusyConversationAction(null);
     }
   }
 
@@ -645,7 +736,24 @@ export default function ChatPage() {
                 item={item}
                 active={isRecentActive(item)}
                 streaming={item.kind === "conversation" && streamingConversationIds.has(item.id)}
+                menuOpen={openRecentMenuKey === recentItemKey(item)}
+                busyAction={item.kind === "conversation" ? busyConversationAction : null}
                 onClick={() => handleRecentClick(item)}
+                onMenuToggle={() =>
+                  setOpenRecentMenuKey((current) =>
+                    current === recentItemKey(item) ? null : recentItemKey(item)
+                  )
+                }
+                onTogglePin={
+                  item.kind === "conversation"
+                    ? () => void handleToggleConversationPin(item)
+                    : undefined
+                }
+                onDelete={
+                  item.kind === "conversation"
+                    ? () => void handleDeleteConversation(item)
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -1074,12 +1182,22 @@ function RecentButton({
   item,
   active,
   streaming,
+  menuOpen,
+  busyAction,
   onClick,
+  onMenuToggle,
+  onTogglePin,
+  onDelete,
 }: {
   item: RecentItem;
   active?: boolean;
   streaming?: boolean;
+  menuOpen?: boolean;
+  busyAction?: string | null;
   onClick: () => void;
+  onMenuToggle: () => void;
+  onTogglePin?: () => void;
+  onDelete?: () => void;
 }) {
   const Icon =
     item.kind === "conversation"
@@ -1087,23 +1205,81 @@ function RecentButton({
       : item.kind === "deliverable"
         ? FileText
         : GraduationCap;
+  const isConversation = item.kind === "conversation";
+  const pinBusy = isConversation && busyAction === `${item.id}:pin`;
+  const deleteBusy = isConversation && busyAction === `${item.id}:delete`;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`relative grid h-10 w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold transition ${
-        active ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-50"
-      }`}
-    >
-      {streaming && (
-        <span className="absolute left-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_4px_rgba(79,70,229,0.14)] animate-pulse" />
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={onClick}
+        className={`relative grid h-10 w-full grid-cols-[22px_1fr_auto] items-center gap-2 rounded-lg px-2 text-left text-sm font-semibold transition ${
+          active ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-50"
+        } ${isConversation ? "pr-8" : ""}`}
+      >
+        {streaming && (
+          <span className="absolute left-1.5 top-1.5 h-2 w-2 animate-pulse rounded-full bg-indigo-500 shadow-[0_0_0_4px_rgba(79,70,229,0.14)]" />
+        )}
+        <Icon className={`h-5 w-5 ${active || streaming ? "text-indigo-600" : "text-slate-800"}`} />
+        <span className="min-w-0 truncate">
+          {isConversation && item.is_pinned && (
+            <Pin className="mr-1.5 inline h-3.5 w-3.5 align-[-2px] text-indigo-500" />
+          )}
+          {item.title}
+        </span>
+        <span className={`text-[11px] font-medium ${active ? "text-indigo-400" : "text-slate-400"}`}>
+          {formatDate(item.updated_at)}
+        </span>
+      </button>
+      {isConversation && (
+        <button
+          type="button"
+          title="更多操作"
+          aria-label={`更多操作：${item.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMenuToggle();
+          }}
+          disabled={pinBusy || deleteBusy}
+          className={`absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 ${
+            menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100"
+          }`}
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
       )}
-      <Icon className={`h-5 w-5 ${active || streaming ? "text-indigo-600" : "text-slate-800"}`} />
-      <span className="min-w-0 truncate">{item.title}</span>
-      <span className={`text-[11px] font-medium ${active ? "text-indigo-400" : "text-slate-400"}`}>
-        {formatDate(item.updated_at)}
-      </span>
-    </button>
+      {isConversation && menuOpen && (
+        <div
+          className="absolute right-1 top-9 z-30 w-32 rounded-lg border border-slate-200 bg-white py-1 shadow-lg shadow-slate-200/70"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onTogglePin}
+            disabled={pinBusy || deleteBusy}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            {pinBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : item.is_pinned ? (
+              <PinOff className="h-4 w-4" />
+            ) : (
+              <Pin className="h-4 w-4" />
+            )}
+            {item.is_pinned ? "取消置顶" : "置顶"}
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={pinBusy || deleteBusy}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            {deleteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            删除
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1189,7 +1365,7 @@ function Composer({
   onSend: () => void;
 }) {
   return (
-    <div className="shrink-0 rounded-lg border border-indigo-300 bg-white p-4 shadow-sm">
+    <div className="relative shrink-0 rounded-lg border border-indigo-300 bg-white p-4 shadow-sm">
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1257,28 +1433,206 @@ function formatTokens(usage: TokenUsage): string {
   return parts.join(" · ");
 }
 
-function ReasoningCard({ text, streaming }: { text: string; streaming: boolean }) {
-  const [open, setOpen] = useState(false);
+type ReactLoopGroup = {
+  loop: number;
+  steps: ReactStep[];
+};
+
+function stepTime(step: ReactStep) {
+  const value = step.created_at ?? step.received_at;
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function formatDuration(ms: number) {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  if (minutes < 60) return restSeconds ? `${minutes}m ${restSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes ? `${hours}h ${restMinutes}m` : `${hours}h`;
+}
+
+function reactDurationLabel(steps: ReactStep[]) {
+  const times = steps.map(stepTime).filter((value): value is number => value !== null);
+  if (times.length === 0) return "";
+  return formatDuration(Math.max(...times) - Math.min(...times));
+}
+
+function groupReactSteps(steps: ReactStep[]): ReactLoopGroup[] {
+  const groups = new Map<number, ReactStep[]>();
+  for (const step of steps) {
+    groups.set(step.loop, [...(groups.get(step.loop) ?? []), step]);
+  }
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([loop, loopSteps]) => ({ loop, steps: loopSteps }));
+}
+
+function displayStepSummary(summary: string) {
+  return summary
+    .replace(/^下一步工作计划[:：]\s*/, "")
+    .replace(/^第\s*[\d一二三四五六七八九十]+\s*轮\s*ReAct\s*已完成[:：]\s*/, "")
+    .replace(/^本轮\s*ReAct\s*已完成[:：]\s*/, "")
+    .trim();
+}
+
+function StepDetailList({ details }: { details: string[] }) {
+  if (details.length === 0) return null;
   return (
-    <div className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/80">
+    <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-500">
+      {details.map((detail, index) => (
+        <li key={index} className="flex gap-2">
+          <span className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" />
+          <span>{detail}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TraceDisclosure({
+  step,
+  observation,
+  active,
+}: {
+  step: ReactStep;
+  observation?: ReactStep;
+  active: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const resultDetails = observation ? [displayStepSummary(observation.summary), ...observation.details] : [];
+  const hasDetails = step.details.length > 0 || resultDetails.length > 0;
+  return (
+    <div className="py-2">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 transition hover:text-slate-700"
+        onClick={() => hasDetails && setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 text-left text-sm text-slate-500 transition hover:text-slate-700"
       >
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5" />
+        {hasDetails ? (
+          open ? (
+            <ChevronDown className="h-4 w-4 shrink-0" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0" />
+          )
         ) : (
-          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="w-4 shrink-0" />
         )}
-        <Brain className="h-3.5 w-3.5" />
-        <span>思考过程{streaming ? "（生成中…）" : ""}</span>
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-[11px]">
+          <Wrench className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          {active ? "正在调用工具" : "已调用工具"}：{step.tool_name || "系统工具"}
+        </span>
       </button>
-      {open && (
-        <div className="whitespace-pre-wrap border-t border-slate-200 px-3 py-2 text-xs leading-5 text-slate-500">
-          {text}
+      {open && hasDetails && (
+        <div className="ml-11 mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="text-xs font-semibold text-slate-500">执行操作</div>
+          <div className="mt-1 text-sm leading-6 text-slate-700">{displayStepSummary(step.summary)}</div>
+          <StepDetailList details={step.details} />
+          {resultDetails.length > 0 && (
+            <div className="mt-3 border-t border-slate-200 pt-3">
+              <div className="text-xs font-semibold text-slate-500">执行结果</div>
+              <StepDetailList details={resultDetails} />
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function TimelineTextStep({ step }: { step: ReactStep }) {
+  const [open, setOpen] = useState(false);
+  const hasDetails = step.details.length > 0;
+  return (
+    <div className="py-2">
+      <div className="text-base leading-8 text-slate-900">{displayStepSummary(step.summary)}</div>
+      {hasDetails && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="mt-1 flex items-center gap-1.5 text-xs font-medium text-slate-400 transition hover:text-slate-600"
+          >
+            {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            <span>展开查看计划依据</span>
+          </button>
+          {open && <StepDetailList details={step.details} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReactLoopSection({
+  group,
+  latestStep,
+  streaming,
+}: {
+  group: ReactLoopGroup;
+  latestStep?: ReactStep;
+  streaming: boolean;
+}) {
+  return (
+    <div className="relative border-l border-slate-200 pl-5">
+      <span className="absolute -left-[5px] top-3 h-2.5 w-2.5 rounded-full bg-indigo-500 ring-4 ring-white" />
+      <div className="space-y-1">
+        {group.steps.map((step, index) => {
+          const key = step.id || `${step.loop}-${step.phase}-${index}`;
+          const active = streaming && latestStep === step && step.status === "running";
+          if (step.phase === "observation") {
+            return null;
+          }
+          if (step.phase === "action" && (step.tool_id || step.tool_name)) {
+            const observation = group.steps.slice(index + 1).find((next) => next.phase === "observation");
+            return (
+              <TraceDisclosure
+                key={key}
+                step={step}
+                observation={observation}
+                active={active}
+              />
+            );
+          }
+          return <TimelineTextStep key={key} step={step} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentExecutionTimeline({
+  steps,
+  streaming,
+}: {
+  steps: ReactStep[];
+  streaming: boolean;
+}) {
+  const groups = groupReactSteps(steps);
+  const latestStep = steps[steps.length - 1];
+  if (groups.length === 0) {
+    return (
+      <div className="flex items-center gap-2 py-3 text-sm text-slate-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>正在分析任务并规划下一步动作...</span>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <ReactLoopSection
+          key={group.loop}
+          group={group}
+          latestStep={latestStep}
+          streaming={streaming}
+        />
+      ))}
     </div>
   );
 }
@@ -1334,6 +1688,92 @@ function DealReferenceCard({ deal }: { deal: DealDetail }) {
   );
 }
 
+function isTimelineEcho(content: string, steps: ReactStep[]) {
+  const normalized = content.trim();
+  if (!normalized) return false;
+  return steps.some((step) => step.summary.trim() === normalized);
+}
+
+function AgentExecutionMessage({
+  message,
+  currentPreference,
+}: {
+  message: ChatMessage;
+  currentPreference?: Record<string, unknown>;
+}) {
+  const [open, setOpen] = useState(true);
+  const steps = message.reactSteps ?? [];
+  const duration = reactDurationLabel(steps);
+  const stateLabel = message.streaming ? "正在处理" : "已处理";
+  const content = message.content.trim();
+  const showFinalContent = !!content && (message.error || !isTimelineEcho(content, steps));
+  const deals = message.deals ?? [];
+
+  return (
+    <article className="w-full">
+      <div className="rounded-lg bg-white">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex w-full items-center gap-2 border-b border-slate-200 py-3 text-left text-sm font-medium text-slate-500 transition hover:text-slate-700"
+        >
+          {message.streaming ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : open ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+          <span>{stateLabel}</span>
+          {duration && <span>{duration}</span>}
+        </button>
+        {open && (
+          <div className="py-5">
+            <AgentExecutionTimeline steps={steps} streaming={!!message.streaming} />
+          </div>
+        )}
+      </div>
+      {showFinalContent && (
+        <div
+          className={`mt-4 rounded-lg px-4 py-3 text-sm leading-6 shadow-sm ${
+            message.error
+              ? "border border-red-200 bg-red-50 text-red-700"
+              : "border border-slate-200 bg-white text-slate-800"
+          }`}
+        >
+          {message.pending && (
+            <Loader2 className="mr-2 inline h-4 w-4 animate-spin align-[-2px]" />
+          )}
+          {message.content}
+        </div>
+      )}
+      {message.usage && (
+        <div className="mt-1 px-1 text-[11px] text-slate-400">
+          {formatTokens(message.usage)}
+        </div>
+      )}
+      {message.deliverables.length > 0 && (
+        <div className="mt-4 space-y-4">
+          {message.deliverables.map((deliverable) => (
+            <DeliverableView
+              key={deliverable.id}
+              deliverable={deliverable}
+              currentPreference={currentPreference}
+            />
+          ))}
+        </div>
+      )}
+      {deals.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {deals.map((deal) => (
+            <DealReferenceCard key={deal.id} deal={deal} />
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 function MessageBubble({
   message,
   currentPreference,
@@ -1342,9 +1782,12 @@ function MessageBubble({
   currentPreference?: Record<string, unknown>;
 }) {
   const isUser = message.role === "user";
-  const showReasoning = !isUser && !!message.reasoning;
   const showUsage = !isUser && !!message.usage;
   const deals = message.deals ?? [];
+  const reactSteps = message.reactSteps ?? [];
+  if (!isUser && reactSteps.length > 0) {
+    return <AgentExecutionMessage message={message} currentPreference={currentPreference} />;
+  }
   return (
     <article className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
@@ -1353,9 +1796,6 @@ function MessageBubble({
         </div>
       )}
       <div className={`min-w-0 ${isUser ? "max-w-[72%]" : "max-w-full flex-1"}`}>
-        {showReasoning && (
-          <ReasoningCard text={message.reasoning ?? ""} streaming={!!message.streaming} />
-        )}
         {message.content && (
           <div
             className={`rounded-lg px-4 py-3 text-sm leading-6 shadow-sm ${

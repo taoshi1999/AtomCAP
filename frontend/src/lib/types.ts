@@ -152,11 +152,20 @@ export type DealSourceType =
 
 export type RecommendationTier = "strong" | "watch" | "observe" | "reject";
 
+export interface CandidateReferenceLink {
+  title: string;
+  url: string;
+  source_type?: string | null;
+  evidence_id?: string | null;
+}
+
 export interface DealCandidate {
   company_name: string;
   company_id?: string | null;
   uscc?: string | null;
   aliases: string[];
+  official_website?: string | null;
+  reference_links?: CandidateReferenceLink[];
   sub_direction?: string | null;
   source_type: DealSourceType;
   selection_reasons: Claim[];

@@ -5,6 +5,7 @@ import {
   sendMessage,
   uploadMaterial,
   type HomeConversation,
+  type ReactStep,
   type SseHandlers,
   type TokenUsage,
 } from "./api";
@@ -17,6 +18,7 @@ export type ChatMessage = {
   deliverables: Deliverable[];
   deals?: DealDetail[];
   reasoning?: string;
+  reactSteps?: ReactStep[];
   usage?: TokenUsage;
   pending?: boolean;
   streaming?: boolean;
@@ -197,10 +199,21 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
             streaming: true,
           }));
         },
-        onReasoning(delta) {
+        onReasoning() {
+          // Model-side reasoning is intentionally not shown in chat.
+          // The visible working process is represented by structured ReAct steps.
+        },
+        onReactStep(step) {
+          const stampedStep = {
+            ...step,
+            received_at: step.created_at ?? new Date().toISOString(),
+          };
+          updateSession(id, (session) => ({ ...session, progress: stampedStep.summary }));
           updateAssistant(id, assistantId, (message) => ({
             ...message,
-            reasoning: (message.reasoning ?? "") + delta,
+            reactSteps: [...(message.reactSteps ?? []), stampedStep],
+            content: message.content || stampedStep.summary,
+            pending: true,
             streaming: true,
           }));
         },

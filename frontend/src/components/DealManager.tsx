@@ -36,11 +36,12 @@ import {
   sendMessage,
   transitionDeal,
   triggerDealAction,
+  updatePreDDMaterialStatus,
   type SseHandlers,
   type TokenUsage,
 } from "../lib/api";
-import type { DealAction, DealDetail, DealStatus, DealSummary } from "../lib/types";
-import { DealDetailPanel } from "../pages/WorkspacePage";
+import type { DealAction, DealDetail, DealStatus, DealSummary, PreDDMaterialCollectionStatus } from "../lib/types";
+import { DealDetailPanel, updatePreDDMaterialStatusInDetail } from "../pages/WorkspacePage";
 
 const STATUS_LABEL: Record<string, string> = {
   sourced: "已发现",
@@ -555,6 +556,8 @@ export default function DealManager() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
+  const [preDDMaterialStatusBusyKey, setPreDDMaterialStatusBusyKey] = useState<string | null>(null);
+  const [preDDMaterialStatusError, setPreDDMaterialStatusError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
@@ -581,6 +584,8 @@ export default function DealManager() {
   const loadDealDetail = useCallback(async (id: string) => {
     setSelectedDeal(null);
     setDetailError(null);
+    setPreDDMaterialStatusError(null);
+    setPreDDMaterialStatusBusyKey(null);
     setDetailLoading(true);
     try {
       const detail = await getDealDetail(id);
@@ -604,6 +609,8 @@ export default function DealManager() {
     } else {
       setSelectedDeal(null);
       setDetailError(null);
+      setPreDDMaterialStatusError(null);
+      setPreDDMaterialStatusBusyKey(null);
       setDetailLoading(false);
     }
   }, [loadDealDetail, selectedDealId]);
@@ -649,6 +656,42 @@ export default function DealManager() {
       setDetailError(e instanceof ApiError ? e.message : "操作失败");
     } finally {
       setDetailBusy(false);
+    }
+  }
+
+  async function handlePreDDMaterialStatusChange(
+    taskKey: string,
+    status: PreDDMaterialCollectionStatus
+  ) {
+    const targetDealId = selectedDeal?.id ?? selectedDealId;
+    if (!targetDealId) return;
+    const previousDetail = selectedDeal;
+
+    setPreDDMaterialStatusBusyKey(taskKey);
+    setPreDDMaterialStatusError(null);
+    setSelectedDeal((current) =>
+      current && current.id === targetDealId
+        ? updatePreDDMaterialStatusInDetail(current, taskKey, status)
+        : current
+    );
+
+    try {
+      await updatePreDDMaterialStatus(targetDealId, taskKey, status);
+      try {
+        const refreshed = await getDealDetail(targetDealId);
+        setSelectedDeal(refreshed);
+        setDetailError(null);
+        setPreDDMaterialStatusError(null);
+      } catch {
+        setPreDDMaterialStatusError("状态已更新，但刷新项目详情失败，请稍后刷新页面确认。");
+      }
+    } catch (e) {
+      setSelectedDeal((current) =>
+        previousDetail && current?.id === previousDetail.id ? previousDetail : current
+      );
+      setPreDDMaterialStatusError(e instanceof ApiError ? e.message : "更新 Pre-DD 资料状态失败");
+    } finally {
+      setPreDDMaterialStatusBusyKey(null);
     }
   }
 
@@ -767,6 +810,10 @@ export default function DealManager() {
                   busy={detailBusy}
                   onTransition={handleTransition}
                   onAction={handleAction}
+                  onMaterialUploaded={() => loadDealDetail(selectedDeal.id)}
+                  onPreDDMaterialStatusChange={handlePreDDMaterialStatusChange}
+                  preDDMaterialStatusBusyKey={preDDMaterialStatusBusyKey}
+                  preDDMaterialStatusError={preDDMaterialStatusError}
                 />
               )}
             </div>
