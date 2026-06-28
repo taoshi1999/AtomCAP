@@ -20,7 +20,9 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  Download,
   FileText,
+  FileSpreadsheet,
   FolderKanban,
   GraduationCap,
   History,
@@ -34,6 +36,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Presentation,
   RefreshCcw,
   Save,
   Search,
@@ -56,10 +59,12 @@ import {
   getHome,
   getModels,
   deleteConversation,
+  downloadGeneratedFile,
   listConversations,
   pinConversation,
   triggerDealAction,
   type ConversationMessage,
+  type GeneratedFileRef,
   type HomeConversation,
   type HomeData,
   type MessageBlock,
@@ -132,7 +137,11 @@ function blocksToText(blocks: MessageBlock[]) {
     .join("");
   if (text) return text;
   const deal = blocks.find((block) => block.type === "deal_ref" && block.deal_id);
-  return deal ? `[项目工作台 ${deal.deal_id}]` : "";
+  if (deal) return `[项目工作台 ${deal.deal_id}]`;
+  const file = blocks.find(
+    (block) => (block.type === "file_ref" || block.type === "generated_file") && block.filename
+  );
+  return file ? `[生成文件 ${file.filename}]` : "";
 }
 
 function usageFromBlocks(blocks: MessageBlock[]): TokenUsage | undefined {
@@ -580,6 +589,27 @@ export default function ChatPage() {
     return deals.filter((item): item is DealDetail => item !== null);
   }
 
+  function fileRefsFromBlocks(blocks: MessageBlock[]): GeneratedFileRef[] {
+    return blocks
+      .filter(
+        (block) =>
+          (block.type === "file_ref" || block.type === "generated_file") &&
+          block.file_id &&
+          block.filename
+      )
+      .map((block) => ({
+        type: "generated_file",
+        file_id: block.file_id as string,
+        filename: block.filename as string,
+        title: block.title,
+        format: block.format,
+        mime_type: block.mime_type,
+        size_bytes: block.size_bytes,
+        download_url: block.download_url,
+        created_at: block.created_at,
+      }));
+  }
+
   function openProjectWorkspaceFromConversation(dealId: string) {
     setActiveRecentKey(null);
     setMode("deals");
@@ -622,6 +652,7 @@ export default function ChatPage() {
               content: blocksToText(blocks),
               deliverables: await fetchMessageDeliverables(blocks),
               deals: await fetchMessageDeals(blocks),
+              generatedFiles: fileRefsFromBlocks(blocks),
               reactSteps: reactStepsFromBlocks(blocks),
               usage: usageFromBlocks(blocks),
             };
@@ -1800,6 +1831,83 @@ function isTimelineEcho(content: string, steps: ReactStep[]) {
   return steps.some((step) => step.summary.trim() === normalized);
 }
 
+function formatFileSize(size?: number) {
+  if (!size || size <= 0) return "大小未知";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function fileFormatLabel(format?: string) {
+  if (format === "docx") return "Word";
+  if (format === "xlsx") return "Excel";
+  if (format === "pptx") return "PPT";
+  return "文件";
+}
+
+function GeneratedFileCard({ file }: { file: GeneratedFileRef }) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const Icon = file.format === "xlsx" ? FileSpreadsheet : file.format === "pptx" ? Presentation : FileText;
+
+  async function handleDownload() {
+    setDownloading(true);
+    setError(null);
+    try {
+      await downloadGeneratedFile(file);
+    } catch (err) {
+      setError(compactError(err));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-900">
+            {file.title || file.filename}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{fileFormatLabel(file.format)}</span>
+            <span>{formatFileSize(file.size_bytes)}</span>
+            <span className="truncate">{file.filename}</span>
+          </div>
+          {error && <div className="mt-1 text-xs text-red-600">{error}</div>}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleDownload}
+        disabled={downloading}
+        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-indigo-200 px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {downloading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Download className="h-4 w-4" />
+        )}
+        下载
+      </button>
+    </div>
+  );
+}
+
+function GeneratedFileList({ files }: { files?: GeneratedFileRef[] }) {
+  if (!files || files.length === 0) return null;
+  return (
+    <div className="mt-4 space-y-3">
+      {files.map((file) => (
+        <GeneratedFileCard key={file.file_id} file={file} />
+      ))}
+    </div>
+  );
+}
+
 function AgentExecutionMessage({
   message,
   currentPreference,
@@ -1814,6 +1922,7 @@ function AgentExecutionMessage({
   const content = message.content.trim();
   const showFinalContent = !!content && (message.error || !isTimelineEcho(content, steps));
   const deals = message.deals ?? [];
+  const generatedFiles = message.generatedFiles ?? [];
 
   return (
     <article className="w-full">
@@ -1876,6 +1985,7 @@ function AgentExecutionMessage({
           ))}
         </div>
       )}
+      <GeneratedFileList files={generatedFiles} />
     </article>
   );
 }
@@ -1890,6 +2000,7 @@ function MessageBubble({
   const isUser = message.role === "user";
   const showUsage = !isUser && !!message.usage;
   const deals = message.deals ?? [];
+  const generatedFiles = message.generatedFiles ?? [];
   const reactSteps = message.reactSteps ?? [];
   if (!isUser && reactSteps.length > 0) {
     return <AgentExecutionMessage message={message} currentPreference={currentPreference} />;
@@ -1941,6 +2052,7 @@ function MessageBubble({
             ))}
           </div>
         )}
+        <GeneratedFileList files={generatedFiles} />
       </div>
     </article>
   );

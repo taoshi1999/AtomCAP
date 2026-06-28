@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     # 信号检索缓存 TTL（秒）；按量计费数据源粒度为天级，默认 24h。0 关闭缓存
     signal_cache_ttl_seconds: int = 86400
+    # Agent 文件生成工具输出目录；相对路径基于 backend/，按租户再分子目录。
+    generated_files_dir: str = "generated_files"
 
     # 可观测
     langfuse_host: str = ""

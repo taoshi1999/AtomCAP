@@ -4,6 +4,7 @@ import {
   getDealDetail,
   sendMessage,
   uploadMaterial,
+  type GeneratedFileRef,
   type HomeConversation,
   type ReactStep,
   type SseHandlers,
@@ -17,6 +18,7 @@ export type ChatMessage = {
   content: string;
   deliverables: Deliverable[];
   deals?: DealDetail[];
+  generatedFiles?: GeneratedFileRef[];
   reasoning?: string;
   reactSteps?: ReactStep[];
   usage?: TokenUsage;
@@ -267,6 +269,19 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
               }));
             });
         },
+        onFile(file) {
+          updateSession(id, (session) => ({ ...session, progress: null }));
+          updateAssistant(id, assistantId, (message) => ({
+            ...message,
+            content:
+              message.content && !message.pending
+                ? message.content
+                : "文件已生成，可下载查看。",
+            generatedFiles: [...(message.generatedFiles ?? []), file],
+            pending: false,
+            streaming: message.streaming,
+          }));
+        },
         onUsage(usage) {
           updateAssistant(id, assistantId, (message) => ({
             ...message,
@@ -291,7 +306,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
             content:
               message.content ||
               message.deliverables.length > 0 ||
-              (message.deals?.length ?? 0) > 0
+              (message.deals?.length ?? 0) > 0 ||
+              (message.generatedFiles?.length ?? 0) > 0
                 ? message.content
                 : "已完成。",
             pending: false,

@@ -1,7 +1,7 @@
 /**
  * API 客户端 + SSE 订阅。
  * 事件协议与 backend/app/api/conversations.py 对应：
- * token / reasoning / progress / object / usage / error / done
+ * token / reasoning / progress / object / file / usage / error / done
  */
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
@@ -67,12 +67,25 @@ export interface SseObjectRef {
   company_id?: string | null;
 }
 
+export interface GeneratedFileRef {
+  type?: "generated_file" | "file_ref" | string;
+  file_id: string;
+  filename: string;
+  title?: string;
+  format?: "docx" | "xlsx" | "pptx" | string;
+  mime_type?: string;
+  size_bytes?: number;
+  download_url?: string;
+  created_at?: string;
+}
+
 export interface SseHandlers {
   onToken?: (text: string) => void;
   onReasoning?: (text: string) => void;
   onProgress?: (text: string) => void;
   onReactStep?: (step: ReactStep) => void;
   onObject?: (ref: SseObjectRef) => void;
+  onFile?: (ref: GeneratedFileRef) => void;
   onUsage?: (usage: TokenUsage) => void;
   onError?: (text: string) => void;
   onDone?: () => void;
@@ -166,6 +179,9 @@ export async function sendMessage(
         case "object":
           handlers.onObject?.(JSON.parse(ev.data));
           break;
+        case "file":
+          handlers.onFile?.(JSON.parse(ev.data));
+          break;
         case "usage":
           handlers.onUsage?.(JSON.parse(ev.data));
           break;
@@ -211,6 +227,9 @@ export async function uploadMaterial(
           break;
         case "object":
           handlers.onObject?.(JSON.parse(ev.data));
+          break;
+        case "file":
+          handlers.onFile?.(JSON.parse(ev.data));
           break;
         case "usage":
           handlers.onUsage?.(JSON.parse(ev.data));
@@ -264,6 +283,30 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export { ApiError };
+
+export async function downloadGeneratedFile(file: GeneratedFileRef) {
+  const path = file.download_url || `/api/conversations/files/${file.file_id}`;
+  const res = await fetch(path, { headers: authHeaders() });
+  if (!res.ok) {
+    let detail = res.statusText || `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* non-json error body */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = file.filename || `${file.file_id}.${file.format || "bin"}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /* --------------------------------- 首页 --------------------------------- */
 
@@ -690,11 +733,19 @@ export async function generateDealPool(
 /* --------------------------------- 会话 --------------------------------- */
 
 export interface MessageBlock {
-  type: "text" | "object_ref" | "deal_ref" | string;
+  type: "text" | "object_ref" | "deal_ref" | "file_ref" | string;
   text?: string;
   deliverable_id?: string;
   deal_id?: string;
   company_id?: string;
+  file_id?: string;
+  filename?: string;
+  title?: string;
+  format?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  download_url?: string;
+  created_at?: string;
   steps?: ReactStep[];
   usage?: TokenUsage;
 }

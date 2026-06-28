@@ -1,7 +1,7 @@
 """对话与消息持久化 + domain_events 记账。
 
 消息 content 为块数组（与 Message ORM 注释一致）：
-  [{"type": "text", "text": "..."} | {"type": "object_ref", "deliverable_id": "..."} | {"type": "deal_ref", "deal_id": "..."}]
+  [{"type": "text", "text": "..."} | {"type": "object_ref", "deliverable_id": "..."} | {"type": "deal_ref", "deal_id": "..."} | {"type": "file_ref", ...}]
 
 核心约定 4：消息落库属于用户操作/状态流转，必须写 domain_events。
 与 services/deliverables.py 同约定：服务层收 institution_id/user_id 原始值，
@@ -77,11 +77,16 @@ def react_steps_block(steps: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "react_steps", "steps": steps}
 
 
+def file_ref_block(file_ref: dict[str, Any]) -> dict[str, Any]:
+    return {**file_ref, "type": "file_ref"}
+
+
 def assistant_blocks(
     text: str,
     *,
     usage: dict[str, Any] | None = None,
     react_steps: list[dict[str, Any]] | None = None,
+    files: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """assistant 消息块：正文文本块 + 可选 token 用量块。
 
@@ -89,6 +94,8 @@ def assistant_blocks(
     只认 text / object_ref 块，故用量块对 LLM 上下文与历史正文完全透明，前端单独读取展示。
     """
     blocks: list[dict[str, Any]] = text_blocks(text)
+    for file_ref in files or []:
+        blocks.append(file_ref_block(file_ref))
     if usage:
         blocks.append(usage_block(usage))
     if react_steps:
@@ -108,6 +115,8 @@ def blocks_to_text(blocks: list[dict[str, Any]] | dict[str, Any]) -> str:
             parts.append(f"[交付对象 {b.get('deliverable_id')}]")
         elif b.get("type") == "deal_ref":
             parts.append(f"[项目工作台 {b.get('deal_id')}]")
+        elif b.get("type") == "file_ref":
+            parts.append(f"[生成文件 {b.get('filename') or b.get('file_id')}]")
     return "".join(parts)
 
 

@@ -23,6 +23,7 @@ AGENT_LABELS: dict[str, str] = {
     "deal_sourcing": "项目挖掘 Agent",
     "deal_intake": "项目 Intake Agent",
     "preference_advice": "投资偏好 Agent",
+    "file_generation": "文件生成流程",
 }
 
 INTENT_LABELS: dict[str, str] = {
@@ -31,6 +32,7 @@ INTENT_LABELS: dict[str, str] = {
     "deal_sourcing": "项目推荐/项目挖掘",
     "deal_intake": "项目录入与分析",
     "preference_advice": "投资偏好优化",
+    "file_generation": "文件生成",
 }
 
 VISIBLE_REACT_PLANNER_SYSTEM = """你是 AtomCAP 的可见工作过程撰写器。
@@ -149,6 +151,11 @@ def fallback_visible_react_plan(
         return (
             "我需要把用户提供的项目材料转成结构化项目画像，并补充外部信息来判断它是否适合进入初筛。"
             f"根据当前状态，我会进入{flow}的处理流程，先识别公司和业务要点，再进行实体对齐与初步研判。"
+        )
+    if intent == "file_generation" or agent == "file_generation":
+        return (
+            "我需要把用户的文件生成请求转成可下载的交付文件，并结合当前会话、工作台和机构偏好整理内容。"
+            "下一步会调用文件生成工具生成 Word、Excel 或 PPT，并把文件引用保存到当前会话中。"
         )
 
     context = f"当前识别为{intent_label}"

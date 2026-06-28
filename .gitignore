@@ -24,3 +24,4 @@ pytest-cache-files-*/
 tsconfig.tsbuildinfo
 backend/_shim_conftest.py
 AGENTS.md
+backend/generated_files/
