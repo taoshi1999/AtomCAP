@@ -6,14 +6,15 @@ AtomCAP 是一个面向一级市场投资机构的多 Agent 投研工作台。�
 
 ## 当前状态
 
-截至 2026-06-28，AtomCAP 已具备一套可运行的 MVP：
+截至 2026-06-29，AtomCAP 已具备一套可运行的 MVP：
 
 - 前端：React + Vite + Tailwind CSS，主入口为首页工作台、项目工作台、赛道库、项目库、投资偏好管理。
 - 后端：FastAPI + SQLAlchemy Async + PostgreSQL/pgvector + Redis + LangGraph + SSE。
-- Agent：已落地通用对话、赛道前瞻、项目挖掘、项目分析、投资偏好建议、市场信号 ReAct 收集、经验沉淀反哺等链路。
+- Agent：已落地通用对话、赛道前瞻、项目挖掘、项目分析、投资偏好建议、市场信号 ReAct 收集、文件生成、经验沉淀反哺等链路。
 - 数据源：博查、Tavily、企查查 Connector 已有实现或可插拔实现，并带缓存和合规开关。
 - 投资偏好：支持多张命名偏好卡片，每个维度都有「偏好」和「反偏好」，支持补充说明，并会作为当前机构偏好注入大模型推理。
 - 项目工作台：支持项目状态流转、近期市场信号、项目材料、Pre-DD 资料、Pre-DD Brief 多版本生成。
+- 对话工作台：支持显式引用项目库/赛道库对象作为上下文，支持生成 Word、Excel、PPT 文件并在会话中下载。
 - 证据链：赛道详情、项目池、市场信号、材料等对象都围绕 Source / Claim / EvidenceLink 设计，尽量避免无来源结论。
 
 ## 产品定位
@@ -124,6 +125,7 @@ flowchart TD
 - 左侧栏包含新对话、项目库、赛道库、投资偏好、最近会话、当前投资偏好卡片和账户设置。
 - 当前投资偏好卡片展示当前生效偏好名、版本、偏好、反偏好和补充说明，卡片内部可滚动查看全部维度。
 - 最近会话列表独立滚动，底部偏好卡片固定占位。
+- 主页对话输入框支持上传材料、选择模型、引用项目/赛道；引用对象会显示在用户消息下方，并作为本轮上下文注入模型。
 
 ### 2. 对话与可见 ReAct 流程
 
@@ -140,6 +142,10 @@ flowchart TD
 - 前端把 ReAct 步骤以对话形式展示，工具调用可展开查看具体操作和结果。
 - ReAct 步骤会持久化到消息 blocks 中，切换会话后仍能看到工作过程。
 - 通用对话支持模型档位切换，支持 token usage 展示。
+- 对话输入框的引用按钮可从项目库和赛道库选择对象；前端会优先拉取项目详情或赛道交付物 payload，构造完整上下文，同时只把轻量引用摘要落到用户消息中。
+- 用户消息 blocks 支持 `references` 块，用于展示「引用项目 / 引用赛道」标签；完整引用上下文仅进入本轮 LLM 输入，不污染用户原始消息文本。
+- 当用户要求「生成赛道报告 Word」「针对项目生成路演 PPT」「导出 Excel 表格」时，系统会优先进入文件生成流程，调用文件生成工具产出可下载文件。
+- 生成文件以 `file_ref` 块持久化到 assistant 消息中，历史会话重新打开后仍能下载。
 
 SSE 事件主要包括：
 
@@ -147,9 +153,20 @@ SSE 事件主要包括：
 - `token`：模型正文增量。
 - `react_step`：可见 ReAct 步骤。
 - `object`：生成的交付对象引用。
+- `file`：生成文件引用，前端渲染为下载卡片。
 - `usage`：token 用量。
 - `error`：错误。
 - `done`：结束。
+
+消息 blocks 约定：
+
+- `text`：用户或 assistant 正文。
+- `references`：用户显式引用的项目/赛道摘要，只用于展示和历史恢复。
+- `object_ref`：Thesis、DealList 等交付物引用。
+- `deal_ref`：项目工作台引用。
+- `file_ref`：Word、Excel、PPT 等生成文件引用。
+- `usage`：token 用量。
+- `react_steps`：可见 ReAct 工作过程。
 
 ### 3. 意图路由
 
@@ -165,6 +182,7 @@ SSE 事件主要包括：
 - `deal_sourcing`：项目挖掘，生成 DealList。
 - `deal_intake`：分析用户给定的单个项目，生成 DealProfile 并创建项目工作台。
 - `preference_advice`：偏好/反偏好修改建议，进入人工审阅队列。
+- `file_generation`：显式文件生成请求，生成 Word、Excel 或 PPT 文件。
 
 ```mermaid
 flowchart TD
@@ -174,13 +192,32 @@ flowchart TD
   Router --> Sourcing["项目挖掘 Agent"]
   Router --> Intake["项目分析 Agent"]
   Router --> Pref["投资偏好建议 Agent"]
+  Router --> File["文件生成工具"]
   Thesis --> Deliverable["Thesis 交付物"]
   Sourcing --> DealList["DealList 项目池"]
   Intake --> Deal["DealProfile + 项目工作台"]
   Pref --> Advice["PreferenceAdvice 审阅项"]
+  File --> FileRef["file_ref + 下载卡片"]
 ```
 
-### 4. 赛道库和赛道详情
+### 4. 文件生成工具
+
+相关文件：
+
+- 后端：`services/file_generation.py`、`api/conversations.py`
+- 前端：`lib/api.ts`、`lib/chatSession.tsx`、`pages/ChatPage.tsx`
+
+功能点：
+
+- 支持用户自然语言触发 Word、Excel、PPT 生成。
+- 生成内容会结合当前会话、用户引用的项目/赛道、项目工作台上下文、赛道上下文和机构投资偏好。
+- 使用结构化 `FilePlan` 组织标题、章节、表格和幻灯片；模型不可用时会退回确定性模板，避免请求直接失败。
+- Word 使用 `python-docx` 渲染，Excel 使用 `openpyxl` 渲染，PPT 使用 `python-pptx` 渲染。
+- 文件默认写入 `backend/generated_files/<institution_id>/`，旁路 JSON 元数据记录租户、文件名、格式和下载信息。
+- 下载接口为 `/api/conversations/files/{file_id}`，会校验当前用户机构，前端通过带鉴权的 fetch 下载。
+- 运行时生成目录已在 `.gitignore` 中忽略，避免误提交用户文件。
+
+### 5. 赛道库和赛道详情
 
 相关文件：
 
@@ -221,7 +258,7 @@ flowchart LR
   H --> I["assemble_thesis"]
 ```
 
-### 5. 项目挖掘和候选项目池
+### 6. 项目挖掘和候选项目池
 
 相关文件：
 
@@ -266,7 +303,7 @@ flowchart LR
 - `score_candidates` 根据偏好、证据和风险进行评分。
 - `collect_candidate_reference_materials` 尽量补齐官网、近期重要资料、新闻和公告。
 
-### 6. 项目库和项目工作台
+### 7. 项目库和项目工作台
 
 相关文件：
 
@@ -375,7 +412,7 @@ Pre-DD Brief 独立于 Pre-DD 资料卡片：
 - 支持多版本生成。
 - 用户可点击不同版本查看历史 Brief。
 
-### 7. 投资偏好管理
+### 8. 投资偏好管理
 
 相关文件：
 
@@ -414,7 +451,7 @@ Pre-DD Brief 独立于 Pre-DD 资料卡片：
 - 命中偏好会提高项目或赛道匹配度。
 - 命中反偏好会降低匹配度或生成风险提示。
 
-### 8. 经验沉淀和偏好建议
+### 9. 经验沉淀和偏好建议
 
 相关文件：
 
@@ -437,7 +474,7 @@ Pre-DD Brief 独立于 Pre-DD 资料卡片：
 - 显式偏好/反偏好优先级高于行为推断。
 - 所有偏好变更都写 domain_events，便于审计。
 
-### 9. 数据源 Connector
+### 10. 数据源 Connector
 
 相关文件：
 
@@ -463,7 +500,7 @@ Connector 统一输出 `Source`，供 Agent、市场信号和证据链复用。
 - 搜索结果会做 URL 去重、时间截断、噪声过滤和缓存。
 - Redis 缓存默认 TTL 24h，配置为 `SIGNAL_CACHE_TTL_SECONDS`。
 
-### 10. 模型路由
+### 11. 模型路由
 
 相关文件：
 
@@ -490,7 +527,7 @@ Provider 选择：
 
 - `institutions`：机构。
 - `users`：用户。
-- `conversations` / `messages`：会话和消息，消息 blocks 保存 text、object_ref、usage、react_steps 等结构。
+- `conversations` / `messages`：会话和消息，消息 blocks 保存 text、references、object_ref、deal_ref、file_ref、usage、react_steps 等结构。
 - `preferences`：当前生效投资偏好，版本化。
 - `preference_profiles`：用户自建偏好卡片。
 - `agent_runs`：Agent 运行生命周期。
@@ -510,7 +547,7 @@ Provider 选择：
 | `/api/auth` | `api/auth.py` | 注册、登录 |
 | `/api/home` | `api/home.py` | 首页聚合数据 |
 | `/api/models` | `api/models.py` | 可用模型档位 |
-| `/api/conversations` | `api/conversations.py` | 会话列表、消息 SSE、上传材料 |
+| `/api/conversations` | `api/conversations.py` | 会话列表、消息 SSE、上传材料、生成文件下载 |
 | `/api/deliverables` | `api/deliverables.py` | Thesis / DealList 交付物、赛道助手、市场信号、生成项目池 |
 | `/api/deals` | `api/deals.py` | 项目库、项目详情、市场信号、材料、Pre-DD、状态流转 |
 | `/api/preferences` | `api/preferences.py` | 当前机构生效偏好 |
@@ -567,6 +604,7 @@ cp .env.example .env
 - `JWT_SECRET`
 - 一个可用模型入口：DeepSeek、OpenAI 或本地 LiteLLM。
 - 可选数据源：`BOCHA_API_KEY`、`QCC_APP_KEY`、`QCC_SECRET_KEY`、`TAVILY_API_KEY`。
+- 可选文件输出目录：`GENERATED_FILES_DIR`，默认 `backend/generated_files`。
 
 开发时可把 `.env` 中 `AUTH_DEV_FALLBACK=true` 打开；生产必须关闭。
 
@@ -647,6 +685,8 @@ backend\.venv\Scripts\python.exe -m pytest backend/tests/test_preference_profile
 backend\.venv\Scripts\python.exe -m pytest backend/tests/test_preference_influence.py
 backend\.venv\Scripts\python.exe -m pytest backend/tests/test_deals.py
 backend\.venv\Scripts\python.exe -m pytest backend/tests/test_deal_sourcing_nodes.py
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_chat_stream.py
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_file_generation.py
 ```
 
 ### 前端构建
@@ -738,6 +778,10 @@ ruff check app tests
 ### 5. ReAct 展示不是隐藏推理
 
 前端展示的是模型生成的「状态评估、下一步计划、工具调用、观察结果」，不是模型隐藏思维链。新增 Agent 时应继续遵守这个边界。
+
+### 6. 引用上下文和用户原文分离
+
+用户在对话框中引用项目或赛道时，轻量摘要写入消息 `references` 块用于 UI 展示和历史恢复；完整上下文只通过 `context` 进入本轮模型输入。不要把完整引用内容拼进用户消息正文，否则会污染会话标题、历史预览和审计语义。
 
 ## 常见问题
 

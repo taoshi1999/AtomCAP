@@ -57,6 +57,7 @@ from app.services.conversations import (
     soft_delete_conversation,
     text_blocks,
     to_llm_messages,
+    user_blocks,
 )
 from app.services import preferences as preferences_service
 from app.services.conversation_titles import refresh_conversation_title
@@ -88,6 +89,8 @@ class SendMessageRequest(BaseModel):
     model_tier: str | None = None
     # 页面级助手注入的页面上下文：只进 LLM 输入，不写入持久化消息正文/标题
     context: str | None = None
+    # 用户在对话框中显式引用的项目/赛道摘要；用于消息展示和历史恢复，不承载完整上下文。
+    references: list[dict[str, Any]] | None = None
     # normal=普通会话；project_workspace=绑定具体项目的工作台会话。
     conversation_type: str = "normal"
     # 赛道详情页注入上下文时使用，但会话类型仍是 normal。
@@ -191,6 +194,33 @@ def react_step(
         payload["tool_id"] = tool_id
         payload["tool_name"] = tool_name(tool_id)
     return {"event": "react_step", "data": json.dumps(payload, ensure_ascii=False)}
+
+
+def _normalize_message_references(references: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Keep only the small display metadata that belongs in persisted user messages."""
+    normalized: list[dict[str, Any]] = []
+    for raw in references or []:
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("kind") or "").strip()
+        if kind not in {"deal", "thesis"}:
+            continue
+        ref_id = str(raw.get("id") or "").strip()
+        title = str(raw.get("title") or "").strip()
+        if not ref_id or not title:
+            continue
+        item: dict[str, Any] = {
+            "kind": kind,
+            "id": ref_id,
+            "title": title[:120],
+        }
+        subtitle = str(raw.get("subtitle") or "").strip()
+        if subtitle:
+            item["subtitle"] = subtitle[:240]
+        normalized.append(item)
+        if len(normalized) >= 12:
+            break
+    return normalized
 
 
 def _preference_target_hint(content: str) -> str:
@@ -681,7 +711,7 @@ async def send_message(
                 user_id=user.user_id,
                 conversation_id=conversation_id,
                 role="user",
-                blocks=text_blocks(body.content),
+                blocks=user_blocks(body.content, references=_normalize_message_references(body.references)),
                 event_payload={
                     "conversation_type": conversation_type,
                     "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,

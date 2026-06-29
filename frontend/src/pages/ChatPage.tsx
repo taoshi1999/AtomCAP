@@ -27,6 +27,7 @@ import {
   GraduationCap,
   History,
   Library,
+  Link2,
   LogOut,
   Loader2,
   Minus,
@@ -68,13 +69,14 @@ import {
   type HomeConversation,
   type HomeData,
   type MessageBlock,
+  type MessageReference,
   type ModelOption,
   type ReactStep,
   type TokenUsage,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useChatSession, type ChatMessage } from "../lib/chatSession";
-import type { DealDetail, Deliverable } from "../lib/types";
+import type { DealDetail, DealSummary, Deliverable } from "../lib/types";
 import {
   getMarketSignalSearchDepth,
   MAX_MARKET_SIGNAL_SEARCH_DEPTH,
@@ -82,6 +84,23 @@ import {
 } from "../lib/userSettings";
 
 type HomeMode = "chat" | "tracks" | "preference" | "deals";
+
+type ReferenceKind = "deal" | "thesis";
+
+type ComposerReference = {
+  kind: ReferenceKind;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  context: string;
+};
+
+type ReferenceOption = {
+  kind: ReferenceKind;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+};
 
 type RecentItem =
   | {
@@ -235,6 +254,111 @@ function displayPreferenceValue(value: unknown, empty = "未设置") {
     return value.trim() || empty;
   }
   return displayList(getStringList(value), empty);
+}
+
+function compactJsonContext(value: unknown, limit = 4200) {
+  const text = JSON.stringify(value, null, 2);
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+function buildDealSummaryReference(deal: DealSummary): ComposerReference {
+  const title = deal.company_name ?? "未命名项目";
+  return {
+    kind: "deal",
+    id: deal.id,
+    title,
+    subtitle: deal.portrait ?? dealStatusLabel(deal.status),
+    context: [
+      `【引用项目】${title}`,
+      `deal_id：${deal.id}`,
+      `company_id：${deal.company_id}`,
+      `项目状态：${dealStatusLabel(deal.status)}`,
+      `匹配度：${deal.overall_fit ?? "未计算"}`,
+      `项目画像：${deal.portrait ?? "暂无"}`,
+      `是否在项目库：${deal.is_in_library ? "是" : "否"}`,
+    ].join("\n"),
+  };
+}
+
+function buildDealDetailReference(deal: DealDetail): ComposerReference {
+  const title = deal.company?.name ?? deal.data.extraction.company_name ?? "未命名项目";
+  const payload = {
+    deal_id: deal.id,
+    company_id: deal.company_id,
+    company: deal.company,
+    status: deal.status,
+    extraction: deal.data.extraction,
+    analysis: deal.data.analysis,
+    market_signals: deal.data.market_signals?.slice(0, 8),
+    user_feedback: deal.data.user_feedback,
+    workspace: deal.data.workspace,
+    pre_dd_material_statuses: deal.data.pre_dd_material_statuses,
+  };
+  return {
+    kind: "deal",
+    id: deal.id,
+    title,
+    subtitle: deal.data.analysis.portrait ?? dealStatusLabel(deal.status),
+    context: [`【引用项目】${title}`, compactJsonContext(payload)].join("\n"),
+  };
+}
+
+function buildThesisReference(
+  deliverable: Deliverable,
+  fallback?: { title?: string | null; status?: string | null }
+): ComposerReference {
+  const payload = getRecord(deliverable.payload);
+  const title =
+    optionalPreferenceText(payload.thesis_name) ??
+    optionalPreferenceText(payload.track_name) ??
+    optionalPreferenceText(payload.name) ??
+    fallback?.title ??
+    "未命名赛道";
+  const contextPayload = {
+    deliverable_id: deliverable.id,
+    type: deliverable.type,
+    thesis_name: payload.thesis_name,
+    one_line_view: payload.one_line_view ?? payload.one_line_thesis,
+    opportunity_level: payload.opportunity_level,
+    risk_level: payload.risk_level,
+    advice: payload.advice,
+    sub_directions: Array.isArray(payload.sub_directions)
+      ? payload.sub_directions.slice(0, 8)
+      : [],
+    investment_reason: payload.investment_reason,
+    key_risks: payload.key_risks,
+    recent_signals: Array.isArray(payload.recent_signals)
+      ? payload.recent_signals.slice(0, 8)
+      : [],
+    institution_fit_score: payload.institution_fit_score,
+    evidence_items: deliverable.evidence_items?.slice(0, 12),
+  };
+  return {
+    kind: "thesis",
+    id: deliverable.id,
+    title,
+    subtitle:
+      optionalPreferenceText(payload.one_line_view) ??
+      optionalPreferenceText(payload.one_line_thesis) ??
+      fallback?.status ??
+      null,
+    context: [`【引用赛道】${title}`, compactJsonContext(contextPayload)].join("\n"),
+  };
+}
+
+function buildFallbackThesisReference(option: ReferenceOption): ComposerReference {
+  return {
+    kind: "thesis",
+    id: option.id,
+    title: option.title,
+    subtitle: option.subtitle,
+    context: [
+      `【引用赛道】${option.title}`,
+      `deliverable_id：${option.id}`,
+      `状态：${option.subtitle ?? "未知"}`,
+      "详细赛道信息暂未拉取成功，本轮仅使用列表摘要作为上下文。",
+    ].join("\n"),
+  };
 }
 
 function optionalPreferenceText(value: unknown) {
@@ -405,6 +529,12 @@ export default function ChatPage() {
   const [hiddenConversationIds, setHiddenConversationIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [composerReferences, setComposerReferences] = useState<ComposerReference[]>([]);
+  const [referencePickerOpen, setReferencePickerOpen] = useState(false);
+  const [referenceKind, setReferenceKind] = useState<ReferenceKind>("deal");
+  const [referenceQuery, setReferenceQuery] = useState("");
+  const [referenceLoadingKey, setReferenceLoadingKey] = useState<string | null>(null);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     getModels()
@@ -535,6 +665,23 @@ export default function ChatPage() {
   const userName = home?.user.name || "你好";
   const userSubtitle = home?.user.email || home?.institution.name || "";
   const newConversationActive = mode === "chat" && messages.length === 0;
+  const referenceOptions = useMemo<ReferenceOption[]>(() => {
+    const deals = (home?.deals ?? []).map((deal) => ({
+      kind: "deal" as const,
+      id: deal.id,
+      title: deal.company_name ?? "未命名项目",
+      subtitle: deal.portrait ?? dealStatusLabel(deal.status),
+    }));
+    const theses = (home?.deliverables ?? [])
+      .filter((item) => item.type === "thesis")
+      .map((item) => ({
+        kind: "thesis" as const,
+        id: item.id,
+        title: item.title,
+        subtitle: item.status,
+      }));
+    return [...deals, ...theses];
+  }, [home]);
 
   function switchMode(nextMode: HomeMode) {
     setActiveRecentKey(null);
@@ -552,6 +699,8 @@ export default function ChatPage() {
     setActiveRecentKey(null);
     startNewConversation();
     setInput("");
+    setComposerReferences([]);
+    setReferencePickerOpen(false);
     setMode("chat");
     navigate("/");
   }
@@ -569,6 +718,77 @@ export default function ChatPage() {
   function saveSettings() {
     setMarketSignalSearchDepth(marketSignalSearchDepth);
     setSettingsDialogOpen(false);
+  }
+
+  async function addReference(option: ReferenceOption) {
+    if (composerReferences.some((item) => item.kind === option.kind && item.id === option.id)) {
+      setReferencePickerOpen(false);
+      return;
+    }
+    const key = `${option.kind}:${option.id}`;
+    setReferenceLoadingKey(key);
+    setReferenceError(null);
+    try {
+      let next: ComposerReference;
+      if (option.kind === "deal") {
+        const summary = home?.deals.find((deal) => deal.id === option.id);
+        try {
+          const detail = await getDealDetail(option.id);
+          next = buildDealDetailReference(detail);
+        } catch {
+          if (!summary) throw new Error("未能读取项目详情");
+          next = buildDealSummaryReference(summary);
+        }
+      } else {
+        const fallback = home?.deliverables.find((item) => item.id === option.id);
+        try {
+          const deliverable = await getDeliverable(option.id);
+          next = buildThesisReference(deliverable, {
+            title: fallback?.title,
+            status: fallback?.status,
+          });
+        } catch {
+          next = buildFallbackThesisReference(option);
+        }
+      }
+      setComposerReferences((current) => {
+        if (current.some((item) => item.kind === next.kind && item.id === next.id)) {
+          return current;
+        }
+        return [...current, next];
+      });
+      setReferencePickerOpen(false);
+      setReferenceQuery("");
+    } catch (error) {
+      setReferenceError(compactError(error));
+    } finally {
+      setReferenceLoadingKey(null);
+    }
+  }
+
+  function removeReference(kind: ReferenceKind, id: string) {
+    setComposerReferences((current) =>
+      current.filter((item) => item.kind !== kind || item.id !== id)
+    );
+  }
+
+  function buildComposerReferenceContext() {
+    if (composerReferences.length === 0) return undefined;
+    return [
+      "以下为用户在主页对话框中显式引用的项目/赛道上下文。回答时应优先围绕这些对象，不要把它们误认为用户正在新建对象。",
+      ...composerReferences.map((item, index) =>
+        [`引用 ${index + 1}：${item.kind === "deal" ? "项目" : "赛道"} / ${item.title}`, item.context].join("\n")
+      ),
+    ].join("\n\n");
+  }
+
+  function composerReferenceMetadata(): MessageReference[] {
+    return composerReferences.map((item) => ({
+      kind: item.kind,
+      id: item.id,
+      title: item.title,
+      subtitle: item.subtitle,
+    }));
   }
 
   async function fetchMessageDeliverables(blocks: MessageBlock[]) {
@@ -610,6 +830,20 @@ export default function ChatPage() {
       }));
   }
 
+  function referencesFromBlocks(blocks: MessageBlock[]): MessageReference[] {
+    return blocks
+      .filter((block) => block.type === "references" && Array.isArray(block.references))
+      .flatMap((block) => block.references ?? [])
+      .filter(
+        (reference): reference is MessageReference =>
+          !!reference &&
+          typeof reference === "object" &&
+          typeof reference.id === "string" &&
+          typeof reference.title === "string" &&
+          typeof reference.kind === "string"
+      );
+  }
+
   function openProjectWorkspaceFromConversation(dealId: string) {
     setActiveRecentKey(null);
     setMode("deals");
@@ -618,6 +852,8 @@ export default function ChatPage() {
 
   async function loadConversation(id: string) {
     setActiveRecentKey(null);
+    setComposerReferences([]);
+    setReferencePickerOpen(false);
     setMode("chat");
     setActiveConversationId(id);
     if (streamingConversationIds.has(id)) return;
@@ -653,6 +889,7 @@ export default function ChatPage() {
               deliverables: await fetchMessageDeliverables(blocks),
               deals: await fetchMessageDeals(blocks),
               generatedFiles: fileRefsFromBlocks(blocks),
+              references: referencesFromBlocks(blocks),
               reactSteps: reactStepsFromBlocks(blocks),
               usage: usageFromBlocks(blocks),
             };
@@ -674,6 +911,8 @@ export default function ChatPage() {
 
   async function openDeliverable(id: string) {
     setActiveRecentKey(`deliverable-${id}`);
+    setComposerReferences([]);
+    setReferencePickerOpen(false);
     setMode("chat");
     setConversationProgress(conversationId, null);
     setConversationSending(conversationId, false);
@@ -780,12 +1019,19 @@ export default function ChatPage() {
     setActiveRecentKey(null);
     setMode("chat");
     setInput("");
-    await startTextMessage(content, modelTier);
+    setReferencePickerOpen(false);
+    await startTextMessage(
+      content,
+      modelTier,
+      buildComposerReferenceContext(),
+      composerReferenceMetadata()
+    );
   }
 
   async function handleUpload(file: File) {
     if (isSending) return;
     setActiveRecentKey(null);
+    setReferencePickerOpen(false);
     setMode("chat");
     await startUpload(file);
   }
@@ -943,10 +1189,25 @@ export default function ChatPage() {
               isSending={isSending}
               models={modelOptions}
               modelTier={modelTier}
+              references={composerReferences}
+              referenceOptions={referenceOptions}
+              referenceKind={referenceKind}
+              referenceQuery={referenceQuery}
+              referencePickerOpen={referencePickerOpen}
+              referenceLoadingKey={referenceLoadingKey}
+              referenceError={referenceError}
               onModelChange={setModelTier}
               onChange={setInput}
               onKeyDown={handleComposerKeyDown}
               onUploadClick={() => fileInputRef.current?.click()}
+              onReferenceToggle={() => {
+                setReferenceError(null);
+                setReferencePickerOpen((value) => !value);
+              }}
+              onReferenceKindChange={setReferenceKind}
+              onReferenceQueryChange={setReferenceQuery}
+              onAddReference={(option) => void addReference(option)}
+              onRemoveReference={removeReference}
               onSend={() => void handleSend(input)}
             />
           </section>
@@ -971,10 +1232,25 @@ export default function ChatPage() {
                 compact
                 models={modelOptions}
                 modelTier={modelTier}
+                references={composerReferences}
+                referenceOptions={referenceOptions}
+                referenceKind={referenceKind}
+                referenceQuery={referenceQuery}
+                referencePickerOpen={referencePickerOpen}
+                referenceLoadingKey={referenceLoadingKey}
+                referenceError={referenceError}
                 onModelChange={setModelTier}
                 onChange={setInput}
                 onKeyDown={handleComposerKeyDown}
                 onUploadClick={() => fileInputRef.current?.click()}
+                onReferenceToggle={() => {
+                  setReferenceError(null);
+                  setReferencePickerOpen((value) => !value);
+                }}
+                onReferenceKindChange={setReferenceKind}
+                onReferenceQueryChange={setReferenceQuery}
+                onAddReference={(option) => void addReference(option)}
+                onRemoveReference={removeReference}
                 onSend={() => void handleSend(input)}
               />
             </div>
@@ -1476,6 +1752,125 @@ function PreferenceLine({ line }: { line: PreferenceDisplayLine }) {
 
 
 
+function ReferencePicker({
+  options,
+  references,
+  kind,
+  query,
+  loadingKey,
+  error,
+  onKindChange,
+  onQueryChange,
+  onAddReference,
+}: {
+  options: ReferenceOption[];
+  references: ComposerReference[];
+  kind: ReferenceKind;
+  query: string;
+  loadingKey: string | null;
+  error: string | null;
+  onKindChange: (kind: ReferenceKind) => void;
+  onQueryChange: (query: string) => void;
+  onAddReference: (option: ReferenceOption) => void;
+}) {
+  const selectedKeys = useMemo(
+    () => new Set(references.map((item) => `${item.kind}:${item.id}`)),
+    [references]
+  );
+  const counts = useMemo(
+    () => ({
+      deal: options.filter((item) => item.kind === "deal").length,
+      thesis: options.filter((item) => item.kind === "thesis").length,
+    }),
+    [options]
+  );
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return options
+      .filter((item) => item.kind === kind)
+      .filter((item) => {
+        if (!keyword) return true;
+        return `${item.title} ${item.subtitle ?? ""}`.toLowerCase().includes(keyword);
+      })
+      .slice(0, 30);
+  }, [kind, options, query]);
+
+  return (
+    <div className="absolute bottom-11 left-0 z-30 w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
+      <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1">
+        {[
+          { kind: "deal" as const, label: "项目", count: counts.deal },
+          { kind: "thesis" as const, label: "赛道", count: counts.thesis },
+        ].map((item) => (
+          <button
+            key={item.kind}
+            type="button"
+            onClick={() => onKindChange(item.kind)}
+            className={`h-8 rounded-md text-sm font-semibold transition ${
+              kind === item.kind
+                ? "bg-white text-indigo-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            {item.label} {item.count}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-slate-500">
+        <Search className="h-4 w-4 shrink-0" />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder={kind === "deal" ? "搜索项目" : "搜索赛道"}
+          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+        />
+      </div>
+
+      {error && <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+
+      <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
+        {filtered.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">
+            暂无可引用{kind === "deal" ? "项目" : "赛道"}
+          </div>
+        ) : (
+          filtered.map((option) => {
+            const key = `${option.kind}:${option.id}`;
+            const selected = selectedKeys.has(key);
+            const loading = loadingKey === key;
+            const Icon = option.kind === "deal" ? FolderKanban : Library;
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={selected || loading}
+                onClick={() => onAddReference(option)}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-slate-50 disabled:cursor-default disabled:opacity-70"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-900">
+                    {option.title}
+                  </span>
+                  {option.subtitle && (
+                    <span className="mt-0.5 block truncate text-xs text-slate-500">
+                      {option.subtitle}
+                    </span>
+                  )}
+                </span>
+                {selected && <span className="text-xs font-semibold text-indigo-600">已引用</span>}
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Composer({
   value,
   progress,
@@ -1483,10 +1878,22 @@ function Composer({
   compact,
   models,
   modelTier,
+  references,
+  referenceOptions,
+  referenceKind,
+  referenceQuery,
+  referencePickerOpen,
+  referenceLoadingKey,
+  referenceError,
   onModelChange,
   onChange,
   onKeyDown,
   onUploadClick,
+  onReferenceToggle,
+  onReferenceKindChange,
+  onReferenceQueryChange,
+  onAddReference,
+  onRemoveReference,
   onSend,
 }: {
   value: string;
@@ -1495,10 +1902,22 @@ function Composer({
   compact?: boolean;
   models?: ModelOption[];
   modelTier?: string;
+  references: ComposerReference[];
+  referenceOptions: ReferenceOption[];
+  referenceKind: ReferenceKind;
+  referenceQuery: string;
+  referencePickerOpen: boolean;
+  referenceLoadingKey: string | null;
+  referenceError: string | null;
   onModelChange?: (tier: string) => void;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onUploadClick: () => void;
+  onReferenceToggle: () => void;
+  onReferenceKindChange: (kind: ReferenceKind) => void;
+  onReferenceQueryChange: (query: string) => void;
+  onAddReference: (option: ReferenceOption) => void;
+  onRemoveReference: (kind: ReferenceKind, id: string) => void;
   onSend: () => void;
 }) {
   return (
@@ -1512,6 +1931,30 @@ function Composer({
         className="block w-full resize-none bg-transparent text-base leading-7 text-slate-900 outline-none placeholder:text-slate-500"
       />
 
+      {references.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {references.map((reference) => (
+            <span
+              key={`${reference.kind}:${reference.id}`}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700"
+            >
+              <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[10px] text-indigo-600">
+                {reference.kind === "deal" ? "项目" : "赛道"}
+              </span>
+              <span className="max-w-[14rem] truncate">{reference.title}</span>
+              <button
+                type="button"
+                title="移除引用"
+                onClick={() => onRemoveReference(reference.kind, reference.id)}
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-indigo-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="mt-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2 text-slate-600">
           <button
@@ -1522,6 +1965,31 @@ function Composer({
           >
             <Paperclip className="h-5 w-5" />
           </button>
+          <div className="relative">
+            <button
+              type="button"
+              title="引用项目或赛道"
+              onClick={onReferenceToggle}
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition hover:bg-slate-100 ${
+                references.length > 0 || referencePickerOpen ? "text-indigo-600" : ""
+              }`}
+            >
+              <Link2 className="h-5 w-5" />
+            </button>
+            {referencePickerOpen && (
+              <ReferencePicker
+                options={referenceOptions}
+                references={references}
+                kind={referenceKind}
+                query={referenceQuery}
+                loadingKey={referenceLoadingKey}
+                error={referenceError}
+                onKindChange={onReferenceKindChange}
+                onQueryChange={onReferenceQueryChange}
+                onAddReference={onAddReference}
+              />
+            )}
+          </div>
           {models && models.length > 0 && onModelChange && (
             <select
               value={modelTier}
@@ -1908,6 +2376,33 @@ function GeneratedFileList({ files }: { files?: GeneratedFileRef[] }) {
   );
 }
 
+function MessageReferenceList({ references, align = "left" }: { references?: MessageReference[]; align?: "left" | "right" }) {
+  if (!references || references.length === 0) return null;
+  return (
+    <div
+      className={`mt-2 flex flex-wrap gap-2 ${
+        align === "right" ? "justify-end" : "justify-start"
+      }`}
+    >
+      {references.map((reference) => {
+        const isDeal = reference.kind === "deal";
+        const Icon = isDeal ? FolderKanban : Library;
+        return (
+          <span
+            key={`${reference.kind}:${reference.id}`}
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm"
+            title={reference.subtitle ?? reference.title}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+            <span className="shrink-0 text-slate-400">引用{isDeal ? "项目" : "赛道"}</span>
+            <span className="max-w-[16rem] truncate text-slate-700">{reference.title}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function AgentExecutionMessage({
   message,
   currentPreference,
@@ -2029,6 +2524,7 @@ function MessageBubble({
             {message.content}
           </div>
         )}
+        {isUser && <MessageReferenceList references={message.references} align="right" />}
         {showUsage && message.usage && (
           <div className="mt-1 px-1 text-[11px] text-slate-400">
             {formatTokens(message.usage)}

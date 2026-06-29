@@ -6,6 +6,7 @@ import {
   uploadMaterial,
   type GeneratedFileRef,
   type HomeConversation,
+  type MessageReference,
   type ReactStep,
   type SseHandlers,
   type TokenUsage,
@@ -19,6 +20,7 @@ export type ChatMessage = {
   deliverables: Deliverable[];
   deals?: DealDetail[];
   generatedFiles?: GeneratedFileRef[];
+  references?: MessageReference[];
   reasoning?: string;
   reactSteps?: ReactStep[];
   usage?: TokenUsage;
@@ -47,7 +49,12 @@ type ChatSessionContextValue = {
   setConversationProgress: (id: string, progress: string | null) => void;
   setConversationSending: (id: string, sending: boolean) => void;
   clearRecentOverrides: (ids: string[]) => void;
-  startTextMessage: (content: string, modelTier?: string) => Promise<void>;
+  startTextMessage: (
+    content: string,
+    modelTier?: string,
+    context?: string,
+    references?: MessageReference[]
+  ) => Promise<void>;
   startUpload: (file: File) => Promise<void>;
 };
 
@@ -148,7 +155,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   async function runAssistantFlow(
     id: string,
     userContent: string,
-    run: (handlers: SseHandlers) => Promise<void>
+    run: (handlers: SseHandlers) => Promise<void>,
+    references: MessageReference[] = []
   ) {
     if (runningRef.current.has(id)) return;
 
@@ -169,7 +177,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       isSending: true,
       messages: [
         ...session.messages,
-        { id: makeId(), role: "user", content: userContent, deliverables: [] },
+        { id: makeId(), role: "user", content: userContent, deliverables: [], references },
         {
           id: assistantId,
           role: "assistant",
@@ -332,10 +340,19 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function startTextMessage(content: string, modelTier?: string) {
+  async function startTextMessage(
+    content: string,
+    modelTier?: string,
+    context?: string,
+    references: MessageReference[] = []
+  ) {
     const id = conversationId;
-    await runAssistantFlow(id, content, (handlers) =>
-      sendMessage(id, content, handlers, undefined, modelTier)
+    await runAssistantFlow(
+      id,
+      content,
+      (handlers) =>
+        sendMessage(id, content, handlers, undefined, modelTier, context, { references }),
+      references
     );
   }
 

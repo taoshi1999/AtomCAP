@@ -1,7 +1,7 @@
 """对话与消息持久化 + domain_events 记账。
 
 消息 content 为块数组（与 Message ORM 注释一致）：
-  [{"type": "text", "text": "..."} | {"type": "object_ref", "deliverable_id": "..."} | {"type": "deal_ref", "deal_id": "..."} | {"type": "file_ref", ...}]
+  [{"type": "text", "text": "..."} | {"type": "references", ...} | {"type": "object_ref", "deliverable_id": "..."} | {"type": "deal_ref", "deal_id": "..."} | {"type": "file_ref", ...}]
 
 核心约定 4：消息落库属于用户操作/状态流转，必须写 domain_events。
 与 services/deliverables.py 同约定：服务层收 institution_id/user_id 原始值，
@@ -68,6 +68,17 @@ def text_blocks(text: str) -> list[dict[str, Any]]:
     return [{"type": "text", "text": text}]
 
 
+def reference_block(references: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "references", "references": references}
+
+
+def user_blocks(text: str, *, references: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    blocks = text_blocks(text)
+    if references:
+        blocks.append(reference_block(references))
+    return blocks
+
+
 def usage_block(usage: dict[str, Any]) -> dict[str, Any]:
     """token 用量块（每条消息 token 数）——非文本块，不进 LLM 上下文、不计入历史正文。"""
     return {"type": "usage", "usage": usage}
@@ -111,6 +122,13 @@ def blocks_to_text(blocks: list[dict[str, Any]] | dict[str, Any]) -> str:
     for b in blocks:
         if b.get("type") == "text":
             parts.append(b.get("text", ""))
+        elif b.get("type") == "references":
+            refs = b.get("references")
+            if isinstance(refs, list):
+                for ref in refs:
+                    if isinstance(ref, dict):
+                        label = "项目" if ref.get("kind") == "deal" else "赛道"
+                        parts.append(f"[引用{label} {ref.get('title') or ref.get('id')}]")
         elif b.get("type") == "object_ref":
             parts.append(f"[交付对象 {b.get('deliverable_id')}]")
         elif b.get("type") == "deal_ref":

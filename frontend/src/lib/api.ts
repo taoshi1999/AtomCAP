@@ -79,6 +79,13 @@ export interface GeneratedFileRef {
   created_at?: string;
 }
 
+export interface MessageReference {
+  kind: "deal" | "thesis" | string;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+}
+
 export interface SseHandlers {
   onToken?: (text: string) => void;
   onReasoning?: (text: string) => void;
@@ -95,6 +102,7 @@ export interface SendMessageOptions {
   conversationType?: "normal" | "project_workspace";
   sourceThesisId?: string;
   sourceDealId?: string;
+  references?: MessageReference[];
 }
 
 async function ensureSseResponse(response: Response) {
@@ -155,6 +163,7 @@ export async function sendMessage(
       content,
       model_tier: modelTier,
       context,
+      references: options.references ?? [],
       conversation_type: options.conversationType ?? "normal",
       source_thesis_id: options.sourceThesisId ?? null,
       source_deal_id: options.sourceDealId ?? null,
@@ -746,6 +755,7 @@ export interface MessageBlock {
   size_bytes?: number;
   download_url?: string;
   created_at?: string;
+  references?: MessageReference[];
   steps?: ReactStep[];
   usage?: TokenUsage;
 }
