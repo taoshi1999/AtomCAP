@@ -198,6 +198,9 @@ export interface DealExtraction {
   uscc?: string | null;
   official_website?: string | null;
   one_line_intro?: string | null;
+  founded_at?: string | null;
+  region?: string | null;
+  main_business?: string | null;
   track?: string | null;
   sub_direction?: string | null;
   product?: string | null;
@@ -237,6 +240,14 @@ export interface DealUserFeedback {
 export interface DealWorkspace {
   created: boolean;
   conversation_id?: string | null;
+  summary: DealWorkspaceSummary;
+}
+
+export interface DealWorkspaceSummary {
+  founded_at?: string | null;
+  region?: string | null;
+  main_business?: string | null;
+  valuation?: string | null;
 }
 
 export type DealMarketSignalCategory = MarketSignalCategory;
@@ -257,12 +268,30 @@ export interface DealMarketSignal {
 export type PreDDTaskStatus = "complete" | "partial" | "missing" | "public_data_possible";
 export type PreDDMaterialCollectionStatus = "collected" | "pending";
 
+export interface MaterialCollectionStep {
+  id: string;
+  loop: number;
+  phase: "analysis" | "action" | "observation" | "summary" | string;
+  summary: string;
+  details: string[];
+  status?: "running" | "completed" | "failed" | string;
+  tool_id?: string;
+  tool_name?: string;
+  created_at?: string;
+}
+
 export interface PreDDCollectedMaterial {
   kind: string;
   title: string;
   detail?: string | null;
   document_id?: string | null;
   evidence_id?: string | null;
+  source_url?: string | null;
+  source_title?: string | null;
+  source_intro?: string | null;
+  connector?: string | null;
+  published_at?: string | null;
+  collection_steps?: MaterialCollectionStep[];
 }
 
 export interface PreDDChecklistItem {
@@ -396,13 +425,24 @@ export interface DealMaterial {
   doc_type?: string | null;
   parse_status: string;
   source_type?: string | null;
+  is_auto_collected?: boolean;
+  source_title?: string | null;
+  source_url?: string | null;
+  source_intro?: string | null;
+  source_connector?: string | null;
+  source_published_at?: string | null;
+  collection_steps?: MaterialCollectionStep[];
   fmt?: string | null;
   unit_count?: number | null;
   text_chars: number;
   text_preview?: string | null;
   material_category_suggestion?: DealMaterialCategorySuggestion | null;
+  material_category_suggestions?: DealMaterialCategorySuggestion[];
   pre_dd_task_keys: string[];
   pre_dd_task_hits: PreDDMaterialHit[];
+  suggested_pre_dd_task_keys?: string[];
+  suggested_pre_dd_task_hits?: PreDDMaterialHit[];
+  confirmed_pre_dd_task_keys?: string[];
   warnings: string[];
   created_at: string;
   updated_at: string;

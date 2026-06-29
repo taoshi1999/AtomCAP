@@ -1,23 +1,25 @@
-"""项目工作台材料库：上传解析、Document/Chunk 入库与轻量投影。
-
-本服务刻意保持薄层：文件字节解析继续复用 `document_extract.extract_text`，
-这里只负责把解析结果绑定到 Deal，并把原文作为首个 Chunk 保存，给后续
-Pre-DD/RAG 使用一个稳定落点。
-"""
+"""Deal material ingestion, projection, search, and Pre-DD public collection helpers."""
 
 from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.react_planner import generate_visible_react_plan
+from app.connectors.base import Source
+from app.connectors.registry import active_connectors, cached_gather_signals
 from app.models.models import Chunk, Deal, Document, EvidenceItemRow
+from app.objects.deal import DealProfile, DealStatus
 from app.objects.deal_list import DealSourceType
 from app.services.document_extract import ExtractResult, extract_text
 from app.services.events import record_event
 from app.services.pre_dd import (
+    MATERIAL_KEYWORD_SPECS,
     MATERIAL_SPEC_BY_KEY,
     infer_material_task_hits,
     suggest_material_category,
@@ -25,18 +27,29 @@ from app.services.pre_dd import (
 
 PREVIEW_CHARS = 240
 SEARCH_SNIPPET_CHARS = 180
+PUBLIC_PRE_DD_DOC_TYPE = "public_pre_dd"
+AUTO_PRE_DD_SOURCE_TYPE = "auto_pre_dd"
+AUTO_PRE_DD_MAX_RESULTS = 6
+AUTO_PRE_DD_TARGET_RESULTS = 3
+AUTO_PRE_DD_MAX_ROUNDS = 3
+
+StepCallback = Callable[[dict], Awaitable[None]]
 
 
 class DealMaterialTargetNotFound(Exception):
-    """目标 Deal 不存在或不属于当前租户。"""
+    """Raised when a deal cannot be found for material operations."""
 
 
 class InvalidDealMaterialCategory(Exception):
-    """用户指定了不存在的 Pre-DD 资料类别。"""
+    """Raised when a Pre-DD material category key is invalid."""
+
+
+class DealMaterialNotFound(Exception):
+    """Raised when a requested material document cannot be found."""
 
 
 def _safe_filename(filename: str | None) -> str:
-    name = (filename or "").strip() or "项目材料"
+    name = (filename or "").strip() or "project_material"
     return name[:255]
 
 
@@ -60,11 +73,140 @@ def _meta_evidence_id(meta: object) -> str | None:
     return str(value) if value else None
 
 
+def _is_auto_collected(meta: object) -> bool:
+    return isinstance(meta, dict) and meta.get("material_origin") == "auto_collected"
+
+
 def _assigned_task_key(meta: object) -> str | None:
     if not isinstance(meta, dict):
         return None
     value = str(meta.get("assigned_pre_dd_task_key") or "").strip()
     return value if value in MATERIAL_SPEC_BY_KEY else None
+
+
+def _normalize_task_keys(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    keys: list[str] = []
+    for value in values:
+        key = str(value or "").strip()
+        if key in MATERIAL_SPEC_BY_KEY and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _confirmed_task_keys(meta: dict) -> list[str]:
+    confirmed = _normalize_task_keys(meta.get("confirmed_pre_dd_task_keys"))
+    if confirmed:
+        return confirmed
+    if _is_auto_collected(meta):
+        return []
+    assigned_key = _assigned_task_key(meta)
+    return [assigned_key] if assigned_key else []
+
+
+def _source_hit_fields(meta: dict) -> dict:
+    if not _is_auto_collected(meta):
+        return {}
+    return {
+        "kind": "auto_collected",
+        "source_title": meta.get("public_source_title"),
+        "source_url": meta.get("public_url"),
+        "source_intro": meta.get("public_intro"),
+        "connector": meta.get("connector"),
+        "published_at": meta.get("published_at"),
+        "collection_steps": meta.get("collection_steps") or [],
+    }
+
+
+def _synthetic_task_hit(
+    *,
+    document: Document,
+    content: str,
+    task_key: str,
+    evidence_id: str | None,
+    keyword: str,
+) -> dict:
+    hit = {
+        "document_id": str(document.id),
+        "filename": document.filename,
+        "task_key": task_key,
+        "keyword": keyword,
+        "snippet": _preview(content, limit=180) or document.filename,
+    }
+    if evidence_id:
+        hit["evidence_id"] = evidence_id
+    return hit
+
+
+def _dedup_task_hits(hits: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    result: list[dict] = []
+    for hit in hits:
+        key = str(hit.get("task_key") or "")
+        if key not in MATERIAL_SPEC_BY_KEY or key in seen:
+            continue
+        seen.add(key)
+        result.append(hit)
+    return result
+
+
+def _suggested_task_hits(
+    *,
+    document: Document,
+    content: str,
+    meta: dict,
+    evidence_id: str | None,
+    inferred: list[dict],
+) -> list[dict]:
+    hits = list(inferred)
+    assigned_key = _assigned_task_key(meta)
+    if assigned_key is not None and not any(hit.get("task_key") == assigned_key for hit in hits):
+        hits.insert(
+            0,
+            _synthetic_task_hit(
+                document=document,
+                content=content,
+                task_key=assigned_key,
+                evidence_id=evidence_id,
+                keyword="system_suggested",
+            ),
+        )
+    return [{**hit, **_source_hit_fields(meta)} for hit in _dedup_task_hits(hits)]
+
+
+def _material_category_suggestions(
+    *,
+    document: Document,
+    content: str,
+    meta: dict,
+    evidence_id: str | None,
+    inferred: list[dict],
+) -> list[dict]:
+    suggestions: list[dict] = []
+    for hit in _suggested_task_hits(
+        document=document,
+        content=content,
+        meta=meta,
+        evidence_id=evidence_id,
+        inferred=inferred,
+    ):
+        key = str(hit.get("task_key") or "")
+        spec = MATERIAL_SPEC_BY_KEY.get(key)
+        if spec is None:
+            continue
+        keyword = str(hit.get("keyword") or "").strip()
+        suggestions.append(
+            {
+                "key": spec.key,
+                "title": spec.title,
+                "confidence": "high" if keyword in {"user_confirmed", "system_suggested"} else "medium",
+                "matched_keywords": [keyword] if keyword else [],
+                "is_background": False,
+                "reason": f"Matched or related Pre-DD material dimension: {spec.title}",
+            }
+        )
+    return suggestions
 
 
 def _project_task_hits(
@@ -74,7 +216,7 @@ def _project_task_hits(
     meta: dict,
     evidence_id: str | None,
 ) -> list[dict]:
-    """合并用户指定类别与系统识别类别，用户指定项始终排在首位。"""
+    """Return Pre-DD categories that have been explicitly confirmed for this material."""
     inferred = infer_material_task_hits(
         document_id=str(document.id),
         filename=document.filename,
@@ -82,30 +224,29 @@ def _project_task_hits(
         doc_type=document.doc_type,
         evidence_id=evidence_id,
     )
-    assigned_key = _assigned_task_key(meta)
-    if assigned_key is None:
-        return inferred
-
-    assigned_hit = {
-        "document_id": str(document.id),
-        "filename": document.filename,
-        "task_key": assigned_key,
-        "keyword": "用户指定",
-        "snippet": _preview(content, limit=180) or document.filename,
-    }
-    if evidence_id:
-        assigned_hit["evidence_id"] = evidence_id
-    return [assigned_hit, *(hit for hit in inferred if hit["task_key"] != assigned_key)]
-
+    confirmed_keys = _confirmed_task_keys(meta)
+    if confirmed_keys:
+        confirmed_hits = [
+            _synthetic_task_hit(
+                document=document,
+                content=content,
+                task_key=task_key,
+                evidence_id=evidence_id,
+                keyword="user_confirmed",
+            )
+            for task_key in confirmed_keys
+        ]
+        return [{**hit, **_source_hit_fields(meta)} for hit in confirmed_hits]
+    if _is_auto_collected(meta):
+        return []
+    return inferred
 
 def _query_terms(query: str) -> list[str]:
-    """把用户检索词收敛为少量确定性关键词；中文无空格时保留整句匹配。"""
     normalized = " ".join((query or "").split()).strip()
     if not normalized:
         return []
-    terms = [term for term in re.split(r"[\s,，;；]+", normalized) if term]
+    terms = [term for term in re.split(r"[\s,;，；]+", normalized) if term]
     return terms[:8]
-
 
 def _material_match_score(text: str, filename: str, terms: list[str]) -> tuple[int, list[str]]:
     hay = f"{filename}\n{text}".lower()
@@ -117,7 +258,6 @@ def _material_match_score(text: str, filename: str, terms: list[str]) -> tuple[i
         if count <= 0:
             continue
         matched.append(term)
-        # 文件名命中通常更明确，权重略高；正文命中按出现次数累加。
         filename_bonus = 3 if needle in filename.lower() else 0
         score += count + filename_bonus
     return score, matched
@@ -145,15 +285,29 @@ def _search_snippet(text: str, terms: list[str], *, limit: int = SEARCH_SNIPPET_
 
 
 def project_deal_material(document: Document, chunk: Chunk | None = None) -> dict:
-    """把 Document + 首个正文 Chunk 投影为项目详情里的材料行。"""
+    """Project a stored material into API response fields."""
     meta = chunk.meta if chunk is not None and isinstance(chunk.meta, dict) else {}
     content = chunk.content if chunk is not None else ""
     evidence_id = _meta_evidence_id(meta)
+    inferred_hits = infer_material_task_hits(
+        document_id=str(document.id),
+        filename=document.filename,
+        text=content,
+        doc_type=document.doc_type,
+        evidence_id=evidence_id,
+    )
     task_hits = _project_task_hits(
         document=document,
         content=content,
         meta=meta,
         evidence_id=evidence_id,
+    )
+    suggested_hits = _suggested_task_hits(
+        document=document,
+        content=content,
+        meta=meta,
+        evidence_id=evidence_id,
+        inferred=inferred_hits,
     )
     assigned_key = _assigned_task_key(meta)
     if assigned_key is not None:
@@ -164,10 +318,17 @@ def project_deal_material(document: Document, chunk: Chunk | None = None) -> dic
             "confidence": "high",
             "matched_keywords": [],
             "is_background": False,
-            "reason": "用户从对应 Pre-DD 资料卡片上传，已按指定类别归档。",
+            "reason": "Uploaded from a specific Pre-DD material card and assigned to that category.",
         }
     else:
         category_suggestion = suggest_material_category(filename=document.filename, text=content)
+    category_suggestions = _material_category_suggestions(
+        document=document,
+        content=content,
+        meta=meta,
+        evidence_id=evidence_id,
+        inferred=inferred_hits,
+    )
     return {
         "id": str(document.id),
         "evidence_id": evidence_id,
@@ -175,13 +336,24 @@ def project_deal_material(document: Document, chunk: Chunk | None = None) -> dic
         "doc_type": document.doc_type,
         "parse_status": document.parse_status,
         "source_type": meta.get("source_type"),
+        "is_auto_collected": _is_auto_collected(meta),
+        "source_title": meta.get("public_source_title"),
+        "source_url": meta.get("public_url"),
+        "source_intro": meta.get("public_intro"),
+        "source_connector": meta.get("connector"),
+        "source_published_at": meta.get("published_at"),
+        "collection_steps": list(meta.get("collection_steps") or []),
         "fmt": meta.get("fmt"),
         "unit_count": meta.get("unit_count"),
         "text_chars": int(meta.get("text_chars") or len(content or "")),
         "text_preview": _preview(content),
         "material_category_suggestion": category_suggestion,
+        "material_category_suggestions": category_suggestions,
         "pre_dd_task_keys": [hit["task_key"] for hit in task_hits],
         "pre_dd_task_hits": task_hits,
+        "suggested_pre_dd_task_keys": [hit["task_key"] for hit in suggested_hits],
+        "suggested_pre_dd_task_hits": suggested_hits,
+        "confirmed_pre_dd_task_keys": [hit["task_key"] for hit in task_hits],
         "warnings": list(meta.get("warnings") or []),
         "created_at": document.created_at.isoformat(),
         "updated_at": document.updated_at.isoformat(),
@@ -189,7 +361,7 @@ def project_deal_material(document: Document, chunk: Chunk | None = None) -> dic
 
 
 def project_material_search_result(document: Document, chunk: Chunk, *, query: str) -> dict | None:
-    """把 Document/Chunk 投影为材料检索命中；无命中返回 None。"""
+    """Project a material chunk into a ranked search result when it matches the query."""
     terms = _query_terms(query)
     if not terms:
         return None
@@ -217,7 +389,7 @@ def search_material_records(
     query: str,
     limit: int = 10,
 ) -> list[dict]:
-    """离线可测的材料全文检索投影，后续可替换为 embedding / hybrid search。"""
+    """Return ranked material search results for document/chunk records."""
     items = [
         item
         for document, chunk in records
@@ -233,7 +405,7 @@ async def list_deal_materials(
     institution_id: uuid.UUID,
     deal_id: uuid.UUID,
 ) -> list[dict]:
-    """读取某项目已上传材料，按最近更新时间倒序。"""
+    """List stored materials for a deal."""
     documents = (
         await db.execute(
             select(Document)
@@ -263,6 +435,60 @@ async def list_deal_materials(
     return [project_deal_material(document, first_chunk_by_doc.get(document.id)) for document in documents]
 
 
+async def confirm_deal_material_categories(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    deal_id: uuid.UUID,
+    document_id: uuid.UUID,
+    task_keys: list[str],
+) -> dict:
+    """Persist user-confirmed Pre-DD category assignments for a material."""
+    keys = _normalize_task_keys(task_keys)
+    if not keys:
+        raise InvalidDealMaterialCategory("Please choose at least one valid Pre-DD material category")
+
+    document = await db.scalar(
+        select(Document).where(
+            Document.id == document_id,
+            Document.institution_id == institution_id,
+            Document.deal_id == deal_id,
+        )
+    )
+    if document is None:
+        raise DealMaterialNotFound(str(document_id))
+
+    chunk = await db.scalar(
+        select(Chunk).where(
+            Chunk.institution_id == institution_id,
+            Chunk.document_id == document.id,
+        )
+    )
+    if chunk is None:
+        raise DealMaterialNotFound(str(document_id))
+
+    chunk.meta = {
+        **(chunk.meta if isinstance(chunk.meta, dict) else {}),
+        "confirmed_pre_dd_task_keys": keys,
+    }
+    await db.flush()
+
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="deal.material_categories_confirmed",
+        subject_type="deal",
+        subject_id=deal_id,
+        payload={
+            "document_id": str(document.id),
+            "task_keys": keys,
+        },
+    )
+    return project_deal_material(document, chunk)
+
+
 async def search_deal_materials(
     db: AsyncSession,
     *,
@@ -271,7 +497,7 @@ async def search_deal_materials(
     query: str,
     limit: int = 10,
 ) -> list[dict]:
-    """在某项目已上传材料中做 MVP 级全文检索。"""
+    """Search deal materials by keyword and return ranked snippets."""
     exists = await db.scalar(
         select(Deal.id).where(
             Deal.id == deal_id,
@@ -321,10 +547,7 @@ async def save_deal_material(
     content_type: str | None = None,
     pre_dd_task_key: str | None = None,
 ) -> dict:
-    """解析上传材料并绑定到 Deal。
-
-    抛出 document_extract.DocumentError 子类给 API 层映射为 4xx/503。
-    """
+    """Save an uploaded material and attach an initial Pre-DD category when provided."""
     deal = await db.scalar(
         select(Deal).where(
             Deal.id == deal_id,
@@ -334,7 +557,7 @@ async def save_deal_material(
     if deal is None:
         raise DealMaterialTargetNotFound(str(deal_id))
     if pre_dd_task_key is not None and pre_dd_task_key not in MATERIAL_SPEC_BY_KEY:
-        raise InvalidDealMaterialCategory(f"未知 Pre-DD 资料项: {pre_dd_task_key}")
+        raise InvalidDealMaterialCategory(f"Invalid Pre-DD material category: {pre_dd_task_key}")
 
     result = extract_text(filename=filename or "", data=data, content_type=content_type)
     document = Document(
@@ -394,7 +617,7 @@ async def save_deal_material(
             "confidence": "high",
             "matched_keywords": [],
             "is_background": False,
-            "reason": "用户从对应 Pre-DD 资料卡片上传，已按指定类别归档。",
+            "reason": "Uploaded from a specific Pre-DD material card and assigned to that category.",
         }
     else:
         category_suggestion = suggest_material_category(filename=document.filename, text=result.text)
@@ -426,3 +649,513 @@ async def save_deal_material(
         },
     )
     return project_deal_material(document, chunk)
+
+
+def _task_keywords(task_key: str) -> list[str]:
+    for spec in MATERIAL_KEYWORD_SPECS:
+        if spec.task_key == task_key:
+            return list(spec.keywords[:4])
+    return []
+
+
+def _auto_collect_queries(profile: DealProfile, task_key: str) -> list[str]:
+    spec = MATERIAL_SPEC_BY_KEY[task_key]
+    extraction = profile.extraction
+    entity_terms = [
+        extraction.company_name,
+        *extraction.aliases[:2],
+    ]
+    topic_terms = [
+        spec.title,
+        extraction.track,
+        extraction.sub_direction,
+        extraction.product,
+        extraction.tech_route,
+        *_task_keywords(task_key)[:3],
+    ]
+    queries: list[str] = []
+    for entity in entity_terms:
+        entity = " ".join((entity or "").split())
+        if not entity:
+            continue
+        queries.append(f"{entity} {spec.title}")
+        for topic in topic_terms[:4]:
+            topic = " ".join((topic or "").split())
+            if topic:
+                queries.append(f"{entity} {topic}")
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for query in queries:
+        normalized = query.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(query)
+        if len(result) >= 6:
+            break
+    return result
+
+
+def _source_relevance_score(source: Source, *, profile: DealProfile, task_key: str) -> int:
+    text = f"{source.title} {source.snippet}".lower()
+    extraction = profile.extraction
+    entity_terms = [
+        extraction.company_name,
+        *extraction.aliases,
+    ]
+    topic_terms = [
+        MATERIAL_SPEC_BY_KEY[task_key].title,
+        extraction.track,
+        extraction.sub_direction,
+        extraction.product,
+        extraction.tech_route,
+        *_task_keywords(task_key),
+    ]
+    score = 0
+    if any(term and term.lower() in text for term in entity_terms):
+        score += 65
+    score += min(
+        3,
+        sum(1 for term in topic_terms if term and term.lower() in text),
+    ) * 12
+    if source.url:
+        score += 5
+    if source.snippet:
+        score += 5
+    noise_terms = ("exam", "answer", "download", "tutorial", "wiki", "question bank", "homework")
+    if any(term in text for term in noise_terms):
+        score -= 60
+    return score
+
+
+def _source_content(source: Source, *, profile: DealProfile, task_key: str) -> str:
+    spec = MATERIAL_SPEC_BY_KEY[task_key]
+    intro = _preview(source.snippet, limit=360) or source.title
+    parts = [
+        f"Material dimension: {spec.title}",
+        f"Project: {profile.extraction.company_name}",
+        f"Source: {source.title}",
+    ]
+    if source.url:
+        parts.append(f"URL: {source.url}")
+    if source.published_at:
+        parts.append(f"Published at: {source.published_at}")
+    if source.connector:
+        parts.append(f"Connector: {source.connector}")
+    parts.append(f"Intro: {intro}")
+    if source.snippet:
+        parts.append(f"Snippet: {source.snippet}")
+    return "\n".join(parts)
+
+def _source_key(source: Source) -> str:
+    return (source.url or source.title).strip().lower()
+
+
+def _react_step_payload(
+    *,
+    task_key: str,
+    loop: int,
+    phase: str,
+    summary: str,
+    details: list[str] | None = None,
+    tool_id: str | None = None,
+    tool_name: str | None = None,
+    status: str = "completed",
+) -> dict:
+    payload = {
+        "id": f"pre-dd-{task_key}-{loop}-{phase}-{tool_id or 'none'}",
+        "loop": loop,
+        "phase": phase,
+        "summary": summary,
+        "details": details or [],
+        "status": status,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    if tool_id:
+        payload["tool_id"] = tool_id
+        payload["tool_name"] = tool_name or tool_id
+    return payload
+
+
+def _collection_request(profile: DealProfile, task_key: str) -> str:
+    spec = MATERIAL_SPEC_BY_KEY[task_key]
+    return f"Collect public Pre-DD materials for project {profile.extraction.company_name}, dimension {spec.title}."
+
+def _next_round_queries(
+    profile: DealProfile,
+    task_key: str,
+    *,
+    previous_queries: list[str],
+    selected_count: int,
+) -> list[str]:
+    spec = MATERIAL_SPEC_BY_KEY[task_key]
+    extraction = profile.extraction
+    base_terms = [
+        extraction.company_name,
+        *extraction.aliases[:2],
+    ]
+    modifiers = [
+        spec.title,
+        "website",
+        "news",
+        "announcement",
+        "report",
+        *_task_keywords(task_key),
+    ]
+    previous = {query.lower() for query in previous_queries}
+    queries: list[str] = []
+    for entity in base_terms:
+        entity = " ".join((entity or "").split())
+        if not entity:
+            continue
+        for modifier in modifiers:
+            modifier = " ".join((modifier or "").split())
+            if not modifier:
+                continue
+            query = f"{entity} {modifier}"
+            normalized = query.lower()
+            if normalized in previous:
+                continue
+            previous.add(normalized)
+            queries.append(query)
+            if len(queries) >= 6:
+                return queries
+    if selected_count == 0:
+        return [query for query in _auto_collect_queries(profile, task_key) if query.lower() not in previous][:6]
+    return queries
+
+
+async def _existing_auto_material_keys(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    deal_id: uuid.UUID,
+) -> set[str]:
+    documents = (
+        await db.execute(
+            select(Document).where(
+                Document.institution_id == institution_id,
+                Document.deal_id == deal_id,
+            )
+        )
+    ).scalars().all()
+    if not documents:
+        return set()
+
+    document_ids = [document.id for document in documents]
+    chunks = (
+        await db.execute(
+            select(Chunk).where(
+                Chunk.institution_id == institution_id,
+                Chunk.document_id.in_(document_ids),
+            )
+        )
+    ).scalars().all()
+    keys: set[str] = set()
+    for chunk in chunks:
+        meta = chunk.meta if isinstance(chunk.meta, dict) else {}
+        if not _is_auto_collected(meta):
+            continue
+        key = str(meta.get("public_url") or meta.get("public_source_title") or "").strip().lower()
+        if key:
+            keys.add(key)
+    return keys
+
+
+async def collect_pre_dd_public_materials(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    deal_id: uuid.UUID,
+    task_key: str,
+    allow_overseas: bool,
+    on_step: StepCallback | None = None,
+) -> dict:
+    """Collect public sources for one Pre-DD material category and persist selected materials."""
+    if task_key not in MATERIAL_SPEC_BY_KEY:
+        raise InvalidDealMaterialCategory(f"Unknown Pre-DD material task: {task_key}")
+    deal = await db.scalar(
+        select(Deal).where(
+            Deal.id == deal_id,
+            Deal.institution_id == institution_id,
+        )
+    )
+    if deal is None or deal.status == DealStatus.DELETED.value:
+        raise DealMaterialTargetNotFound(str(deal_id))
+
+    profile = DealProfile.model_validate(deal.data or {})
+    spec = MATERIAL_SPEC_BY_KEY[task_key]
+    request_text = _collection_request(profile, task_key)
+    steps: list[dict] = []
+
+    async def append_step(step: dict) -> None:
+        steps.append(step)
+        if on_step is not None:
+            await on_step(step)
+
+    connectors = active_connectors(allow_overseas=allow_overseas)
+    if not connectors:
+        await append_step(
+            _react_step_payload(
+                task_key=task_key,
+                loop=1,
+                phase="analysis",
+                summary="No public search connector is available, so this Pre-DD material cannot be collected automatically now.",
+                details=["No active connector detected."],
+            )
+        )
+        return {"items": [], "count": 0, "steps": steps, "rounds": 0}
+
+    existing_keys = await _existing_auto_material_keys(
+        db,
+        institution_id=institution_id,
+        deal_id=deal.id,
+    )
+    seen = set(existing_keys)
+    selected: list[Source] = []
+    all_queries: list[str] = []
+    queries = _auto_collect_queries(profile, task_key)
+    rounds_run = 0
+    for round_number in range(1, AUTO_PRE_DD_MAX_ROUNDS + 1):
+        if not queries:
+            break
+        rounds_run = round_number
+        plan = await generate_visible_react_plan(
+            user_request=request_text,
+            intent="pre_dd_material_collect",
+            progress=f"Collecting public materials for {spec.title}, round {round_number}",
+            observations=[
+                f"Selected useful sources so far: {len(selected)}",
+                f"Target Pre-DD dimension: {spec.title}",
+                f"Round queries: {', '.join(queries[:6])}",
+            ],
+            allow_overseas=allow_overseas,
+        )
+        await append_step(
+            _react_step_payload(
+                task_key=task_key,
+                loop=round_number,
+                phase="analysis",
+                summary=plan,
+                details=[
+                    f"Target material type: {spec.title}",
+                    f"Selected useful sources: {len(selected)}",
+                    f"Candidate queries: {', '.join(queries[:6])}",
+                ],
+            )
+        )
+        await append_step(
+            _react_step_payload(
+                task_key=task_key,
+                loop=round_number,
+                phase="action",
+                summary="I will search public information only for the current Pre-DD material type.",
+                details=queries[:6],
+                tool_id="public_web_search",
+                tool_name="Public information search",
+            )
+        )
+        all_queries.extend(queries)
+        sources = await cached_gather_signals(
+            connectors,
+            keywords=queries,
+            track="",
+            days=365,
+            allow_overseas=allow_overseas,
+        )
+        round_selected: list[Source] = []
+        for source in sorted(
+            sources,
+            key=lambda item: _source_relevance_score(item, profile=profile, task_key=task_key),
+            reverse=True,
+        ):
+            key = _source_key(source)
+            if not key or key in seen:
+                continue
+            if _source_relevance_score(source, profile=profile, task_key=task_key) < 55:
+                continue
+            seen.add(key)
+            round_selected.append(source)
+            selected.append(source)
+            if len(selected) >= AUTO_PRE_DD_MAX_RESULTS:
+                break
+        await append_step(
+            _react_step_payload(
+                task_key=task_key,
+                loop=round_number,
+                phase="observation",
+                summary=(
+                    f"Round returned {len(sources)} candidates and selected {len(round_selected)} sources "
+                    f"related to {spec.title}. Total selected: {len(selected)}."
+                ),
+                details=[
+                    *(f"{source.title}: {_preview(source.snippet, limit=100) or source.url or 'no summary'}" for source in round_selected[:5]),
+                    (
+                        "Useful material is still insufficient; a more focused search round will be generated."
+                        if len(selected) < AUTO_PRE_DD_TARGET_RESULTS and round_number < AUTO_PRE_DD_MAX_ROUNDS
+                        else "Useful material is sufficient for this collection run; preparing to save."
+                    ),
+                ],
+            )
+        )
+        if len(selected) >= AUTO_PRE_DD_TARGET_RESULTS or len(selected) >= AUTO_PRE_DD_MAX_RESULTS:
+            break
+        queries = _next_round_queries(
+            profile,
+            task_key,
+            previous_queries=all_queries,
+            selected_count=len(selected),
+        )
+
+    created: list[dict] = []
+    collection_steps = list(steps)
+    for source in selected:
+        content = _source_content(source, profile=profile, task_key=task_key)
+        intro = _preview(source.snippet, limit=180) or source.title
+        document = Document(
+            institution_id=institution_id,
+            deal_id=deal.id,
+            filename=_safe_filename(f"{spec.title} - {source.title}"),
+            doc_type=PUBLIC_PRE_DD_DOC_TYPE,
+            parse_status="completed",
+        )
+        db.add(document)
+        await db.flush()
+
+        chunk = Chunk(
+            institution_id=institution_id,
+            document_id=document.id,
+            content=content,
+            meta={
+                "role": "source_text",
+                "fmt": "web",
+                "source_type": AUTO_PRE_DD_SOURCE_TYPE,
+                "material_origin": "auto_collected",
+                "unit_count": 1,
+                "text_chars": len(content),
+                "warnings": [],
+                "assigned_pre_dd_task_key": task_key,
+                "public_url": source.url,
+                "public_source_title": source.title,
+                "public_intro": intro,
+                "connector": source.connector,
+                "published_at": source.published_at,
+                "collection_steps": collection_steps,
+            },
+        )
+        db.add(chunk)
+        await db.flush()
+
+        evidence = EvidenceItemRow(
+            institution_id=institution_id,
+            source_type=source.source_type or "web_search",
+            title=source.title,
+            url=source.url,
+            snippet=source.snippet or intro,
+            published_at=source.published_at,
+            connector=source.connector,
+            raw={
+                **(source.raw or {}),
+                "deal_id": str(deal.id),
+                "document_id": str(document.id),
+                "chunk_id": str(chunk.id),
+                "pre_dd_task_key": task_key,
+                "material_origin": "auto_collected",
+                "collection_steps": collection_steps,
+            },
+        )
+        db.add(evidence)
+        await db.flush()
+        chunk.meta = {**(chunk.meta or {}), "evidence_id": str(evidence.id)}
+        await db.flush()
+        created.append(project_deal_material(document, chunk))
+
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="deal.pre_dd_materials_auto_collected",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={
+            "task_key": task_key,
+            "count": len(created),
+            "rounds": rounds_run,
+            "react_step_count": len(collection_steps),
+            "document_ids": [item["id"] for item in created],
+        },
+    )
+    return {"items": created, "count": len(created), "steps": collection_steps, "rounds": rounds_run}
+
+async def delete_deal_material(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    deal_id: uuid.UUID,
+    document_id: uuid.UUID,
+) -> None:
+    """Delete a material document and related chunks/evidence for a deal."""
+    document = await db.scalar(
+        select(Document).where(
+            Document.id == document_id,
+            Document.institution_id == institution_id,
+            Document.deal_id == deal_id,
+        )
+    )
+    if document is None:
+        raise DealMaterialNotFound(str(document_id))
+
+    chunks = (
+        await db.execute(
+            select(Chunk).where(
+                Chunk.institution_id == institution_id,
+                Chunk.document_id == document.id,
+            )
+        )
+    ).scalars().all()
+    evidence_ids: list[uuid.UUID] = []
+    for chunk in chunks:
+        evidence_id = _meta_evidence_id(chunk.meta)
+        if evidence_id:
+            try:
+                evidence_ids.append(uuid.UUID(evidence_id))
+            except ValueError:
+                continue
+
+    await db.execute(
+        delete(Chunk).where(
+            Chunk.institution_id == institution_id,
+            Chunk.document_id == document.id,
+        )
+    )
+    if evidence_ids:
+        await db.execute(
+            delete(EvidenceItemRow).where(
+                EvidenceItemRow.institution_id == institution_id,
+                EvidenceItemRow.id.in_(evidence_ids),
+            )
+        )
+    await db.execute(
+        delete(Document).where(
+            Document.institution_id == institution_id,
+            Document.id == document.id,
+        )
+    )
+    await db.flush()
+
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="deal.material_deleted",
+        subject_type="deal",
+        subject_id=deal_id,
+        payload={
+            "document_id": str(document.id),
+            "filename": document.filename,
+            "evidence_ids": [str(item) for item in evidence_ids],
+        },
+    )

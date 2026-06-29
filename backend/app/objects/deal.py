@@ -52,6 +52,9 @@ class DealExtraction(BaseModel):
     uscc: str | None = Field(default=None, description="统一社会信用代码（材料中给出才填）")
     official_website: str | None = Field(default=None)
     one_line_intro: str | None = Field(default=None, description="一句话介绍")
+    founded_at: str | None = Field(default=None, description="成立时间/注册时间")
+    region: str | None = Field(default=None, description="所在地/主要经营地域")
+    main_business: str | None = Field(default=None, description="主营业务")
     track: str | None = Field(default=None, description="所属赛道")
     sub_direction: str | None = Field(default=None, description="子赛道方向")
     product: str | None = Field(default=None, description="产品方案")
@@ -95,11 +98,41 @@ class DealUserFeedback(BaseModel):
     is_abandoned: bool = Field(default=False, description="是否已放弃")
 
 
+class DealWorkspaceSummary(BaseModel):
+    """项目工作台首屏四格摘要。用户可编辑，AI/系统负责初始填充。"""
+
+    founded_at: str | None = Field(default=None, description="成立时间")
+    region: str | None = Field(default=None, description="地域")
+    main_business: str | None = Field(default=None, description="主营业务")
+    valuation: str | None = Field(default=None, description="估值")
+
+
 class DealWorkspace(BaseModel):
     """设计字段 12：项目工作台元信息。Deal Intake 带入的项目分析后自动创建工作台。"""
 
     created: bool = Field(default=False, description="是否已创建项目工作台")
     conversation_id: str | None = Field(default=None, description="承载工作台对话的会话 id")
+    summary: DealWorkspaceSummary = Field(default_factory=DealWorkspaceSummary)
+
+
+def infer_workspace_summary(
+    extraction: DealExtraction,
+    analysis: DealAnalysis | None = None,
+) -> DealWorkspaceSummary:
+    """Use AI-extracted facts and analysis text to prefill the workspace summary."""
+    main_business = (
+        extraction.main_business
+        or extraction.business_model
+        or extraction.product
+        or extraction.one_line_intro
+        or (analysis.portrait if analysis is not None else None)
+    )
+    return DealWorkspaceSummary(
+        founded_at=extraction.founded_at,
+        region=extraction.region,
+        main_business=main_business,
+        valuation=extraction.valuation,
+    )
 
 
 class PreDDMaterialCollectionStatus(StrEnum):

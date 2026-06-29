@@ -635,9 +635,48 @@ def test_save_deal_material_honors_pre_dd_card_category(monkeypatch):
     [chunk] = [obj for obj in db.added if isinstance(obj, Chunk)]
     assert chunk.meta["assigned_pre_dd_task_key"] == "financials"
     assert item["pre_dd_task_keys"][0] == "financials"
-    assert item["pre_dd_task_hits"][0]["keyword"] == "用户指定"
+    assert item["pre_dd_task_hits"][0]["keyword"] == "user_confirmed"
     assert item["material_category_suggestion"]["key"] == "financials"
     assert item["material_category_suggestion"]["confidence"] == "high"
+
+
+def test_auto_collected_material_needs_category_confirmation():
+    now = dt.datetime(2026, 6, 22, 9, 30, 0)
+    document = SimpleNamespace(
+        id=uuid.uuid4(),
+        filename="market report",
+        doc_type="public_pre_dd",
+        parse_status="completed",
+        created_at=now,
+        updated_at=now,
+    )
+    chunk = SimpleNamespace(
+        content="Material dimension: market. Project: LightWing. Intro: market revenue is growing.",
+        meta={
+            "fmt": "web",
+            "source_type": "auto_pre_dd",
+            "material_origin": "auto_collected",
+            "assigned_pre_dd_task_key": "market",
+            "public_url": "https://example.com/report",
+            "public_source_title": "Market report",
+            "public_intro": "Market revenue is growing.",
+            "connector": "test",
+            "published_at": "2026-06-01",
+            "evidence_id": str(uuid.uuid4()),
+        },
+    )
+
+    item = project_deal_material(document, chunk)
+    assert item["pre_dd_task_hits"] == []
+    assert item["suggested_pre_dd_task_keys"][0] == "market"
+
+    chunk.meta["confirmed_pre_dd_task_keys"] = ["market", "financials"]
+    confirmed = project_deal_material(document, chunk)
+    assert confirmed["pre_dd_task_keys"] == ["market", "financials"]
+    assert [hit["keyword"] for hit in confirmed["pre_dd_task_hits"]] == [
+        "user_confirmed",
+        "user_confirmed",
+    ]
 
 
 def test_material_search_records_rank_and_snippet_matches():

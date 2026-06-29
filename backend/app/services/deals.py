@@ -27,7 +27,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Company, Deal
-from app.objects.deal import DealProfile, DealStatus, PreDDMaterialCollectionStatus
+from app.objects.deal import (
+    DealProfile,
+    DealStatus,
+    DealWorkspaceSummary,
+    PreDDMaterialCollectionStatus,
+    infer_workspace_summary,
+)
 from app.objects.experience import ActionContext
 from app.services.events import record_event
 from app.services.user_actions import (
@@ -106,6 +112,17 @@ def _patch_create_workspace(data: dict, ctx: dict) -> None:
     ws["created"] = True
     if ctx.get("conversation_id"):
         ws["conversation_id"] = str(ctx["conversation_id"])
+    summary = ws.get("summary")
+    has_summary = isinstance(summary, dict) and any(
+        bool(str(summary.get(key) or "").strip())
+        for key in ("founded_at", "region", "main_business", "valuation")
+    )
+    if not has_summary:
+        profile = DealProfile.model_validate(data)
+        ws["summary"] = infer_workspace_summary(
+            profile.extraction,
+            profile.analysis,
+        ).model_dump(mode="json")
 
 
 # action -> (event_suffix, patch_fn)
@@ -157,6 +174,41 @@ def deal_summary(deal: Deal, company: Company | None) -> dict:
         "created_at": deal.created_at.isoformat(),
         "updated_at": deal.updated_at.isoformat(),
     }
+
+
+def _has_summary_value(summary: DealWorkspaceSummary) -> bool:
+    values = (
+        summary.founded_at,
+        summary.region,
+        summary.main_business,
+        summary.valuation,
+    )
+    return any(bool((value or "").strip()) for value in values)
+
+
+def _profile_with_workspace_summary(
+    profile: DealProfile,
+    company: Company | None = None,
+) -> DealProfile:
+    """Backfill the editable workspace summary for older DealProfile payloads."""
+    current = profile.workspace.summary
+    if _has_summary_value(current):
+        return profile
+
+    inferred = infer_workspace_summary(profile.extraction, profile.analysis)
+    company_profile = company.profile if company is not None and isinstance(company.profile, dict) else {}
+    inferred = inferred.model_copy(
+        update={
+            "founded_at": inferred.founded_at or company_profile.get("founded_at"),
+            "region": inferred.region or company_profile.get("region"),
+            "main_business": inferred.main_business or company_profile.get("main_business"),
+        }
+    )
+    return profile.model_copy(
+        update={
+            "workspace": profile.workspace.model_copy(update={"summary": inferred}),
+        }
+    )
 
 
 def _norm_query(value: str | None) -> str:
@@ -369,6 +421,7 @@ async def get_deal_detail(
         )
     )
     profile = DealProfile.model_validate(deal.data or {})
+    profile = _profile_with_workspace_summary(profile, company)
     materials = await list_deal_materials(
         db,
         institution_id=institution_id,
@@ -399,6 +452,41 @@ async def get_deal_detail(
         "created_at": deal.created_at.isoformat(),
         "updated_at": deal.updated_at.isoformat(),
     }
+
+
+async def update_workspace_summary(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    deal_id: uuid.UUID,
+    summary: DealWorkspaceSummary,
+) -> Deal:
+    """Persist the four editable project workspace summary fields."""
+    deal = await _get_owned(db, institution_id=institution_id, deal_id=deal_id)
+    if deal is None or deal.status == DealStatus.DELETED.value:
+        raise DealNotFound(str(deal_id))
+
+    data = dict(deal.data or {})
+    workspace = dict(data.get("workspace") or {})
+    workspace["summary"] = summary.model_dump(mode="json")
+    data["workspace"] = workspace
+    deal.data = DealProfile.model_validate(data).model_dump(mode="json")
+    await db.flush()
+
+    await record_event(
+        db,
+        institution_id=institution_id,
+        user_id=user_id,
+        event_type="deal.workspace_summary_updated",
+        subject_type="deal",
+        subject_id=deal.id,
+        payload={
+            "company_id": str(deal.company_id),
+            "summary": summary.model_dump(mode="json"),
+        },
+    )
+    return deal
 
 
 class DealNotFound(Exception):

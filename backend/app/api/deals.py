@@ -8,9 +8,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +30,9 @@ from app.objects.deal import (
     DealStatus,
     DealUserFeedback,
     DealWorkspace,
+    DealWorkspaceSummary,
     PreDDMaterialCollectionStatus,
+    infer_workspace_summary,
 )
 from app.objects.experience import ActionContext, UserActionType
 from app.objects.deal_list import DealSourceType
@@ -43,11 +48,16 @@ from app.services.deals import (
     soft_delete_deal,
     transition_deal_status,
     update_pre_dd_material_status,
+    update_workspace_summary,
 )
 from app.services.deal_market_signals import DealSignalTargetNotFound, collect_deal_market_signals
 from app.services.deal_materials import (
+    DealMaterialNotFound,
     DealMaterialTargetNotFound,
     InvalidDealMaterialCategory,
+    collect_pre_dd_public_materials,
+    confirm_deal_material_categories,
+    delete_deal_material,
     list_deal_materials,
     save_deal_material,
     search_deal_materials,
@@ -64,6 +74,11 @@ from app.services.user_actions import record_user_action, snapshot_from_deal
 router = APIRouter()
 
 
+def _sse(event: str, data: object) -> str:
+    payload = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
 class CreateDealBody(BaseModel):
     company_name: str = Field(min_length=1, max_length=255, description="公司/项目名称")
     one_line_intro: str | None = Field(default=None, max_length=1000, description="一句话介绍")
@@ -71,6 +86,26 @@ class CreateDealBody(BaseModel):
     sub_direction: str | None = Field(default=None, max_length=100, description="子方向")
     funding_stage: str | None = Field(default=None, max_length=100, description="融资阶段")
     source_note: str | None = Field(default=None, max_length=2000, description="补充材料或来源说明")
+
+
+def _clean_optional(value: str | None) -> str | None:
+    text = (value or "").strip()
+    return text or None
+
+
+class WorkspaceSummaryBody(BaseModel):
+    founded_at: str | None = Field(default=None, max_length=100)
+    region: str | None = Field(default=None, max_length=100)
+    main_business: str | None = Field(default=None, max_length=500)
+    valuation: str | None = Field(default=None, max_length=200)
+
+    def to_summary(self) -> DealWorkspaceSummary:
+        return DealWorkspaceSummary(
+            founded_at=_clean_optional(self.founded_at),
+            region=_clean_optional(self.region),
+            main_business=_clean_optional(self.main_business),
+            valuation=_clean_optional(self.valuation),
+        )
 
 
 def _manual_deal_profile(body: CreateDealBody) -> DealProfile:
@@ -115,7 +150,10 @@ def _manual_deal_profile(body: CreateDealBody) -> DealProfile:
         extraction=extraction,
         analysis=analysis,
         user_feedback=DealUserFeedback(is_in_library=True),
-        workspace=DealWorkspace(created=True),
+        workspace=DealWorkspace(
+            created=True,
+            summary=infer_workspace_summary(extraction, analysis),
+        ),
     )
 
 
@@ -277,6 +315,33 @@ async def get_deal(
     return detail
 
 
+@router.patch("/{deal_id}/workspace-summary")
+async def patch_workspace_summary(
+    deal_id: uuid.UUID,
+    body: WorkspaceSummaryBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update the editable four-field project workspace summary."""
+    try:
+        deal = await update_workspace_summary(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            summary=body.to_summary(),
+        )
+    except DealNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+
+    workspace = (deal.data or {}).get("workspace") or {}
+    return {
+        "deal_id": str(deal.id),
+        "summary": workspace.get("summary") or {},
+        "event_recorded": True,
+    }
+
+
 @router.delete("/{deal_id}")
 async def delete_deal(
     deal_id: uuid.UUID,
@@ -368,6 +433,130 @@ async def upload_deal_material(
         raise HTTPException(status_code=503, detail=str(e)) from e
     except DocumentError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/{deal_id}/materials/{document_id}")
+async def delete_material(
+    deal_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """删除项目工作台中的一条材料。"""
+    try:
+        await delete_deal_material(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            document_id=document_id,
+        )
+    except DealMaterialNotFound:
+        raise HTTPException(status_code=404, detail="材料不存在") from None
+    return {"deal_id": str(deal_id), "document_id": str(document_id), "deleted": True}
+
+
+class ConfirmMaterialCategoriesBody(BaseModel):
+    task_keys: list[str] = Field(min_length=1, description="用户确认归入的 Pre-DD 资料类别")
+
+
+@router.post("/{deal_id}/materials/{document_id}/categories/confirm")
+async def confirm_material_categories(
+    deal_id: uuid.UUID,
+    document_id: uuid.UUID,
+    body: ConfirmMaterialCategoriesBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """确认一条项目材料可归入的一个或多个 Pre-DD 类别。"""
+    try:
+        return await confirm_deal_material_categories(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            document_id=document_id,
+            task_keys=body.task_keys,
+        )
+    except DealMaterialNotFound:
+        raise HTTPException(status_code=404, detail="材料不存在") from None
+    except InvalidDealMaterialCategory as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.post("/{deal_id}/pre-dd/materials/{task_key}/collect")
+async def collect_pre_dd_materials(
+    deal_id: uuid.UUID,
+    task_key: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """自动检索公开信息，并把结果保存为对应 Pre-DD 维度下的项目材料。"""
+    try:
+        result = await collect_pre_dd_public_materials(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            deal_id=deal_id,
+            task_key=task_key,
+            allow_overseas=user.allow_overseas_models,
+        )
+    except DealMaterialTargetNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+    except InvalidDealMaterialCategory as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"deal_id": str(deal_id), "task_key": task_key, **result}
+
+
+@router.post("/{deal_id}/pre-dd/materials/{task_key}/collect/stream")
+async def stream_collect_pre_dd_materials(
+    deal_id: uuid.UUID,
+    task_key: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Stream Pre-DD public material collection steps while the collector is running."""
+
+    async def event_stream():
+        queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
+
+        async def on_step(step: dict) -> None:
+            await queue.put(("react_step", step))
+
+        async def run_collect() -> None:
+            try:
+                result = await collect_pre_dd_public_materials(
+                    db,
+                    institution_id=user.institution_id,
+                    user_id=user.user_id,
+                    deal_id=deal_id,
+                    task_key=task_key,
+                    allow_overseas=user.allow_overseas_models,
+                    on_step=on_step,
+                )
+                await queue.put(("result", {"deal_id": str(deal_id), "task_key": task_key, **result}))
+            except DealMaterialTargetNotFound:
+                await queue.put(("error", "项目不存在"))
+            except InvalidDealMaterialCategory as e:
+                await queue.put(("error", str(e)))
+            except Exception:
+                await queue.put(("error", "自动收集资料失败，请稍后重试"))
+            finally:
+                await queue.put(("done", {}))
+
+        task = asyncio.create_task(run_collect())
+        try:
+            while True:
+                event, data = await queue.get()
+                yield _sse(event, data)
+                if event == "done":
+                    break
+            await task
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/{deal_id}/pre-dd/brief")

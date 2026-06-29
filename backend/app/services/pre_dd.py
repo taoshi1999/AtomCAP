@@ -306,13 +306,20 @@ def _collected_materials(
         for text in provided
     ]
     for material in materials:
+        source_intro = material.get("source_intro")
         collected.append(
             {
                 "kind": "机构材料",
                 "title": str(material.get("filename") or "未命名材料"),
-                "detail": str(material.get("snippet") or material.get("keyword") or "").strip() or None,
+                "detail": str(source_intro or material.get("snippet") or material.get("keyword") or "").strip() or None,
                 "document_id": material.get("document_id"),
                 "evidence_id": material.get("evidence_id"),
+                "source_url": material.get("source_url"),
+                "source_title": material.get("source_title"),
+                "source_intro": source_intro,
+                "connector": material.get("connector"),
+                "published_at": material.get("published_at"),
+                "collection_steps": material.get("collection_steps") or [],
             }
         )
     return collected

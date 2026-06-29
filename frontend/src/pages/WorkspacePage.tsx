@@ -12,11 +12,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowRight, FileText, Heart, Plus, Search, ThumbsDown, Trash2, Upload } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, FileText, Heart, Plus, Search, ThumbsDown, Trash2, Upload, Wrench } from "lucide-react";
 import {
   ApiError,
   collectDealMarketSignals,
+  collectPreDDMaterialsStream,
+  confirmDealMaterialCategories,
   createDeal,
+  deleteDealMaterial,
   deleteDeal,
   generatePreDDBrief,
   getDealDetail,
@@ -25,8 +28,10 @@ import {
   transitionDeal,
   triggerDealAction,
   searchDealMaterials,
+  updateDealWorkspaceSummary,
   updatePreDDMaterialStatus,
   uploadDealMaterial,
+  type PreDDMaterialCollectResponse,
   type PreDDBriefHistoryItem,
 } from "../lib/api";
 import MarketSignalsPanel, { type MarketSignalViewItem } from "../components/MarketSignalsPanel";
@@ -42,7 +47,9 @@ import type {
   DealMaterialSearchResult,
   DealStatus,
   DealSummary,
+  DealWorkspaceSummary,
   FitScoreBreakdown,
+  MaterialCollectionStep,
   PreDDChecklistItem,
   PreDDMaterialCollectionStatus,
   PreDDWorkspace,
@@ -178,6 +185,50 @@ export function updatePreDDMaterialStatusInDetail(
         ...preDD.completion,
         collected,
         pending,
+      },
+    },
+  };
+}
+
+function normalizeWorkspaceSummary(
+  detail: DealDetail,
+  summary: DealWorkspaceSummary = detail.data.workspace.summary
+): Required<DealWorkspaceSummary> {
+  const extraction = detail.data.extraction;
+  const hasSavedValue = [
+    summary.founded_at,
+    summary.region,
+    summary.main_business,
+    summary.valuation,
+  ].some((value) => Boolean((value ?? "").trim()));
+  return {
+    founded_at: summary.founded_at ?? (hasSavedValue ? "" : extraction.founded_at ?? ""),
+    region: summary.region ?? (hasSavedValue ? "" : extraction.region ?? ""),
+    main_business:
+      summary.main_business ??
+      (hasSavedValue
+        ? ""
+        : extraction.main_business ??
+          extraction.business_model ??
+          extraction.product ??
+          extraction.one_line_intro ??
+          detail.data.analysis.portrait ??
+          ""),
+    valuation: summary.valuation ?? (hasSavedValue ? "" : extraction.valuation ?? ""),
+  };
+}
+
+export function updateWorkspaceSummaryInDetail(
+  detail: DealDetail,
+  summary: DealWorkspaceSummary
+): DealDetail {
+  return {
+    ...detail,
+    data: {
+      ...detail.data,
+      workspace: {
+        ...detail.data.workspace,
+        summary,
       },
     },
   };
@@ -346,6 +397,193 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
     <section className="rounded-lg border border-slate-200 bg-white p-4">
       <h3 className="mb-2 text-sm font-semibold text-slate-900">{title}</h3>
       {children}
+    </section>
+  );
+}
+
+function CollectionStepDetails({ details }: { details: string[] }) {
+  if (details.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-1 text-xs leading-5 text-slate-500">
+      {details.map((detail, index) => (
+        <li key={index} className="flex gap-2">
+          <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-300" />
+          <span>{detail}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CollectionProcessTrace({
+  steps,
+  defaultOpen = false,
+}: {
+  steps?: MaterialCollectionStep[];
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const safeSteps = steps ?? [];
+  useEffect(() => {
+    if (defaultOpen && safeSteps.length > 0) setOpen(true);
+  }, [defaultOpen, safeSteps.length]);
+  if (safeSteps.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 transition hover:text-slate-700"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        查看收集过程
+      </button>
+      {open && (
+        <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+          {safeSteps.map((step, index) => (
+            <div key={step.id || `${step.loop}-${step.phase}-${index}`} className="border-l border-slate-200 pl-3">
+              <div className="flex items-start gap-2">
+                {step.phase === "action" ? (
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-slate-500">
+                    <Wrench className="h-3.5 w-3.5" />
+                  </span>
+                ) : (
+                  <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-indigo-500" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs leading-5 text-slate-700">
+                    {step.phase === "action" && step.tool_name ? `已调用工具：${step.tool_name}。` : ""}
+                    {step.summary}
+                  </div>
+                  <CollectionStepDetails details={step.details ?? []} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceSummaryPanel({
+  detail,
+  onSaved,
+}: {
+  detail: DealDetail;
+  onSaved?: (summary: DealWorkspaceSummary) => void;
+}) {
+  const [draft, setDraft] = useState<Required<DealWorkspaceSummary>>(() =>
+    normalizeWorkspaceSummary(detail)
+  );
+  const [saved, setSaved] = useState<Required<DealWorkspaceSummary>>(() =>
+    normalizeWorkspaceSummary(detail)
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next = normalizeWorkspaceSummary(detail);
+    setDraft(next);
+    setSaved(next);
+    setError(null);
+    setSavedAt(null);
+  }, [detail.id, detail.data.workspace.summary]);
+
+  const fields: {
+    key: keyof DealWorkspaceSummary;
+    label: string;
+    placeholder: string;
+    multiline?: boolean;
+  }[] = [
+    { key: "founded_at", label: "成立时间", placeholder: "例如：2021-08" },
+    { key: "region", label: "地域", placeholder: "例如：江苏苏州" },
+    { key: "main_business", label: "主营业务", placeholder: "概括公司主要产品或业务", multiline: true },
+    { key: "valuation", label: "估值", placeholder: "例如：本轮投前 5 亿元" },
+  ];
+
+  const dirty = fields.some(({ key }) => (draft[key] ?? "") !== (saved[key] ?? ""));
+
+  async function handleSave() {
+    setBusy(true);
+    setError(null);
+    try {
+      const payload: DealWorkspaceSummary = {
+        founded_at: (draft.founded_at ?? "").trim() || null,
+        region: (draft.region ?? "").trim() || null,
+        main_business: (draft.main_business ?? "").trim() || null,
+        valuation: (draft.valuation ?? "").trim() || null,
+      };
+      const response = await updateDealWorkspaceSummary(detail.id, payload);
+      const next = normalizeWorkspaceSummary(detail, response.summary);
+      setDraft(next);
+      setSaved(next);
+      setSavedAt("已保存");
+      onSaved?.(response.summary);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "保存项目基础信息失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-900">项目基础信息</h3>
+        <div className="flex items-center gap-2">
+          {error && <span className="text-xs text-rose-500">{error}</span>}
+          {!error && savedAt && !dirty && <span className="text-xs text-emerald-600">{savedAt}</span>}
+          {dirty && (
+            <button
+              type="button"
+              onClick={() => setDraft(saved)}
+              disabled={busy}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              重置
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={busy || !dirty}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {busy ? "保存中" : "保存"}
+          </button>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        {fields.map((field) => (
+          <label
+            key={field.key}
+            className="flex min-h-28 flex-col rounded-lg border border-slate-200 bg-slate-50 p-3"
+          >
+            <span className="mb-2 text-xs font-semibold text-slate-500">{field.label}</span>
+            {field.multiline ? (
+              <textarea
+                value={draft[field.key] ?? ""}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                placeholder={field.placeholder}
+                className="min-h-16 flex-1 resize-none border-0 bg-transparent text-sm font-semibold leading-6 text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
+              />
+            ) : (
+              <input
+                value={draft[field.key] ?? ""}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                placeholder={field.placeholder}
+                className="min-h-16 border-0 bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
+              />
+            )}
+          </label>
+        ))}
+      </div>
     </section>
   );
 }
@@ -536,15 +774,27 @@ function PreDDTaskCard({
   item,
   busy,
   uploadBusy,
+  collectBusy,
   uploadDisabled,
+  collectDisabled,
+  deletingMaterialId,
+  latestCollectionSteps,
   onStatusChange,
+  onAutoCollect,
+  onDeleteMaterial,
   onUpload,
 }: {
   item: PreDDChecklistItem;
   busy: boolean;
   uploadBusy: boolean;
+  collectBusy: boolean;
   uploadDisabled: boolean;
+  collectDisabled: boolean;
+  deletingMaterialId: string | null;
+  latestCollectionSteps?: MaterialCollectionStep[];
   onStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
+  onAutoCollect: (taskKey: string) => void;
+  onDeleteMaterial: (documentId: string) => void;
   onUpload: (taskKey: string, file: File) => void;
 }) {
   const statusMeta = PRE_DD_COLLECTION_META[item.collection_status] ?? PRE_DD_COLLECTION_META.pending;
@@ -583,6 +833,15 @@ function PreDDTaskCard({
               className="sr-only"
             />
           </label>
+          <button
+            type="button"
+            disabled={collectDisabled}
+            onClick={() => onAutoCollect(item.key)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-200 px-2.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+          >
+            <Search className="h-3.5 w-3.5" />
+            {collectBusy ? "收集中..." : "自动收集"}
+          </button>
           <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
             {collectionOptions.map((status) => {
               const active = item.collection_status === status;
@@ -612,6 +871,7 @@ function PreDDTaskCard({
         <div>
           <div className="mb-1 text-xs font-semibold text-slate-400">简介</div>
           <p className="text-xs leading-5 text-slate-600">{item.intro}</p>
+          <CollectionProcessTrace steps={latestCollectionSteps} defaultOpen={collectBusy} />
         </div>
 
         <div>
@@ -620,14 +880,22 @@ function PreDDTaskCard({
             <p className="text-xs text-slate-400">暂无已收集材料。</p>
           ) : (
             <div className="space-y-1.5">
-              {collectedMaterials.slice(0, 6).map((material, index) => (
+              {collectedMaterials.slice(0, 6).map((material, index) => {
+                const autoCollected = Boolean(material.source_url || material.source_title);
+                const kindLabel = autoCollected ? "自动收集" : material.kind;
+                const deleting = Boolean(material.document_id && deletingMaterialId === material.document_id);
+                return (
                 <div
                   key={`${material.kind}-${material.document_id ?? material.title}-${index}`}
                   className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-5"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                      {material.kind}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                        autoCollected ? "bg-emerald-50 text-emerald-700" : "bg-white text-slate-500"
+                      }`}
+                    >
+                      {kindLabel}
                     </span>
                     <span className="min-w-0 font-medium text-slate-700">{material.title}</span>
                     {material.evidence_id && (
@@ -635,10 +903,40 @@ function PreDDTaskCard({
                         证据
                       </span>
                     )}
+                    {material.document_id && (
+                      <button
+                        type="button"
+                        disabled={deleting}
+                        onClick={() => onDeleteMaterial(material.document_id!)}
+                        className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        {deleting ? "删除中" : "删除"}
+                      </button>
+                    )}
                   </div>
+                  {material.source_title && (
+                    <div className="mt-1 text-slate-500">
+                      出处：
+                      {material.source_url ? (
+                        <a
+                          href={material.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-blue-600 hover:underline"
+                        >
+                          {material.source_title}
+                        </a>
+                      ) : (
+                        material.source_title
+                      )}
+                    </div>
+                  )}
                   {material.detail && <p className="mt-0.5 text-slate-500">{material.detail}</p>}
+                  <CollectionProcessTrace steps={material.collection_steps} />
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -711,8 +1009,12 @@ function DealMaterialsPanel({
   searchBusy,
   searchError,
   searchResults,
+  deletingMaterialId,
+  categoryConfirmingMaterialId,
   onSearchQueryChange,
   onSearch,
+  onDelete,
+  onConfirmCategories,
 }: {
   materials: DealMaterial[];
   showCategorySuggestion: boolean;
@@ -723,8 +1025,12 @@ function DealMaterialsPanel({
   searchBusy: boolean;
   searchError: string | null;
   searchResults: DealMaterialSearchResult[];
+  deletingMaterialId: string | null;
+  categoryConfirmingMaterialId: string | null;
   onSearchQueryChange: (value: string) => void;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onDelete: (documentId: string) => void;
+  onConfirmCategories: (documentId: string, taskKeys: string[]) => void;
 }) {
   return (
     <Section title="项目材料">
@@ -797,7 +1103,15 @@ function DealMaterialsPanel({
         <div className="text-sm text-slate-400">暂无项目材料。</div>
       ) : (
         <div className="space-y-2">
-          {materials.map((material) => (
+          {materials.map((material) => {
+            const deleting = deletingMaterialId === material.id;
+            const confirmedKeys = material.confirmed_pre_dd_task_keys ?? material.pre_dd_task_keys ?? [];
+            const suggestedKeys = (material.suggested_pre_dd_task_keys ?? []).filter(
+              (key) => Boolean(PRE_DD_TASK_LABELS[key])
+            );
+            const pendingSuggestedKeys = suggestedKeys.filter((key) => !confirmedKeys.includes(key));
+            const confirmingCategories = categoryConfirmingMaterialId === material.id;
+            return (
             <div
               key={material.id}
               id={`material-${material.id}`}
@@ -819,6 +1133,11 @@ function DealMaterialsPanel({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {material.is_auto_collected && (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                      自动收集
+                    </span>
+                  )}
                   {material.evidence_id && (
                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
                       证据
@@ -829,14 +1148,44 @@ function DealMaterialsPanel({
                       {material.fmt}
                     </span>
                   )}
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={() => onDelete(material.id)}
+                    className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    {deleting ? "删除中" : "删除"}
+                  </button>
                 </div>
               </div>
+              {material.source_title && (
+                <div className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                  <div>
+                    出处：
+                    {material.source_url ? (
+                      <a
+                        href={material.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-blue-700 hover:underline"
+                      >
+                        {material.source_title}
+                      </a>
+                    ) : (
+                      <span className="font-semibold">{material.source_title}</span>
+                    )}
+                  </div>
+                  {material.source_intro && <div className="mt-0.5">{material.source_intro}</div>}
+                </div>
+              )}
               {material.text_preview && (
                 <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
                   {material.text_preview}
                 </p>
               )}
-              {showCategorySuggestion && material.material_category_suggestion && (
+              <CollectionProcessTrace steps={material.collection_steps} />
+              {showCategorySuggestion && material.material_category_suggestion && suggestedKeys.length === 0 && (
                 <div
                   className={`mt-2 rounded-lg border px-3 py-2 text-xs leading-5 ${materialCategorySuggestionClassName(
                     material.material_category_suggestion.is_background
@@ -852,6 +1201,40 @@ function DealMaterialsPanel({
                     </span>
                   </div>
                   <div className="mt-0.5 opacity-80">{material.material_category_suggestion.reason}</div>
+                </div>
+              )}
+              {showCategorySuggestion && suggestedKeys.length > 0 && (
+                <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">建议归类</span>
+                    {suggestedKeys.map((key) => (
+                      <span
+                        key={key}
+                        className={`rounded-full px-2 py-0.5 font-semibold ${
+                          confirmedKeys.includes(key) ? "bg-white text-blue-500" : "bg-white text-blue-700"
+                        }`}
+                      >
+                        {PRE_DD_TASK_LABELS[key] ?? key}
+                      </span>
+                    ))}
+                    {pendingSuggestedKeys.length > 0 ? (
+                      <button
+                        type="button"
+                        disabled={confirmingCategories}
+                        onClick={() => onConfirmCategories(material.id, suggestedKeys)}
+                        className="ml-auto inline-flex h-7 items-center rounded-md border border-blue-200 bg-white px-2 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:text-blue-300"
+                      >
+                        {confirmingCategories ? "确认中..." : "确认归类"}
+                      </button>
+                    ) : (
+                      <span className="ml-auto text-[11px] font-semibold text-blue-500">已确认</span>
+                    )}
+                  </div>
+                  {pendingSuggestedKeys.length > 0 && (
+                    <div className="mt-0.5 text-blue-600">
+                      确认后，该材料会出现在对应的 Pre-DD 资料类别中。
+                    </div>
+                  )}
                 </div>
               )}
               {(material.pre_dd_task_keys ?? []).length > 0 && (
@@ -870,7 +1253,8 @@ function DealMaterialsPanel({
                 <div className="mt-2 text-xs text-amber-600">{material.warnings.join("；")}</div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Section>
@@ -985,7 +1369,12 @@ function PreDDPanel({
   materialStatusError,
   materialStatusBusyKey,
   materialUploadBusyKey,
+  materialCollectBusyKeys,
+  deletingMaterialId,
+  latestCollectionStepsByTask,
   onMaterialStatusChange,
+  onMaterialAutoCollect,
+  onMaterialDelete,
   onMaterialUpload,
 }: {
   workspace: PreDDWorkspace;
@@ -993,7 +1382,12 @@ function PreDDPanel({
   materialStatusError: string | null;
   materialStatusBusyKey: string | null;
   materialUploadBusyKey: string | null;
+  materialCollectBusyKeys: string[];
+  deletingMaterialId: string | null;
+  latestCollectionStepsByTask: Record<string, MaterialCollectionStep[]>;
   onMaterialStatusChange: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
+  onMaterialAutoCollect: (taskKey: string) => void;
+  onMaterialDelete: (documentId: string) => void;
   onMaterialUpload: (taskKey: string, file: File) => void;
 }) {
   const collectedItems = workspace.items.filter((item) => item.collection_status === "collected");
@@ -1019,8 +1413,14 @@ function PreDDPanel({
               item={item}
               busy={materialStatusBusyKey === item.key}
               uploadBusy={materialUploadBusyKey === item.key}
+              collectBusy={materialCollectBusyKeys.includes(item.key)}
               uploadDisabled={materialUploadBusyKey !== null}
+              collectDisabled={materialCollectBusyKeys.includes(item.key)}
+              deletingMaterialId={deletingMaterialId}
+              latestCollectionSteps={latestCollectionStepsByTask[item.key]}
               onStatusChange={onMaterialStatusChange}
+              onAutoCollect={onMaterialAutoCollect}
+              onDeleteMaterial={onMaterialDelete}
               onUpload={onMaterialUpload}
             />
           ))}
@@ -1155,6 +1555,7 @@ export function DealDetailPanel({
   onPreDDMaterialStatusChange,
   preDDMaterialStatusBusyKey,
   preDDMaterialStatusError,
+  onWorkspaceSummarySaved,
 }: {
   detail: DealDetail;
   busy: boolean;
@@ -1164,6 +1565,7 @@ export function DealDetailPanel({
   onPreDDMaterialStatusChange?: (taskKey: string, status: PreDDMaterialCollectionStatus) => void;
   preDDMaterialStatusBusyKey?: string | null;
   preDDMaterialStatusError?: string | null;
+  onWorkspaceSummarySaved?: (summary: DealWorkspaceSummary) => void;
 }) {
   const { data, company } = detail;
   const a = data.analysis;
@@ -1175,6 +1577,10 @@ export function DealDetailPanel({
   const [marketSignalError, setMarketSignalError] = useState<string | null>(null);
   const [materialBusy, setMaterialBusy] = useState(false);
   const [preDDMaterialUploadBusyKey, setPreDDMaterialUploadBusyKey] = useState<string | null>(null);
+  const [preDDMaterialCollectBusyKeys, setPreDDMaterialCollectBusyKeys] = useState<string[]>([]);
+  const [latestCollectionStepsByTask, setLatestCollectionStepsByTask] = useState<Record<string, MaterialCollectionStep[]>>({});
+  const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
+  const [categoryConfirmingMaterialId, setCategoryConfirmingMaterialId] = useState<string | null>(null);
   const [materialError, setMaterialError] = useState<string | null>(null);
   const [preDDMaterialUploadError, setPreDDMaterialUploadError] = useState<string | null>(null);
   const [materialSearchQuery, setMaterialSearchQuery] = useState("");
@@ -1215,6 +1621,10 @@ export function DealDetailPanel({
     setPreDDMaterialUploadError(null);
     setMaterialBusy(false);
     setPreDDMaterialUploadBusyKey(null);
+    setPreDDMaterialCollectBusyKeys([]);
+    setLatestCollectionStepsByTask({});
+    setDeletingMaterialId(null);
+    setCategoryConfirmingMaterialId(null);
     setMaterialSearchQuery("");
     setMaterialSearchResults([]);
     setMaterialSearchError(null);
@@ -1334,6 +1744,90 @@ export function DealDetailPanel({
     }
   }
 
+  async function handleCollectPreDDMaterial(taskKey: string) {
+    if (preDDMaterialCollectBusyKeys.includes(taskKey)) return;
+    setPreDDMaterialCollectBusyKeys((keys) => (keys.includes(taskKey) ? keys : [...keys, taskKey]));
+    setLatestCollectionStepsByTask((current) => ({ ...current, [taskKey]: [] }));
+    setPreDDMaterialUploadError(null);
+    const streamState: {
+      response: PreDDMaterialCollectResponse | null;
+      error: string | null;
+    } = { response: null, error: null };
+    try {
+      await collectPreDDMaterialsStream(detail.id, taskKey, {
+        onStep(step) {
+          setLatestCollectionStepsByTask((current) => {
+            const currentSteps = current[taskKey] ?? [];
+            const existingIndex = currentSteps.findIndex((item) => item.id === step.id);
+            const nextSteps =
+              existingIndex >= 0
+                ? currentSteps.map((item, index) => (index === existingIndex ? step : item))
+                : [...currentSteps, step];
+            return { ...current, [taskKey]: nextSteps };
+          });
+        },
+        onResult(response) {
+          streamState.response = response;
+          setLatestCollectionStepsByTask((current) => ({ ...current, [taskKey]: response.steps ?? current[taskKey] ?? [] }));
+        },
+        onError(message) {
+          streamState.error = message || "自动收集资料失败";
+        },
+      });
+      if (streamState.error) throw new ApiError(500, streamState.error);
+      if (!streamState.response) throw new ApiError(500, "自动收集资料未返回结果");
+      const response = streamState.response;
+      if (response.items.length === 0) {
+        setPreDDMaterialUploadError("本次未检索到可用的公开资料，可稍后重试或手动上传材料。");
+      } else {
+        setMaterials((items) => [
+          ...response.items,
+          ...items.filter((item) => !response.items.some((created) => created.id === item.id)),
+        ]);
+        await onMaterialUploaded?.();
+      }
+    } catch (error) {
+      setPreDDMaterialUploadError(error instanceof ApiError ? error.message : "自动收集资料失败");
+    } finally {
+      setPreDDMaterialCollectBusyKeys((keys) => keys.filter((key) => key !== taskKey));
+    }
+  }
+
+  async function handleDeleteMaterial(documentId: string) {
+    setDeletingMaterialId(documentId);
+    setMaterialError(null);
+    setPreDDMaterialUploadError(null);
+    try {
+      await deleteDealMaterial(detail.id, documentId);
+      setMaterials((items) => items.filter((item) => item.id !== documentId));
+      await onMaterialUploaded?.();
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "删除材料失败";
+      setMaterialError(message);
+      setPreDDMaterialUploadError(message);
+    } finally {
+      setDeletingMaterialId(null);
+    }
+  }
+
+  async function handleConfirmMaterialCategories(documentId: string, taskKeys: string[]) {
+    if (taskKeys.length === 0) return;
+    setCategoryConfirmingMaterialId(documentId);
+    setMaterialError(null);
+    setPreDDMaterialUploadError(null);
+    try {
+      const material = await confirmDealMaterialCategories(detail.id, documentId, taskKeys);
+      setMaterials((items) => items.map((item) => (item.id === material.id ? material : item)));
+      await onMaterialUploaded?.();
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "确认材料归类失败";
+      setMaterialError(message);
+      setPreDDMaterialUploadError(message);
+    } finally {
+      setCategoryConfirmingMaterialId(null);
+    }
+  }
+
   async function handleSearchMaterials(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const query = materialSearchQuery.trim();
@@ -1398,12 +1892,7 @@ export function DealDetailPanel({
 
       <ProjectStatusFlow detail={detail} busy={busy} onTransition={onTransition} />
 
-      <Section title="项目画像">
-        <p className="text-sm text-slate-700">{a.portrait}</p>
-        {a.track_judgement && (
-          <p className="mt-2 text-xs text-slate-500">赛道判断：{a.track_judgement}</p>
-        )}
-      </Section>
+      <WorkspaceSummaryPanel detail={detail} onSaved={onWorkspaceSummarySaved} />
 
       <DealMaterialsPanel
         materials={materials}
@@ -1415,8 +1904,12 @@ export function DealDetailPanel({
         searchBusy={materialSearchBusy}
         searchError={materialSearchError}
         searchResults={materialSearchResults}
+        deletingMaterialId={deletingMaterialId}
+        categoryConfirmingMaterialId={categoryConfirmingMaterialId}
         onSearchQueryChange={setMaterialSearchQuery}
         onSearch={handleSearchMaterials}
+        onDelete={(documentId) => void handleDeleteMaterial(documentId)}
+        onConfirmCategories={(documentId, taskKeys) => void handleConfirmMaterialCategories(documentId, taskKeys)}
       />
 
       <DealMarketSignalsPanel
@@ -1442,7 +1935,12 @@ export function DealDetailPanel({
             materialStatusError={preDDMaterialStatusError ?? null}
             materialStatusBusyKey={preDDMaterialStatusBusyKey ?? null}
             materialUploadBusyKey={preDDMaterialUploadBusyKey}
+            materialCollectBusyKeys={preDDMaterialCollectBusyKeys}
+            deletingMaterialId={deletingMaterialId}
+            latestCollectionStepsByTask={latestCollectionStepsByTask}
             onMaterialStatusChange={onPreDDMaterialStatusChange ?? (() => undefined)}
+            onMaterialAutoCollect={(taskKey) => void handleCollectPreDDMaterial(taskKey)}
+            onMaterialDelete={(documentId) => void handleDeleteMaterial(documentId)}
             onMaterialUpload={(taskKey, file) => void handleUploadPreDDMaterial(taskKey, file)}
           />
           <PreDDBriefPanel
@@ -1505,10 +2003,14 @@ export default function WorkspacePage() {
 
   const assistantContext = useMemo(() => {
     if (detail) {
+      const summary = normalizeWorkspaceSummary(detail);
       return [
         `当前项目：${detail.company?.name ?? detail.data.extraction.company_name}`,
         `状态：${STATUS_META[detail.status]?.label ?? detail.status}`,
-        `画像：${detail.data.analysis.portrait}`,
+        `成立时间：${summary.founded_at || "未设置"}`,
+        `地域：${summary.region || "未设置"}`,
+        `主营业务：${summary.main_business || "未设置"}`,
+        `估值：${summary.valuation || "未设置"}`,
       ].join("；");
     }
     const queryText = listSearchQuery.trim() ? `，搜索：${listSearchQuery.trim()}` : "";
@@ -1820,6 +2322,13 @@ export default function WorkspacePage() {
               onPreDDMaterialStatusChange={handlePreDDMaterialStatusChange}
               preDDMaterialStatusBusyKey={preDDMaterialStatusBusyKey}
               preDDMaterialStatusError={preDDMaterialStatusError}
+              onWorkspaceSummarySaved={(summary) =>
+                setDetail((current) =>
+                  current && current.id === detail.id
+                    ? updateWorkspaceSummaryInDetail(current, summary)
+                    : current
+                )
+              }
             />
           )}
         </section>

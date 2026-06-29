@@ -11,6 +11,8 @@ import type {
   DealMarketSignal,
   DealMaterial,
   DealMaterialSearchResult,
+  DealWorkspaceSummary,
+  MaterialCollectionStep,
   PreDDMaterialCollectionStatus,
   DealStatus,
   DealSummary,
@@ -863,6 +865,22 @@ export async function getDealDetail(dealId: string): Promise<DealDetail> {
   return apiJson<DealDetail>(`/api/deals/${dealId}`);
 }
 
+export interface WorkspaceSummaryResponse {
+  deal_id: string;
+  summary: DealWorkspaceSummary;
+  event_recorded: boolean;
+}
+
+export async function updateDealWorkspaceSummary(
+  dealId: string,
+  summary: DealWorkspaceSummary
+): Promise<WorkspaceSummaryResponse> {
+  return apiJson<WorkspaceSummaryResponse>(`/api/deals/${dealId}/workspace-summary`, {
+    method: "PATCH",
+    body: JSON.stringify(summary),
+  });
+}
+
 export async function deleteDeal(
   dealId: string
 ): Promise<{ deal_id: string; status: DealStatus; event_recorded: boolean }> {
@@ -936,6 +954,93 @@ export async function uploadDealMaterial(
     throw new ApiError(res.status, detail);
   }
   return (await res.json()) as DealMaterial;
+}
+
+export interface PreDDMaterialCollectResponse {
+  deal_id: string;
+  task_key: string;
+  items: DealMaterial[];
+  count: number;
+  rounds: number;
+  steps: MaterialCollectionStep[];
+}
+
+export async function collectPreDDMaterials(
+  dealId: string,
+  taskKey: string
+): Promise<PreDDMaterialCollectResponse> {
+  return apiJson<PreDDMaterialCollectResponse>(
+    `/api/deals/${dealId}/pre-dd/materials/${encodeURIComponent(taskKey)}/collect`,
+    { method: "POST" }
+  );
+}
+
+export interface PreDDMaterialCollectStreamHandlers {
+  onStep?: (step: MaterialCollectionStep) => void;
+  onResult?: (response: PreDDMaterialCollectResponse) => void;
+  onError?: (message: string) => void;
+  onDone?: () => void;
+}
+
+export async function collectPreDDMaterialsStream(
+  dealId: string,
+  taskKey: string,
+  handlers: PreDDMaterialCollectStreamHandlers,
+  signal?: AbortSignal
+): Promise<void> {
+  await fetchEventSource(
+    `/api/deals/${dealId}/pre-dd/materials/${encodeURIComponent(taskKey)}/collect/stream`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      signal,
+      openWhenHidden: true,
+      onopen: ensureSseResponse,
+      onmessage(ev) {
+        switch (ev.event) {
+          case "react_step":
+            handlers.onStep?.(JSON.parse(ev.data) as MaterialCollectionStep);
+            break;
+          case "result":
+            handlers.onResult?.(JSON.parse(ev.data) as PreDDMaterialCollectResponse);
+            break;
+          case "error":
+            handlers.onError?.(ev.data);
+            break;
+          case "done":
+            handlers.onDone?.();
+            break;
+        }
+      },
+      onerror(error) {
+        throw error;
+      },
+    }
+  );
+}
+
+export async function deleteDealMaterial(
+  dealId: string,
+  documentId: string
+): Promise<{ deal_id: string; document_id: string; deleted: boolean }> {
+  return apiJson<{ deal_id: string; document_id: string; deleted: boolean }>(
+    `/api/deals/${dealId}/materials/${documentId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function confirmDealMaterialCategories(
+  dealId: string,
+  documentId: string,
+  taskKeys: string[]
+): Promise<DealMaterial> {
+  return apiJson<DealMaterial>(
+    `/api/deals/${dealId}/materials/${documentId}/categories/confirm`,
+    {
+      method: "POST",
+      body: JSON.stringify({ task_keys: taskKeys }),
+    }
+  );
 }
 
 export interface DealMaterialSearchResponse {

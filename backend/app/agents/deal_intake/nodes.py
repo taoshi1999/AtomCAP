@@ -31,7 +31,7 @@ from app.connectors.registry import (
     lookup_company,
 )
 from app.llm.client import ModelTier, complete_structured
-from app.objects.deal import DealProfile, DealStatus
+from app.objects.deal import DealProfile, DealStatus, DealWorkspace, infer_workspace_summary
 from app.objects.deal_list import DealSourceType
 from app.objects.base import Claim
 from app.agents.experience.influence import (
@@ -63,7 +63,8 @@ async def _ask(
 PARSE_SYSTEM = """你是一级市场（VC/PE）的项目分析师。用户带来一个具体项目（上传了 BP / 粘贴了介绍 /
 给了公司名），请从材料中客观抽取结构化事实：
 company_name（主体名，尽量规范化）、aliases、uscc（统一社会信用代码，材料给出才填）、
-official_website、one_line_intro、track、sub_direction、product、tech_route、founders、
+official_website、one_line_intro、founded_at（成立时间/注册时间）、region（所在地/主要经营地域）、
+main_business（主营业务）、track、sub_direction、product、tech_route、founders、
 funding_stage、funding_amount、valuation、revenue、customers、business_model、market_size、
 competitors、contact。
 要求：只抽取材料中确有的信息，未提及的字段一律留空，绝不臆造或脑补。若材料只有公司名，
@@ -286,6 +287,11 @@ async def assemble_deal(state: DealIntakeState) -> dict:
         extraction=DealExtraction.model_validate(extraction),
         analysis=analysis,
         created_from_conversation=state.get("conversation_id"),
+        workspace=DealWorkspace(
+            created=True,
+            conversation_id=state.get("conversation_id"),
+            summary=infer_workspace_summary(DealExtraction.model_validate(extraction), analysis),
+        ),
     )
     return {
         "deal_profile": profile.model_dump(mode="json"),
