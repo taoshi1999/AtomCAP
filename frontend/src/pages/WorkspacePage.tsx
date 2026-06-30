@@ -12,15 +12,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowRight, ChevronDown, ChevronRight, FileText, Heart, Plus, Search, ThumbsDown, Trash2, Upload, Wrench } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ChevronRight, Clock, Download, FileText, Heart, Mic, Plus, Search, Square, ThumbsDown, Trash2, Upload, Wrench, X } from "lucide-react";
 import {
   ApiError,
   collectDealMarketSignals,
   collectPreDDMaterialsStream,
   confirmDealMaterialCategories,
+  createAuthorizedObjectUrl,
+  createMeetingMinutes,
   createDeal,
   deleteDealMaterial,
   deleteDeal,
+  downloadGeneratedFile,
+  exportDealInformation,
+  exportMeetingMinutes,
+  exportPreDDReport,
   generatePreDDBrief,
   getDealDetail,
   listPreDDBriefs,
@@ -28,14 +34,19 @@ import {
   transitionDeal,
   triggerDealAction,
   searchDealMaterials,
+  updatePreDDMeetingQuestions,
   updateDealWorkspaceSummary,
   updatePreDDMaterialStatus,
   uploadDealMaterial,
+  type MessageReference,
   type PreDDMaterialCollectResponse,
   type PreDDBriefHistoryItem,
 } from "../lib/api";
+import EvidencePanel from "../components/EvidencePanel";
 import MarketSignalsPanel, { type MarketSignalViewItem } from "../components/MarketSignalsPanel";
 import PageAssistant from "../components/PageAssistant";
+import { argumentFromEvidence } from "../lib/evidence";
+import type { EvidenceDialogState } from "../lib/evidence";
 import type {
   Claim,
   DDReport,
@@ -45,11 +56,14 @@ import type {
   DealMarketSignalCategory,
   DealMaterial,
   DealMaterialSearchResult,
+  DealMeetingMinutes,
   DealStatus,
   DealSummary,
   DealWorkspaceSummary,
+  EvidenceItem,
   FitScoreBreakdown,
   MaterialCollectionStep,
+  PreDDMeetingQuestion,
   PreDDChecklistItem,
   PreDDMaterialCollectionStatus,
   PreDDWorkspace,
@@ -128,6 +142,19 @@ const PRE_DD_TASK_LABELS: Record<string, string> = {
   financing: "融资",
   development: "发展",
 };
+
+const PRE_DD_TASK_KEYS = Object.keys(PRE_DD_TASK_LABELS);
+
+function normalizePreDDTaskKeys(keys: string[] = []) {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  keys.forEach((key) => {
+    if (!PRE_DD_TASK_LABELS[key] || seen.has(key)) return;
+    seen.add(key);
+    normalized.push(key);
+  });
+  return normalized;
+}
 
 const PRE_DD_COLLECTION_META: Record<PreDDMaterialCollectionStatus, { label: string; className: string }> = {
   collected: { label: "已收集", className: "bg-emerald-50 text-emerald-700" },
@@ -960,13 +987,75 @@ function PreDDTaskCard({
   );
 }
 
-function BriefClaimList({ claims }: { claims: Claim[] }) {
+function buildReportClaimEvidenceDialog(
+  title: string,
+  claim: Claim,
+  evidenceById: Map<string, EvidenceItem>
+): EvidenceDialogState {
+  const ids = Array.isArray(claim.evidence_ids) ? claim.evidence_ids : [];
+  return {
+    title,
+    rows: [
+      {
+        point: claim.text,
+        arguments:
+          ids.length > 0
+            ? ids.map((id) => {
+                const evidence = evidenceById.get(id);
+                return evidence
+                  ? argumentFromEvidence(evidence)
+                  : {
+                      title: `证据 ${id} 尚未返回来源详情`,
+                      detail: "请刷新 Report 或检查证据是否仍属于当前机构。",
+                      kind: "inferred" as const,
+                    };
+              })
+            : [
+                {
+                  title: claim.inferred ? "该观点当前为模型推断" : "该观点当前未绑定可追溯证据",
+                  detail: "暂无可打开的支撑材料。",
+                  kind: "inferred" as const,
+                },
+              ],
+      },
+    ],
+  };
+}
+
+function ReportClaimList({
+  claims,
+  evidenceTitle,
+  evidenceById,
+  onOpenEvidence,
+}: {
+  claims: Claim[];
+  evidenceTitle: string;
+  evidenceById: Map<string, EvidenceItem>;
+  onOpenEvidence: (state: EvidenceDialogState) => void;
+}) {
   if (claims.length === 0) return <p className="text-sm text-slate-400">暂无。</p>;
   return (
-    <ul className="space-y-1">
-      {claims.map((claim, index) => (
-        <ClaimLine key={index} claim={claim} />
-      ))}
+    <ul className="space-y-2">
+      {claims.map((claim, index) => {
+        const evidenceCount = Array.isArray(claim.evidence_ids) ? claim.evidence_ids.length : 0;
+        return (
+          <li key={`${claim.text}-${index}`} className="rounded-lg bg-white/80 px-3 py-2">
+            <div className="text-sm leading-6 text-slate-700">{claim.text}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+              {claim.inferred && <span>模型推断</span>}
+              <span>{evidenceCount} 条证据</span>
+              <button
+                type="button"
+                onClick={() => onOpenEvidence(buildReportClaimEvidenceDialog(evidenceTitle, claim, evidenceById))}
+                className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-white px-2 py-1 font-semibold text-indigo-700 transition hover:bg-indigo-50"
+              >
+                <FileText className="h-3 w-3" />
+                查看证据
+              </button>
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -1030,8 +1119,39 @@ function DealMaterialsPanel({
   onSearchQueryChange: (value: string) => void;
   onSearch: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: (documentId: string) => void;
-  onConfirmCategories: (documentId: string, taskKeys: string[]) => void;
+  onConfirmCategories: (documentId: string, taskKeys: string[], rejectedTaskKeys?: string[]) => void;
 }) {
+  const [editingCategoryMaterialId, setEditingCategoryMaterialId] = useState<string | null>(null);
+  const [draftCategoryKeys, setDraftCategoryKeys] = useState<string[]>([]);
+  const [collapsedCategorySuggestionIds, setCollapsedCategorySuggestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  function startEditingCategories(materialId: string, keys: string[]) {
+    setEditingCategoryMaterialId(materialId);
+    setDraftCategoryKeys(normalizePreDDTaskKeys(keys));
+  }
+
+  function toggleDraftCategory(key: string) {
+    setDraftCategoryKeys((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : normalizePreDDTaskKeys([...current, key])
+    );
+  }
+
+  function toggleCategorySuggestion(materialId: string) {
+    setCollapsedCategorySuggestionIds((current) => {
+      const next = new Set(current);
+      if (next.has(materialId)) {
+        next.delete(materialId);
+      } else {
+        next.add(materialId);
+      }
+      return next;
+    });
+  }
+
   return (
     <Section title="项目材料">
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1105,12 +1225,18 @@ function DealMaterialsPanel({
         <div className="space-y-2">
           {materials.map((material) => {
             const deleting = deletingMaterialId === material.id;
-            const confirmedKeys = material.confirmed_pre_dd_task_keys ?? material.pre_dd_task_keys ?? [];
-            const suggestedKeys = (material.suggested_pre_dd_task_keys ?? []).filter(
-              (key) => Boolean(PRE_DD_TASK_LABELS[key])
+            const confirmedKeys = normalizePreDDTaskKeys(material.confirmed_pre_dd_task_keys ?? material.pre_dd_task_keys ?? []);
+            const suggestedKeys = normalizePreDDTaskKeys(material.suggested_pre_dd_task_keys ?? []);
+            const rejectedKeys = normalizePreDDTaskKeys(material.rejected_pre_dd_task_keys ?? []).filter(
+              (key) => !confirmedKeys.includes(key)
             );
-            const pendingSuggestedKeys = suggestedKeys.filter((key) => !confirmedKeys.includes(key));
+            const pendingSuggestedKeys = suggestedKeys.filter(
+              (key) => !confirmedKeys.includes(key) && !rejectedKeys.includes(key)
+            );
+            const suggestionDecisionKeys = normalizePreDDTaskKeys([...suggestedKeys, ...rejectedKeys]);
             const confirmingCategories = categoryConfirmingMaterialId === material.id;
+            const editingCategories = editingCategoryMaterialId === material.id;
+            const categorySuggestionCollapsed = collapsedCategorySuggestionIds.has(material.id);
             return (
             <div
               key={material.id}
@@ -1191,7 +1317,17 @@ function DealMaterialsPanel({
                     material.material_category_suggestion.is_background
                   )}`}
                 >
-                  <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={!categorySuggestionCollapsed}
+                    onClick={() => toggleCategorySuggestion(material.id)}
+                    className="flex w-full flex-wrap items-center gap-2 text-left"
+                  >
+                    {categorySuggestionCollapsed ? (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    )}
                     <span className="font-semibold">建议归类</span>
                     <span className="rounded-full bg-white/80 px-2 py-0.5 font-semibold">
                       {material.material_category_suggestion.title}
@@ -1199,56 +1335,194 @@ function DealMaterialsPanel({
                     <span className="text-[11px] opacity-75">
                       置信度 {MATERIAL_CATEGORY_CONFIDENCE_LABELS[material.material_category_suggestion.confidence]}
                     </span>
-                  </div>
-                  <div className="mt-0.5 opacity-80">{material.material_category_suggestion.reason}</div>
+                    <span className="ml-auto text-[11px] font-semibold opacity-75">
+                      {categorySuggestionCollapsed ? "展开" : "收起"}
+                    </span>
+                  </button>
+                  {!categorySuggestionCollapsed && (
+                    <div className="mt-0.5 opacity-80">{material.material_category_suggestion.reason}</div>
+                  )}
                 </div>
               )}
               {showCategorySuggestion && suggestedKeys.length > 0 && (
                 <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold">建议归类</span>
-                    {suggestedKeys.map((key) => (
-                      <span
-                        key={key}
-                        className={`rounded-full px-2 py-0.5 font-semibold ${
-                          confirmedKeys.includes(key) ? "bg-white text-blue-500" : "bg-white text-blue-700"
-                        }`}
-                      >
-                        {PRE_DD_TASK_LABELS[key] ?? key}
-                      </span>
-                    ))}
-                    {pendingSuggestedKeys.length > 0 ? (
-                      <button
-                        type="button"
-                        disabled={confirmingCategories}
-                        onClick={() => onConfirmCategories(material.id, suggestedKeys)}
-                        className="ml-auto inline-flex h-7 items-center rounded-md border border-blue-200 bg-white px-2 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:text-blue-300"
-                      >
-                        {confirmingCategories ? "确认中..." : "确认归类"}
-                      </button>
+                  <button
+                    type="button"
+                    aria-expanded={!categorySuggestionCollapsed}
+                    onClick={() => toggleCategorySuggestion(material.id)}
+                    className="mb-1 flex w-full flex-wrap items-center gap-2 text-left font-semibold"
+                  >
+                    {categorySuggestionCollapsed ? (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                     ) : (
-                      <span className="ml-auto text-[11px] font-semibold text-blue-500">已确认</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                     )}
-                  </div>
-                  {pendingSuggestedKeys.length > 0 && (
-                    <div className="mt-0.5 text-blue-600">
-                      确认后，该材料会出现在对应的 Pre-DD 资料类别中。
-                    </div>
+                    <span>建议归类</span>
+                    <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] text-blue-700">
+                      {suggestedKeys.length} 个建议
+                    </span>
+                    {pendingSuggestedKeys.length > 0 && (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                        {pendingSuggestedKeys.length} 个待处理
+                      </span>
+                    )}
+                    <span className="ml-auto text-[11px] text-blue-600">
+                      {categorySuggestionCollapsed ? "展开" : "收起"}
+                    </span>
+                  </button>
+                  {!categorySuggestionCollapsed && (
+                    <>
+                      <div className="space-y-1.5">
+                        {suggestedKeys.map((key) => {
+                          const accepted = confirmedKeys.includes(key);
+                          const rejected = rejectedKeys.includes(key);
+                          return (
+                            <div key={key} className="flex flex-wrap items-center gap-2 rounded-md bg-white/80 px-2 py-1">
+                              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+                                {PRE_DD_TASK_LABELS[key] ?? key}
+                              </span>
+                              {accepted && <span className="text-[11px] font-semibold text-emerald-600">已接受</span>}
+                              {rejected && <span className="text-[11px] font-semibold text-rose-500">已拒绝</span>}
+                              {!accepted && !rejected && (
+                                <span className="text-[11px] text-blue-500">待处理</span>
+                              )}
+                              <div className="ml-auto flex items-center gap-1">
+                                {!accepted && (
+                                  <button
+                                    type="button"
+                                    disabled={confirmingCategories}
+                                    onClick={() =>
+                                      onConfirmCategories(
+                                        material.id,
+                                        normalizePreDDTaskKeys([...confirmedKeys, key]),
+                                        rejectedKeys.filter((item) => item !== key)
+                                      )
+                                    }
+                                    className="inline-flex h-6 items-center gap-1 rounded-md border border-emerald-100 bg-white px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:text-emerald-300"
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    接受
+                                  </button>
+                                )}
+                                {!rejected && (
+                                  <button
+                                    type="button"
+                                    disabled={confirmingCategories}
+                                    onClick={() =>
+                                      onConfirmCategories(
+                                        material.id,
+                                        confirmedKeys.filter((item) => item !== key),
+                                        normalizePreDDTaskKeys([...rejectedKeys, key])
+                                      )
+                                    }
+                                    className="inline-flex h-6 items-center gap-1 rounded-md border border-rose-100 bg-white px-2 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-wait disabled:text-rose-300"
+                                  >
+                                    <X className="h-3 w-3" />
+                                    拒绝
+                                  </button>
+                                )}
+                                {(accepted || rejected) && (
+                                  <button
+                                    type="button"
+                                    disabled={confirmingCategories}
+                                    onClick={() =>
+                                      onConfirmCategories(
+                                        material.id,
+                                        confirmedKeys.filter((item) => item !== key),
+                                        rejectedKeys.filter((item) => item !== key)
+                                      )
+                                    }
+                                    className="inline-flex h-6 items-center rounded-md px-2 text-[11px] font-semibold text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-wait disabled:text-slate-300"
+                                  >
+                                    撤销
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {pendingSuggestedKeys.length > 0 && (
+                        <div className="mt-0.5 text-blue-600">
+                          可逐项接受或拒绝；接受后，该材料会出现在对应的 Pre-DD 资料类别中。
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
-              {(material.pre_dd_task_keys ?? []).length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {(material.pre_dd_task_keys ?? []).slice(0, 6).map((key) => (
-                    <span
-                      key={key}
-                      className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
-                    >
-                      {PRE_DD_TASK_LABELS[key] ?? key}
-                    </span>
-                  ))}
+              <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs leading-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-slate-700">当前归类</span>
+                  {confirmedKeys.length > 0 ? (
+                    confirmedKeys.map((key) => (
+                      <span
+                        key={key}
+                        className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                      >
+                        {PRE_DD_TASK_LABELS[key] ?? key}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-slate-400">暂未归入 Pre-DD 类别</span>
+                  )}
+                  <button
+                    type="button"
+                    disabled={confirmingCategories}
+                    onClick={() => startEditingCategories(material.id, confirmedKeys)}
+                    className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-wait disabled:text-slate-300"
+                  >
+                    <Wrench className="h-3 w-3" />
+                    调整分类
+                  </button>
                 </div>
-              )}
+                {editingCategories && (
+                  <div className="mt-2 border-t border-slate-200 pt-2">
+                    <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+                      {PRE_DD_TASK_KEYS.map((key) => {
+                        const selected = draftCategoryKeys.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => toggleDraftCategory(key)}
+                            className={`h-8 rounded-md border px-2 text-left text-[11px] font-semibold transition ${
+                              selected
+                                ? "border-blue-200 bg-blue-600 text-white"
+                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                            }`}
+                          >
+                            {PRE_DD_TASK_LABELS[key]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-2 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingCategoryMaterialId(null)}
+                        className="h-7 rounded-md px-2 text-[11px] font-semibold text-slate-500 hover:bg-slate-100"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        disabled={confirmingCategories}
+                        onClick={() => {
+                          const nextRejectedKeys = suggestionDecisionKeys.filter(
+                            (key) => !draftCategoryKeys.includes(key)
+                          );
+                          onConfirmCategories(material.id, draftCategoryKeys, nextRejectedKeys);
+                          setEditingCategoryMaterialId(null);
+                        }}
+                        className="h-7 rounded-md bg-blue-600 px-2 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-300"
+                      >
+                        {confirmingCategories ? "保存中..." : "保存分类"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               {material.warnings.length > 0 && (
                 <div className="mt-2 text-xs text-amber-600">{material.warnings.join("；")}</div>
               )}
@@ -1309,56 +1583,570 @@ function DealMarketSignalsPanel({
   );
 }
 
-function PreDDBriefCard({ report, updatedAt }: { report: DDReport; updatedAt?: string }) {
-  const brief = report.brief;
-  if (!brief) return null;
+function formatMeetingTime(seconds?: number | null) {
+  const total = Math.max(0, Math.floor(seconds ?? 0));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function normalizePreDDMeetingQuestions(items: unknown): PreDDMeetingQuestion[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      if (typeof item === "string") {
+        const question = item.trim();
+        return question
+          ? {
+              question,
+              purpose: "该问题用于补充当前 Pre-DD 资料缺口，并帮助投资团队在会后更新项目判断。",
+            }
+          : null;
+      }
+      if (item && typeof item === "object") {
+        const value = item as { question?: unknown; purpose?: unknown };
+        const question = String(value.question ?? "").trim();
+        const purpose = String(value.purpose ?? "").trim();
+        return question
+          ? {
+              question,
+              purpose:
+                purpose ||
+                "该问题用于补充当前 Pre-DD 资料缺口，并帮助投资团队在会后更新项目判断。",
+            }
+          : null;
+      }
+      return null;
+    })
+    .filter((item): item is PreDDMeetingQuestion => item !== null);
+}
+
+type MeetingTranscriptSegmentInput = {
+  start_seconds: number;
+  end_seconds: number;
+  text: string;
+};
+
+function MeetingMinutesPanel({
+  minutes,
+  busy,
+  error,
+  exportingId,
+  onCreateMinutes,
+  onExportMinutes,
+}: {
+  minutes: DealMeetingMinutes[];
+  busy: boolean;
+  error: string | null;
+  exportingId: string | null;
+  onCreateMinutes: (
+    file: File | Blob,
+    options: {
+      filename?: string;
+      mode: "upload" | "live";
+      transcriptText?: string;
+      transcriptSegments?: MeetingTranscriptSegmentInput[];
+      durationSeconds?: number;
+    }
+  ) => Promise<void>;
+  onExportMinutes: (minutes: DealMeetingMinutes) => void;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(minutes[0]?.id ?? null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [liveTranscriptPreview, setLiveTranscriptPreview] = useState("");
+  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  const [pendingJump, setPendingJump] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef<number>(0);
+  const transcriptSegmentsRef = useRef<MeetingTranscriptSegmentInput[]>([]);
+  const transcriptTextRef = useRef("");
+  const recognitionRef = useRef<{ stop: () => void; start: () => void } | null>(null);
+
+  const selected = minutes.find((item) => item.id === selectedId) ?? minutes[0] ?? null;
+
+  useEffect(() => {
+    if (minutes.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => (current && minutes.some((item) => item.id === current) ? current : minutes[0].id));
+  }, [minutes]);
+
+  useEffect(() => {
+    let revokedUrl: string | null = null;
+    setAudioError(null);
+    setAudioUrl(null);
+    if (!selected?.audio_url) return undefined;
+    createAuthorizedObjectUrl(selected.audio_url)
+      .then((url) => {
+        revokedUrl = url;
+        setAudioUrl(url);
+      })
+      .catch((err) => setAudioError(err instanceof Error ? err.message : "录音加载失败"));
+    return () => {
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl);
+    };
+  }, [selected?.audio_url]);
+
+  useEffect(() => {
+    if (audioUrl && pendingJump !== null && audioRef.current) {
+      audioRef.current.currentTime = pendingJump;
+      void audioRef.current.play().catch(() => undefined);
+      setPendingJump(null);
+    }
+  }, [audioUrl, pendingJump]);
+
+  function jumpTo(item: DealMeetingMinutes, seconds: number) {
+    setSelectedId(item.id);
+    setPendingJump(seconds);
+    if (selected?.id === item.id && audioRef.current) {
+      audioRef.current.currentTime = seconds;
+      void audioRef.current.play().catch(() => undefined);
+      setPendingJump(null);
+    }
+  }
+
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    await onCreateMinutes(file, { mode: "upload", filename: file.name });
+  }
+
+  async function startRecording() {
+    if (recording || busy) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    mediaStreamRef.current = stream;
+    audioChunksRef.current = [];
+    transcriptSegmentsRef.current = [];
+    transcriptTextRef.current = "";
+    setLiveTranscriptPreview("");
+    recordingStartedAtRef.current = Date.now();
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) audioChunksRef.current.push(event.data);
+    };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      recognitionRef.current?.stop();
+      const durationSeconds = (Date.now() - recordingStartedAtRef.current) / 1000;
+      const blob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
+      void onCreateMinutes(blob, {
+        mode: "live",
+        filename: `meeting-${Date.now()}.webm`,
+        transcriptText: transcriptTextRef.current,
+        transcriptSegments: transcriptSegmentsRef.current,
+        durationSeconds,
+      });
+    };
+    mediaRecorderRef.current = recorder;
+    const SpeechRecognitionCtor =
+      (window as unknown as { SpeechRecognition?: new () => any; webkitSpeechRecognition?: new () => any })
+        .SpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: new () => any; webkitSpeechRecognition?: new () => any })
+        .webkitSpeechRecognition;
+    setSpeechSupported(Boolean(SpeechRecognitionCtor));
+    if (SpeechRecognitionCtor) {
+      const recognition = new SpeechRecognitionCtor();
+      recognition.lang = "zh-CN";
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.onresult = (event: any) => {
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          if (!result?.isFinal) continue;
+          const text = String(result[0]?.transcript || "").trim();
+          if (!text) continue;
+          const end = (Date.now() - recordingStartedAtRef.current) / 1000;
+          const start = Math.max(0, end - 8);
+          transcriptSegmentsRef.current.push({ start_seconds: start, end_seconds: end, text });
+          transcriptTextRef.current = `${transcriptTextRef.current} ${text}`.trim();
+          setLiveTranscriptPreview(transcriptTextRef.current);
+        }
+      };
+      recognition.onerror = () => setSpeechSupported(false);
+      recognition.start();
+      recognitionRef.current = recognition;
+    }
+    recorder.start(1000);
+    setRecording(true);
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    setRecording(false);
+    mediaRecorderRef.current?.stop();
+  }
+
+  return (
+    <Section title="会议纪要">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700">
+          <Upload className="h-4 w-4" />
+          上传录音
+          <input
+            type="file"
+            accept="audio/*,video/mp4"
+            disabled={busy || recording}
+            onChange={(event) => void handleUpload(event)}
+            className="sr-only"
+          />
+        </label>
+        {recording ? (
+          <button
+            type="button"
+            onClick={stopRecording}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"
+          >
+            <Square className="h-4 w-4" />
+            停止录音
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void startRecording()}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            <Mic className="h-4 w-4" />
+            实时录音
+          </button>
+        )}
+        {busy && <span className="text-xs text-slate-400">正在生成会议纪要...</span>}
+        {error && <span className="text-xs text-rose-500">{error}</span>}
+      </div>
+
+      {recording && (
+        <div className="mb-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+          正在录音。{speechSupported === false ? "当前浏览器未提供实时语音转写，系统会保存录音并生成待转写纪要。" : "系统会同步捕获转写片段用于生成可跳转纪要。"}
+          {liveTranscriptPreview && <div className="mt-1 text-slate-600">{liveTranscriptPreview.slice(-160)}</div>}
+        </div>
+      )}
+
+      {selected && (
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="font-semibold text-slate-700">{selected.audio_filename}</span>
+            <span>{selected.mode === "live" ? "实时录音" : "上传录音"}</span>
+            {selected.duration_seconds ? <span>{formatMeetingTime(selected.duration_seconds)}</span> : null}
+            {audioError && <span className="text-rose-500">{audioError}</span>}
+          </div>
+          {audioUrl && <audio ref={audioRef} src={audioUrl} controls className="w-full" />}
+        </div>
+      )}
+
+      {minutes.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
+          暂无会议纪要。可上传历史录音，或点击实时录音开始记录会议。
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {minutes.map((item) => (
+            <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-bold text-slate-900">{item.title}</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                    <span>{formatBriefTime(item.created_at)}</span>
+                    <span>{item.mode === "live" ? "实时录音" : "上传录音"}</span>
+                    <span>{item.qa_pairs.length} 个 QA</span>
+                    <span>{item.key_infos.length} 条关键信息</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={exportingId === item.id}
+                  onClick={() => onExportMinutes(item)}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-white px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-wait disabled:text-blue-300"
+                >
+                  <Download className="h-4 w-4" />
+                  {exportingId === item.id ? "导出中..." : item.generated_file ? "重新导出 Word" : "导出 Word"}
+                </button>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{item.summary}</p>
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-xs font-semibold text-slate-400">关键信息</div>
+                  <div className="space-y-2">
+                    {item.key_infos.map((info, index) => (
+                      <button
+                        key={`${info.title}-${index}`}
+                        type="button"
+                        onClick={() => jumpTo(item, info.start_seconds)}
+                        className="block w-full rounded-lg bg-slate-50 px-3 py-2 text-left text-sm leading-6 text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="font-semibold">{formatMeetingTime(info.start_seconds)}</span>
+                          <span className="font-semibold">{info.title}</span>
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">{info.summary}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-semibold text-slate-400">关键问题 QA</div>
+                  <div className="space-y-2">
+                    {item.qa_pairs.map((qa, index) => (
+                      <button
+                        key={`${qa.question}-${index}`}
+                        type="button"
+                        onClick={() => jumpTo(item, qa.start_seconds)}
+                        className="block w-full rounded-lg bg-slate-50 px-3 py-2 text-left text-sm leading-6 text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>{formatMeetingTime(qa.start_seconds)}</span>
+                        </div>
+                        <div className="mt-1 font-semibold">Q：{qa.question}</div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">A：{qa.answer}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {item.generated_file && (
+                <button
+                  type="button"
+                  onClick={() => void downloadGeneratedFile(item.generated_file!)}
+                  className="mt-3 inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" />
+                  下载已导出 Word
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function PreDDBriefCard({
+  report,
+  updatedAt,
+  evidenceItems = [],
+  deliverableId,
+  updatingQuestions,
+  questionUpdateError,
+  exportingReport,
+  reportExportError,
+  onUpdateMeetingQuestions,
+  onExportReport,
+}: {
+  report: DDReport;
+  updatedAt?: string;
+  evidenceItems?: EvidenceItem[];
+  deliverableId?: string;
+  updatingQuestions?: boolean;
+  questionUpdateError?: string | null;
+  exportingReport?: boolean;
+  reportExportError?: string | null;
+  onUpdateMeetingQuestions?: (deliverableId: string, questions: PreDDMeetingQuestion[]) => Promise<void>;
+  onExportReport?: (deliverableId: string) => void;
+}) {
+  const preDDReport = report.report;
+  const [evidenceDialog, setEvidenceDialog] = useState<EvidenceDialogState | null>(null);
+  const [questionDrafts, setQuestionDrafts] = useState<PreDDMeetingQuestion[]>([]);
+  const [questionSaved, setQuestionSaved] = useState(false);
+  const evidenceById = useMemo(
+    () => new Map(evidenceItems.map((item) => [item.id, item])),
+    [evidenceItems]
+  );
+  useEffect(() => {
+    setQuestionDrafts(normalizePreDDMeetingQuestions(preDDReport?.meeting_questions));
+    setQuestionSaved(false);
+  }, [preDDReport?.meeting_questions, deliverableId]);
+  if (!preDDReport) return null;
+  const canPersistQuestions = Boolean(deliverableId && deliverableId !== "latest" && onUpdateMeetingQuestions);
+  const canExportReport = Boolean(deliverableId && deliverableId !== "latest" && onExportReport);
+  const updateQuestionDraft = (
+    index: number,
+    key: keyof PreDDMeetingQuestion,
+    value: string
+  ) => {
+    setQuestionSaved(false);
+    setQuestionDrafts((items) =>
+      items.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item))
+    );
+  };
+  const addQuestionDraft = () => {
+    setQuestionSaved(false);
+    setQuestionDrafts((items) => [
+      ...items,
+      {
+        question: "",
+        purpose: "",
+      },
+    ]);
+  };
+  const removeQuestionDraft = (index: number) => {
+    setQuestionSaved(false);
+    setQuestionDrafts((items) => items.filter((_, itemIndex) => itemIndex !== index));
+  };
+  const saveQuestionDrafts = async () => {
+    if (!deliverableId || !onUpdateMeetingQuestions) return;
+    const cleaned = questionDrafts
+      .map((item) => ({
+        question: item.question.trim(),
+        purpose: item.purpose.trim(),
+      }))
+      .filter((item) => item.question && item.purpose);
+    await onUpdateMeetingQuestions(deliverableId, cleaned);
+    setQuestionDrafts(cleaned);
+    setQuestionSaved(true);
+  };
+  const overviewItems = [
+    ["成立时间", preDDReport.project_overview.founded_at],
+    ["地域", preDDReport.project_overview.region],
+    ["主营业务", preDDReport.project_overview.main_business],
+    ["估值", preDDReport.project_overview.valuation],
+  ] as const;
   return (
     <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-bold text-slate-950">Pre-DD Breif</div>
+          <div className="text-sm font-bold text-slate-950">Pre-DD Report</div>
           <div className="mt-0.5 text-xs text-slate-500">
             {report.company_name}
             {updatedAt ? ` · ${formatBriefTime(updatedAt)}` : ""}
           </div>
         </div>
-      </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="space-y-3">
-          <div>
-            <div className="mb-1 text-xs font-semibold text-slate-400">项目概览</div>
-            <BriefClaimList claims={[brief.project_overview]} />
-          </div>
-          <div>
-            <div className="mb-1 text-xs font-semibold text-slate-400">机构匹配度</div>
-            <BriefClaimList claims={[brief.fit_summary]} />
-          </div>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <div className="mb-1 text-xs font-semibold text-slate-400">核心亮点</div>
-            <BriefClaimList claims={brief.key_highlights} />
-          </div>
-          <div>
-            <div className="mb-1 text-xs font-semibold text-slate-400">Top 风险</div>
-            <BriefClaimList claims={brief.top_risks} />
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {reportExportError && <span className="text-xs text-rose-500">{reportExportError}</span>}
+          <button
+            type="button"
+            disabled={!canExportReport || exportingReport}
+            onClick={() => {
+              if (deliverableId) onExportReport?.(deliverableId);
+            }}
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-white px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+          >
+            <Download className="h-4 w-4" />
+            {exportingReport ? "导出中..." : "导出 Word"}
+          </button>
         </div>
       </div>
-      {brief.priority_questions.length > 0 && (
-        <div className="mt-3">
-          <div className="mb-1 text-xs font-semibold text-slate-400">待验证问题</div>
-          <ul className="ml-4 list-disc text-sm leading-6 text-slate-700">
-            {brief.priority_questions.map((question, index) => (
-              <li key={index}>{question}</li>
+      <div className="space-y-4">
+        <div>
+          <div className="mb-2 text-xs font-semibold text-slate-400">项目概览</div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {overviewItems.map(([label, claim]) => (
+              <div key={label} className="rounded-lg bg-white/80 px-3 py-2">
+                <div className="text-[11px] font-semibold text-slate-400">{label}</div>
+                <div className="mt-1 text-sm leading-5 text-slate-700">{claim.text.replace(`${label}：`, "")}</div>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
-      )}
-      <div className="mt-3">
-        <div className="mb-1 text-xs font-semibold text-slate-400">建议下一步</div>
-        <BriefClaimList claims={brief.recommended_next_steps} />
+        <div>
+          <div className="mb-1 text-xs font-semibold text-slate-400">机构匹配度</div>
+          <ReportClaimList
+            claims={[preDDReport.fit_summary]}
+            evidenceTitle="机构匹配度"
+            evidenceById={evidenceById}
+            onOpenEvidence={setEvidenceDialog}
+          />
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div>
+            <div className="mb-1 text-xs font-semibold text-slate-400">价值点</div>
+            <ReportClaimList
+              claims={preDDReport.value_points}
+              evidenceTitle="价值点"
+              evidenceById={evidenceById}
+              onOpenEvidence={setEvidenceDialog}
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-semibold text-slate-400">风险点</div>
+            <ReportClaimList
+              claims={preDDReport.risk_points}
+              evidenceTitle="风险点"
+              evidenceById={evidenceById}
+              onOpenEvidence={setEvidenceDialog}
+            />
+          </div>
+        </div>
+        {(
+          <div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-slate-400">推荐会议问题列表</div>
+              <div className="flex flex-wrap items-center gap-2">
+                {questionSaved && <span className="text-xs text-emerald-600">已保存</span>}
+                {questionUpdateError && <span className="text-xs text-rose-500">{questionUpdateError}</span>}
+                <button
+                  type="button"
+                  onClick={addQuestionDraft}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-white px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  新增问题
+                </button>
+                <button
+                  type="button"
+                  disabled={!canPersistQuestions || updatingQuestions}
+                  onClick={() => void saveQuestionDrafts()}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg bg-blue-600 px-2.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  <Check className="h-4 w-4" />
+                  {updatingQuestions ? "保存中..." : "保存问题"}
+                </button>
+              </div>
+            </div>
+            <ol className="space-y-2 text-sm leading-6 text-slate-700">
+              {questionDrafts.length === 0 ? (
+                <li className="rounded-lg border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-sm text-slate-400">
+                  暂无会议问题，可点击「新增问题」手动添加。
+                </li>
+              ) : questionDrafts.map((item, index) => (
+                <li key={index} className="rounded-lg bg-white/80 px-3 py-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-blue-500">问题 {index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeQuestionDraft(index)}
+                      className="inline-flex h-7 items-center gap-1 rounded-lg border border-rose-100 px-2 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      删除
+                    </button>
+                  </div>
+                  <label className="block">
+                    <span className="text-[11px] font-semibold text-slate-400">提问方式</span>
+                    <textarea
+                      value={item.question}
+                      onChange={(event) => updateQuestionDraft(index, "question", event.target.value)}
+                      rows={2}
+                      placeholder="例如：您能否提供详细的股权分配明细？"
+                      className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label className="mt-2 block">
+                    <span className="text-[11px] font-semibold text-slate-400">预期目的</span>
+                    <textarea
+                      value={item.purpose}
+                      onChange={(event) => updateQuestionDraft(index, "purpose", event.target.value)}
+                      rows={2}
+                      placeholder="例如：该问题预期能收集到股权分配信息，有助于分析控制权结构和潜在治理风险。"
+                      className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
       </div>
+      {evidenceDialog && <EvidencePanel state={evidenceDialog} onClose={() => setEvidenceDialog(null)} />}
     </div>
   );
 }
@@ -1456,18 +2244,30 @@ function PreDDBriefPanel({
   briefHistoryBusy,
   briefBusy,
   briefError,
+  questionUpdatingId,
+  questionUpdateError,
+  reportExportingId,
+  reportExportError,
   selectedBriefId,
   onSelectedBriefChange,
   onGenerateBrief,
+  onUpdateMeetingQuestions,
+  onExportReport,
 }: {
   briefReport: DDReport | null;
   briefHistory: PreDDBriefHistoryItem[];
   briefHistoryBusy: boolean;
   briefBusy: boolean;
   briefError: string | null;
+  questionUpdatingId: string | null;
+  questionUpdateError: string | null;
+  reportExportingId: string | null;
+  reportExportError: string | null;
   selectedBriefId: string | null;
   onSelectedBriefChange: (deliverableId: string) => void;
   onGenerateBrief: () => void;
+  onUpdateMeetingQuestions: (deliverableId: string, questions: PreDDMeetingQuestion[]) => Promise<void>;
+  onExportReport: (deliverableId: string) => void;
 }) {
   const briefs =
     briefHistory.length > 0
@@ -1477,6 +2277,7 @@ function PreDDBriefPanel({
             deliverable_id: "latest",
             type: "dd_report" as const,
             payload: briefReport,
+            evidence_items: [],
             created_at: "",
             updated_at: "",
           }]
@@ -1485,7 +2286,7 @@ function PreDDBriefPanel({
     briefs.find((item) => item.deliverable_id === selectedBriefId) ?? briefs[0] ?? null;
 
   return (
-    <Section title="Pre-DD Breif">
+    <Section title="Pre-DD Report">
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -1494,20 +2295,20 @@ function PreDDBriefPanel({
           className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           <FileText className="h-4 w-4" />
-          {briefBusy ? "生成中..." : "生成 Pre-DD Breif"}
+          {briefBusy ? "生成中..." : "生成 Pre-DD Report"}
         </button>
         {briefError && <span className="text-xs text-rose-500">{briefError}</span>}
       </div>
 
       {briefHistoryBusy ? (
-        <div className="mt-4 text-sm text-slate-400">加载 Breif 历史中...</div>
+        <div className="mt-4 text-sm text-slate-400">加载 Report 历史中...</div>
       ) : briefs.length === 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
-          暂无已生成的 Pre-DD Breif。
+          暂无已生成的 Pre-DD Report。
         </div>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Pre-DD Breif 版本">
+          <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Pre-DD Report 版本">
             {briefs.map((item, index) => {
               const active = item.deliverable_id === selectedBrief?.deliverable_id;
               const versionNumber = briefs.length - index;
@@ -1538,6 +2339,14 @@ function PreDDBriefPanel({
             <PreDDBriefCard
               report={selectedBrief.payload}
               updatedAt={selectedBrief.updated_at}
+              evidenceItems={selectedBrief.evidence_items ?? []}
+              deliverableId={selectedBrief.deliverable_id}
+              updatingQuestions={questionUpdatingId === selectedBrief.deliverable_id}
+              questionUpdateError={questionUpdateError}
+              exportingReport={reportExportingId === selectedBrief.deliverable_id}
+              reportExportError={reportExportError}
+              onUpdateMeetingQuestions={onUpdateMeetingQuestions}
+              onExportReport={onExportReport}
             />
           )}
         </>
@@ -1592,7 +2401,15 @@ export function DealDetailPanel({
   const [briefHistoryBusy, setBriefHistoryBusy] = useState(false);
   const [briefBusy, setBriefBusy] = useState(false);
   const [briefError, setBriefError] = useState<string | null>(null);
+  const [questionUpdatingId, setQuestionUpdatingId] = useState<string | null>(null);
+  const [questionUpdateError, setQuestionUpdateError] = useState<string | null>(null);
+  const [reportExportingId, setReportExportingId] = useState<string | null>(null);
+  const [reportExportError, setReportExportError] = useState<string | null>(null);
   const [selectedBriefId, setSelectedBriefId] = useState<string | null>(null);
+  const [meetingMinutes, setMeetingMinutes] = useState<DealMeetingMinutes[]>(detail.data.meeting_minutes ?? []);
+  const [meetingBusy, setMeetingBusy] = useState(false);
+  const [meetingError, setMeetingError] = useState<string | null>(null);
+  const [meetingExportingId, setMeetingExportingId] = useState<string | null>(null);
   const autoMarketSignalDealRef = useRef<string | null>(null);
 
   const handleCollectMarketSignals = useCallback(async (options: { auto?: boolean } = {}) => {
@@ -1629,7 +2446,11 @@ export function DealDetailPanel({
     setMaterialSearchResults([]);
     setMaterialSearchError(null);
     setMaterialSearchBusy(false);
-  }, [detail.id, detail.materials, detail.data.market_signals]);
+    setMeetingMinutes(detail.data.meeting_minutes ?? []);
+    setMeetingError(null);
+    setMeetingBusy(false);
+    setMeetingExportingId(null);
+  }, [detail.id, detail.materials, detail.data.market_signals, detail.data.meeting_minutes]);
 
   useEffect(() => {
     const hasExistingSignals = (detail.data.market_signals ?? []).length > 0;
@@ -1647,6 +2468,10 @@ export function DealDetailPanel({
     setBriefHistory([]);
     setBriefError(null);
     setBriefBusy(false);
+    setQuestionUpdatingId(null);
+    setQuestionUpdateError(null);
+    setReportExportingId(null);
+    setReportExportError(null);
     setSelectedBriefId(null);
   }, [detail.id]);
 
@@ -1700,6 +2525,7 @@ export function DealDetailPanel({
             deliverable_id: response.deliverable_id,
             type: "dd_report",
             payload: response.payload,
+            evidence_items: response.evidence_items ?? [],
             created_at: "",
             updated_at: "",
           },
@@ -1707,9 +2533,91 @@ export function DealDetailPanel({
         ]);
       }
     } catch (error) {
-      setBriefError(error instanceof ApiError ? error.message : "生成 Pre-DD Breif 失败");
+      setBriefError(error instanceof ApiError ? error.message : "生成 Pre-DD Report 失败");
     } finally {
       setBriefBusy(false);
+    }
+  }
+
+  async function handleUpdateMeetingQuestions(
+    deliverableId: string,
+    questions: PreDDMeetingQuestion[]
+  ) {
+    setQuestionUpdatingId(deliverableId);
+    setQuestionUpdateError(null);
+    try {
+      const response = await updatePreDDMeetingQuestions(detail.id, deliverableId, questions);
+      setBriefReport(response.payload);
+      setBriefHistory((items) =>
+        items.map((item) =>
+          item.deliverable_id === deliverableId
+            ? {
+                ...item,
+                payload: response.payload,
+                evidence_items: response.evidence_items ?? item.evidence_items,
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      setQuestionUpdateError(error instanceof ApiError ? error.message : "保存会议问题失败");
+      throw error;
+    } finally {
+      setQuestionUpdatingId(null);
+    }
+  }
+
+  async function handleExportPreDDReport(deliverableId: string) {
+    setReportExportingId(deliverableId);
+    setReportExportError(null);
+    try {
+      const response = await exportPreDDReport(detail.id, deliverableId);
+      await downloadGeneratedFile(response.file);
+    } catch (error) {
+      setReportExportError(error instanceof ApiError ? error.message : "导出 Pre-DD Report 失败");
+    } finally {
+      setReportExportingId(null);
+    }
+  }
+
+  async function handleCreateMeetingMinutes(
+    file: File | Blob,
+    options: {
+      filename?: string;
+      mode: "upload" | "live";
+      transcriptText?: string;
+      transcriptSegments?: { start_seconds: number; end_seconds: number; text: string }[];
+      durationSeconds?: number;
+    }
+  ) {
+    setMeetingBusy(true);
+    setMeetingError(null);
+    try {
+      const response = await createMeetingMinutes(detail.id, file, options);
+      setMeetingMinutes((items) => [
+        response.minutes,
+        ...items.filter((item) => item.id !== response.minutes.id),
+      ]);
+    } catch (error) {
+      setMeetingError(error instanceof ApiError ? error.message : "生成会议纪要失败");
+    } finally {
+      setMeetingBusy(false);
+    }
+  }
+
+  async function handleExportMeetingMinutes(minutes: DealMeetingMinutes) {
+    setMeetingExportingId(minutes.id);
+    setMeetingError(null);
+    try {
+      const response = await exportMeetingMinutes(detail.id, minutes.id);
+      setMeetingMinutes((items) =>
+        items.map((item) => (item.id === minutes.id ? response.minutes : item))
+      );
+      await downloadGeneratedFile(response.file);
+    } catch (error) {
+      setMeetingError(error instanceof ApiError ? error.message : "导出会议纪要失败");
+    } finally {
+      setMeetingExportingId(null);
     }
   }
 
@@ -1810,13 +2718,16 @@ export function DealDetailPanel({
     }
   }
 
-  async function handleConfirmMaterialCategories(documentId: string, taskKeys: string[]) {
-    if (taskKeys.length === 0) return;
+  async function handleConfirmMaterialCategories(
+    documentId: string,
+    taskKeys: string[],
+    rejectedTaskKeys: string[] = []
+  ) {
     setCategoryConfirmingMaterialId(documentId);
     setMaterialError(null);
     setPreDDMaterialUploadError(null);
     try {
-      const material = await confirmDealMaterialCategories(detail.id, documentId, taskKeys);
+      const material = await confirmDealMaterialCategories(detail.id, documentId, taskKeys, rejectedTaskKeys);
       setMaterials((items) => items.map((item) => (item.id === material.id ? material : item)));
       await onMaterialUploaded?.();
     } catch (error) {
@@ -1909,7 +2820,9 @@ export function DealDetailPanel({
         onSearchQueryChange={setMaterialSearchQuery}
         onSearch={handleSearchMaterials}
         onDelete={(documentId) => void handleDeleteMaterial(documentId)}
-        onConfirmCategories={(documentId, taskKeys) => void handleConfirmMaterialCategories(documentId, taskKeys)}
+        onConfirmCategories={(documentId, taskKeys, rejectedTaskKeys) =>
+          void handleConfirmMaterialCategories(documentId, taskKeys, rejectedTaskKeys)
+        }
       />
 
       <DealMarketSignalsPanel
@@ -1919,6 +2832,15 @@ export function DealDetailPanel({
         error={marketSignalError}
         onCategoryChange={setMarketSignalCategory}
         onRefresh={() => void handleCollectMarketSignals()}
+      />
+
+      <MeetingMinutesPanel
+        minutes={meetingMinutes}
+        busy={meetingBusy}
+        error={meetingError}
+        exportingId={meetingExportingId}
+        onCreateMinutes={handleCreateMeetingMinutes}
+        onExportMinutes={(minutes) => void handleExportMeetingMinutes(minutes)}
       />
 
       {a.fit_score && (
@@ -1949,9 +2871,15 @@ export function DealDetailPanel({
             briefHistoryBusy={briefHistoryBusy}
             briefBusy={briefBusy}
             briefError={briefError}
+            questionUpdatingId={questionUpdatingId}
+            questionUpdateError={questionUpdateError}
+            reportExportingId={reportExportingId}
+            reportExportError={reportExportError}
             selectedBriefId={selectedBriefId}
             onSelectedBriefChange={setSelectedBriefId}
             onGenerateBrief={handleGenerateBrief}
+            onUpdateMeetingQuestions={handleUpdateMeetingQuestions}
+            onExportReport={handleExportPreDDReport}
           />
         </>
       )}
@@ -1984,6 +2912,9 @@ export default function WorkspacePage() {
   const [filter, setFilter] = useState<string>("all");
   const [listSearchQuery, setListSearchQuery] = useState("");
   const [deals, setDeals] = useState<DealSummary[]>([]);
+  const [selectedDealIds, setSelectedDealIds] = useState<Set<string>>(() => new Set());
+  const [dealExportBusy, setDealExportBusy] = useState(false);
+  const [dealExportError, setDealExportError] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [detail, setDetail] = useState<DealDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -2017,12 +2948,29 @@ export default function WorkspacePage() {
     return `当前项目库共 ${deals.length} 个项目，筛选器：${FILTERS.find((item) => item.key === filter)?.label ?? filter}${queryText}`;
   }, [deals.length, detail, filter, listSearchQuery]);
 
+  const assistantReferences = useMemo<MessageReference[]>(() => {
+    if (!detail) return [];
+    const title = detail.company?.name ?? detail.data.extraction.company_name ?? "未命名项目";
+    return [
+      {
+        kind: "deal",
+        id: detail.id,
+        title,
+        subtitle: detail.data.analysis.portrait ?? STATUS_META[detail.status]?.label ?? detail.status,
+      },
+    ];
+  }, [detail]);
+
   const refreshList = useCallback(async () => {
     const f = FILTERS.find((x) => x.key === filter);
     const q = listSearchQuery.trim();
     try {
       const res = await listDeals({ status: f?.status, in_library: f?.inLibrary, q: q || undefined });
       setDeals(res.items);
+      setSelectedDealIds((current) => {
+        const visibleIds = new Set(res.items.map((item) => item.id));
+        return new Set([...current].filter((id) => visibleIds.has(id)));
+      });
       setListError(null);
     } catch (e) {
       setListError(
@@ -2035,6 +2983,31 @@ export default function WorkspacePage() {
   useEffect(() => {
     void refreshList();
   }, [refreshList]);
+
+  function toggleDealSelection(id: string) {
+    setDealExportError(null);
+    setSelectedDealIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleExportDealInformation() {
+    const dealIds = [...selectedDealIds];
+    if (dealIds.length === 0) return;
+    setDealExportBusy(true);
+    setDealExportError(null);
+    try {
+      const response = await exportDealInformation(dealIds);
+      await downloadGeneratedFile(response.file);
+    } catch (error) {
+      setDealExportError(error instanceof ApiError ? error.message : "导出项目信息失败");
+    } finally {
+      setDealExportBusy(false);
+    }
+  }
 
   const loadDetail = useCallback(async (id: string) => {
     try {
@@ -2191,17 +3164,33 @@ export default function WorkspacePage() {
             ← 返回
           </a>
           <span className="text-base font-bold text-slate-900">项目库</span>
-          <button
-            type="button"
-            title="新建项目"
-            onClick={() => {
-              setCreateError(null);
-              setCreateOpen(true);
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              title="导出项目信息"
+              disabled={selectedDealIds.size === 0 || dealExportBusy}
+              onClick={() => void handleExportDealInformation()}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-white px-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+            >
+              <Download className="h-4 w-4" />
+              <span>导出</span>
+            </button>
+            <button
+              type="button"
+              title="新建项目"
+              onClick={() => {
+                setCreateError(null);
+                setCreateOpen(true);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
+          <span>{selectedDealIds.size > 0 ? `已选择 ${selectedDealIds.size} 个项目` : "勾选项目后可导出项目信息"}</span>
+          {dealExportError && <span className="text-rose-500">{dealExportError}</span>}
         </div>
         <div className="flex flex-wrap gap-1 border-b border-slate-200 px-3 py-2">
           {FILTERS.map((f) => (
@@ -2262,36 +3251,56 @@ export default function WorkspacePage() {
                   : "border-transparent hover:bg-slate-50"
               }`}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-slate-900">
-                  {d.company_name ?? "（未命名项目）"}
-                </span>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <StatusBadge status={d.status} />
-                  <button
-                    type="button"
-                    title="删除项目"
-                    aria-label={`删除${d.company_name ?? "未命名项目"}`}
-                    disabled={busy}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleDeleteDealSummary(d);
-                    }}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+              <div className="flex items-start gap-2">
+                <button
+                  type="button"
+                  title={selectedDealIds.has(d.id) ? "取消选择" : "选择项目"}
+                  aria-pressed={selectedDealIds.has(d.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleDealSelection(d.id);
+                  }}
+                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition ${
+                    selectedDealIds.has(d.id)
+                      ? "border-blue-200 bg-blue-600 text-white"
+                      : "border-slate-200 bg-white text-slate-400 hover:border-blue-200 hover:text-blue-600"
+                  }`}
+                >
+                  {selectedDealIds.has(d.id) ? <Check className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-900">
+                      {d.company_name ?? "（未命名项目）"}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <StatusBadge status={d.status} />
+                      <button
+                        type="button"
+                        title="删除项目"
+                        aria-label={`删除${d.company_name ?? "未命名项目"}`}
+                        disabled={busy}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDeleteDealSummary(d);
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {/* 已放弃项目按设计只展示名+时间，收起画像 */}
+                  {!d.is_abandoned && d.portrait && (
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-500">{d.portrait}</p>
+                  )}
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+                    {d.overall_fit != null && <span>匹配 {Math.round(d.overall_fit)}</span>}
+                    {d.is_in_library && <span className="text-emerald-500">已入库</span>}
+                    {d.is_liked && <span className="text-amber-500">关注</span>}
+                    {d.is_abandoned && <span className="text-slate-400">已放弃</span>}
+                  </div>
                 </div>
-              </div>
-              {/* 已放弃项目按设计只展示名+时间，收起画像 */}
-              {!d.is_abandoned && d.portrait && (
-                <p className="mt-1 line-clamp-2 text-xs text-slate-500">{d.portrait}</p>
-              )}
-              <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-                {d.overall_fit != null && <span>匹配 {Math.round(d.overall_fit)}</span>}
-                {d.is_in_library && <span className="text-emerald-500">已入库</span>}
-                {d.is_liked && <span className="text-amber-500">关注</span>}
-                {d.is_abandoned && <span className="text-slate-400">已放弃</span>}
               </div>
             </div>
           ))}
@@ -2334,9 +3343,10 @@ export default function WorkspacePage() {
         </section>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4">
           <PageAssistant
-            contextLabel="项目库"
+            contextLabel={detail ? "项目详情" : "项目库"}
             contextSummary={assistantContext}
-            placeholder="基于当前项目库提出需求..."
+            placeholder={detail ? "基于当前项目提出需求..." : "基于当前项目库提出需求..."}
+            references={assistantReferences}
           />
         </div>
       </main>

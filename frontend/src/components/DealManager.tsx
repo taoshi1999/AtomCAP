@@ -15,14 +15,17 @@ import {
   ArrowUp,
   Bot,
   Brain,
+  Check,
   ChevronDown,
   ChevronRight,
+  Download,
   Filter,
   Loader2,
   MessageSquare,
   Plus,
   Search,
   Sparkles,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -31,12 +34,15 @@ import {
   createDeal,
   dealAssistant,
   deleteDeal,
+  downloadGeneratedFile,
+  exportDealInformation,
   getDealDetail,
   listDeals,
   sendMessage,
   transitionDeal,
   triggerDealAction,
   updatePreDDMaterialStatus,
+  type MessageReference,
   type SseHandlers,
   type TokenUsage,
 } from "../lib/api";
@@ -54,9 +60,77 @@ const STATUS_LABEL: Record<string, string> = {
   deleted: "已删除",
 };
 
+const SOURCE_LABEL: Record<string, string> = {
+  user_input: "用户录入",
+  bp_upload: "BP 上传",
+  fa_recommendation: "FA 推荐",
+  internal_excel: "内部表格",
+  thesis_generated: "赛道推荐生成",
+  public_signal_mining: "公开信号挖掘",
+  system_push: "系统推送",
+};
+
+type DealFilterState = {
+  foundedFrom: string;
+  foundedTo: string;
+  createdFrom: string;
+  createdTo: string;
+  sourceType: string;
+  status: string;
+  region: string;
+};
+
+const EMPTY_DEAL_FILTERS: DealFilterState = {
+  foundedFrom: "",
+  foundedTo: "",
+  createdFrom: "",
+  createdTo: "",
+  sourceType: "",
+  status: "",
+  region: "",
+};
+
 function normTerm(s: string): string {
   return s.replace(/[\s_\-－]+/g, "").toLowerCase();
 }
+
+function parseDateRangeValue(value: string | null | undefined, rangeEnd = false): number | null {
+  const text = (value ?? "").trim();
+  if (!text) return null;
+  const match = text.match(/(\d{4})(?:[-年/.](\d{1,2}))?(?:[-月/.](\d{1,2}))?/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = match[2] ? Number(match[2]) : rangeEnd ? 12 : 1;
+  const day = match[3]
+    ? Number(match[3])
+    : rangeEnd
+      ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+      : 1;
+  const timestamp = Date.UTC(year, month - 1, day);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function dateRangeIntersects(value: string | null | undefined, from: string, to: string): boolean {
+  if (!from && !to) return true;
+  const valueStart = parseDateRangeValue(value, false);
+  const valueEnd = parseDateRangeValue(value, true);
+  if (valueStart == null || valueEnd == null) return false;
+  const fromValue = from ? parseDateRangeValue(from, false) : null;
+  const toValue = to ? parseDateRangeValue(to, true) : null;
+  if (fromValue != null && valueEnd < fromValue) return false;
+  if (toValue != null && valueStart > toValue) return false;
+  return true;
+}
+
+function matchesDealFilters(deal: DealSummary, filters: DealFilterState): boolean {
+  if (filters.status && deal.status !== filters.status) return false;
+  if (filters.sourceType && deal.source_type !== filters.sourceType) return false;
+  if (filters.region && deal.region !== filters.region) return false;
+  if (!dateRangeIntersects(deal.founded_at, filters.foundedFrom, filters.foundedTo)) return false;
+  if (!dateRangeIntersects(deal.created_at, filters.createdFrom, filters.createdTo)) return false;
+  return true;
+}
+
 function matchesKeywords(d: DealSummary, keywords: string[]): boolean {
   if (keywords.length === 0) return true;
   const hay = normTerm([d.company_name ?? "", d.portrait ?? ""].join("\n"));
@@ -94,11 +168,15 @@ function AssistantToggle({ chatOpen, onToggle }: { chatOpen: boolean; onToggle: 
 /* ---------------------- 项目卡片 ---------------------- */
 function DealCard({
   deal,
+  selected,
   onClick,
+  onToggleSelect,
   onDelete,
 }: {
   deal: DealSummary;
+  selected: boolean;
   onClick: () => void;
+  onToggleSelect: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -114,25 +192,46 @@ function DealCard({
       }}
       className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:shadow-sm"
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-bold text-slate-900">
-          {deal.company_name ?? "（未命名项目）"}
-        </span>
-        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-          {STATUS_LABEL[deal.status] ?? deal.status}
-        </span>
+      <div className="flex items-start gap-2">
         <button
           type="button"
-          title="删除项目"
-          aria-label={`删除项目 ${deal.company_name ?? "未命名项目"}`}
+          title={selected ? "取消选择项目" : "选择项目"}
+          aria-label={`${selected ? "取消选择" : "选择"}${deal.company_name ?? "未命名项目"}`}
+          aria-pressed={selected}
           onClick={(event) => {
             event.stopPropagation();
-            onDelete();
+            onToggleSelect();
           }}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50"
+          className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition ${
+            selected
+              ? "border-indigo-200 bg-indigo-600 text-white"
+              : "border-slate-200 bg-white text-slate-400 hover:border-indigo-200 hover:text-indigo-600"
+          }`}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          {selected ? <Check className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
         </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-sm font-bold text-slate-900">
+              {deal.company_name ?? "（未命名项目）"}
+            </span>
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+              {STATUS_LABEL[deal.status] ?? deal.status}
+            </span>
+            <button
+              type="button"
+              title="删除项目"
+              aria-label={`删除项目 ${deal.company_name ?? "未命名项目"}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete();
+              }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
       {deal.portrait && <p className="mt-1.5 line-clamp-2 text-xs text-slate-500">{deal.portrait}</p>}
       <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
@@ -327,9 +426,7 @@ function DealAssistantPanel({
     workspaceDeal?.company?.name ??
     workspaceDeal?.data.extraction.company_name ??
     "当前项目";
-  const [conversationId] = useState(
-    () => workspaceDeal?.data.workspace.conversation_id ?? makeConversationId()
-  );
+  const [conversationId] = useState(() => makeConversationId());
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
       id: mid(),
@@ -363,6 +460,14 @@ function DealAssistantPanel({
       .filter(Boolean)
       .join("\n");
 
+    const references: MessageReference[] = [
+      {
+        kind: "deal",
+        id: workspaceDeal.id,
+        title: companyName,
+        subtitle: analysis.portrait ?? STATUS_LABEL[workspaceDeal.status] ?? workspaceDeal.status,
+      },
+    ];
     const handlers: SseHandlers = {
       onProgress(next) {
         setMessages((cur) =>
@@ -432,8 +537,7 @@ function DealAssistantPanel({
     };
 
     await sendMessage(conversationId, text, handlers, undefined, undefined, context, {
-      conversationType: "project_workspace",
-      sourceDealId: workspaceDeal.id,
+      references,
     });
   }
 
@@ -550,6 +654,9 @@ export default function DealManager() {
   const [searchParams] = useSearchParams();
   const selectedDealId = searchParams.get("dealId");
   const [deals, setDeals] = useState<DealSummary[]>([]);
+  const [selectedDealIds, setSelectedDealIds] = useState<Set<string>>(() => new Set());
+  const [dealExportBusy, setDealExportBusy] = useState(false);
+  const [dealExportError, setDealExportError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDeal, setSelectedDeal] = useState<DealDetail | null>(null);
@@ -562,12 +669,17 @@ export default function DealManager() {
   const [createOpen, setCreateOpen] = useState(false);
   const [filterKeywords, setFilterKeywords] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dealFilters, setDealFilters] = useState<DealFilterState>(EMPTY_DEAL_FILTERS);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const res = await listDeals({ limit: 200 });
       setDeals(res.items);
+      setSelectedDealIds((current) => {
+        const availableIds = new Set(res.items.map((item) => item.id));
+        return new Set([...current].filter((id) => availableIds.has(id)));
+      });
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? `加载失败（${e.status}）` : "后端未启动（uvicorn app.main:app）");
@@ -615,9 +727,24 @@ export default function DealManager() {
     }
   }, [loadDealDetail, selectedDealId]);
 
+  const sourceOptions = useMemo(
+    () => Array.from(new Set(deals.map((deal) => deal.source_type).filter(Boolean) as string[])).sort(),
+    [deals]
+  );
+  const regionOptions = useMemo(
+    () => Array.from(new Set(deals.map((deal) => deal.region?.trim()).filter(Boolean) as string[])).sort(),
+    [deals]
+  );
+  const activeStructuredFilterCount = Object.values(dealFilters).filter(Boolean).length;
   const filtered = useMemo(
-    () => deals.filter((d) => matchesKeywords(d, filterKeywords) && matchesSearch(d, searchQuery)),
-    [deals, filterKeywords, searchQuery]
+    () =>
+      deals.filter(
+        (d) =>
+          matchesKeywords(d, filterKeywords) &&
+          matchesSearch(d, searchQuery) &&
+          matchesDealFilters(d, dealFilters)
+      ),
+    [deals, filterKeywords, searchQuery, dealFilters]
   );
 
   function openDeal(id: string) {
@@ -631,6 +758,31 @@ export default function DealManager() {
   function refreshAfterDetailAction() {
     void refresh();
     if (selectedDealId) void loadDealDetail(selectedDealId);
+  }
+
+  function toggleDealSelection(id: string) {
+    setDealExportError(null);
+    setSelectedDealIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleExportDealInformation() {
+    const dealIds = [...selectedDealIds];
+    if (dealIds.length === 0) return;
+    setDealExportBusy(true);
+    setDealExportError(null);
+    try {
+      const response = await exportDealInformation(dealIds);
+      await downloadGeneratedFile(response.file);
+    } catch (error) {
+      setDealExportError(error instanceof ApiError ? error.message : "导出项目信息失败");
+    } finally {
+      setDealExportBusy(false);
+    }
   }
 
   async function handleTransition(to: DealStatus) {
@@ -735,6 +887,17 @@ export default function DealManager() {
             {selectedDealId ? "项目工作台" : "项目库"}
           </h2>
           <div className="flex items-center gap-2">
+            {!selectedDealId && (
+              <button
+                type="button"
+                disabled={selectedDealIds.size === 0 || dealExportBusy}
+                onClick={() => void handleExportDealInformation()}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+              >
+                {dealExportBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                导出项目信息{selectedDealIds.size > 0 ? ` ${selectedDealIds.size}` : ""}
+              </button>
+            )}
             <AssistantToggle chatOpen={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
             <button
               type="button"
@@ -745,6 +908,22 @@ export default function DealManager() {
             </button>
           </div>
         </header>
+
+        {!selectedDealId && (selectedDealIds.size > 0 || dealExportError) && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-6 py-2 text-xs text-slate-500">
+            <span>{selectedDealIds.size > 0 ? `已选择 ${selectedDealIds.size} 个项目，可导出为 Excel。` : ""}</span>
+            {selectedDealIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedDealIds(new Set())}
+                className="font-semibold text-indigo-600 hover:underline"
+              >
+                清空选择
+              </button>
+            )}
+            {dealExportError && <span className="ml-auto text-rose-500">{dealExportError}</span>}
+          </div>
+        )}
 
         {filterKeywords.length > 0 && (
           <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-indigo-50/50 px-6 py-2 text-xs text-slate-600">
@@ -776,6 +955,113 @@ export default function DealManager() {
                   <X className="h-4 w-4" />
                 </button>
               )}
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2 xl:grid-cols-6">
+              <label className="block">
+                <span className="mb-1 block font-semibold">成立时间</span>
+                <div className="grid grid-cols-2 gap-1">
+                  <input
+                    type="month"
+                    value={dealFilters.foundedFrom}
+                    onChange={(event) =>
+                      setDealFilters((current) => ({ ...current, foundedFrom: event.target.value }))
+                    }
+                    className="h-8 min-w-0 rounded-lg border border-slate-200 px-2 outline-none focus:border-indigo-300"
+                  />
+                  <input
+                    type="month"
+                    value={dealFilters.foundedTo}
+                    onChange={(event) =>
+                      setDealFilters((current) => ({ ...current, foundedTo: event.target.value }))
+                    }
+                    className="h-8 min-w-0 rounded-lg border border-slate-200 px-2 outline-none focus:border-indigo-300"
+                  />
+                </div>
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-semibold">入库时间</span>
+                <div className="grid grid-cols-2 gap-1">
+                  <input
+                    type="date"
+                    value={dealFilters.createdFrom}
+                    onChange={(event) =>
+                      setDealFilters((current) => ({ ...current, createdFrom: event.target.value }))
+                    }
+                    className="h-8 min-w-0 rounded-lg border border-slate-200 px-2 outline-none focus:border-indigo-300"
+                  />
+                  <input
+                    type="date"
+                    value={dealFilters.createdTo}
+                    onChange={(event) =>
+                      setDealFilters((current) => ({ ...current, createdTo: event.target.value }))
+                    }
+                    className="h-8 min-w-0 rounded-lg border border-slate-200 px-2 outline-none focus:border-indigo-300"
+                  />
+                </div>
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-semibold">项目来源</span>
+                <select
+                  value={dealFilters.sourceType}
+                  onChange={(event) =>
+                    setDealFilters((current) => ({ ...current, sourceType: event.target.value }))
+                  }
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 outline-none focus:border-indigo-300"
+                >
+                  <option value="">全部来源</option>
+                  {sourceOptions.map((source) => (
+                    <option key={source} value={source}>
+                      {SOURCE_LABEL[source] ?? source}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-semibold">项目状态</span>
+                <select
+                  value={dealFilters.status}
+                  onChange={(event) =>
+                    setDealFilters((current) => ({ ...current, status: event.target.value }))
+                  }
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 outline-none focus:border-indigo-300"
+                >
+                  <option value="">全部状态</option>
+                  {Object.entries(STATUS_LABEL)
+                    .filter(([status]) => status !== "deleted")
+                    .map(([status, label]) => (
+                      <option key={status} value={status}>
+                        {label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-semibold">地域</span>
+                <select
+                  value={dealFilters.region}
+                  onChange={(event) =>
+                    setDealFilters((current) => ({ ...current, region: event.target.value }))
+                  }
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 outline-none focus:border-indigo-300"
+                >
+                  <option value="">全部地域</option>
+                  {regionOptions.map((region) => (
+                    <option key={region} value={region}>
+                      {region}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  disabled={activeStructuredFilterCount === 0}
+                  onClick={() => setDealFilters(EMPTY_DEAL_FILTERS)}
+                  className="h-8 rounded-lg border border-slate-200 px-3 font-semibold text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
+                  清空筛选{activeStructuredFilterCount > 0 ? ` ${activeStructuredFilterCount}` : ""}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -848,7 +1134,9 @@ export default function DealManager() {
                     <DealCard
                       key={d.id}
                       deal={d}
+                      selected={selectedDealIds.has(d.id)}
                       onClick={() => openDeal(d.id)}
+                      onToggleSelect={() => toggleDealSelection(d.id)}
                       onDelete={() => void handleDeleteDeal(d)}
                     />
                   ))}

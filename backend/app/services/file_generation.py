@@ -165,6 +165,25 @@ async def generate_file_from_request(
     if target_format == "xlsx" and not plan.tables:
         plan.tables = _tables_from_sections(plan)
 
+    generated = create_generated_file_from_plan(
+        institution_id=institution_id,
+        plan=plan,
+        target_format=target_format,
+    )
+    return FileGenerationResult(
+        file=generated,
+        usage=_aggregate_usage(usage_events),
+        plan=plan,
+    )
+
+
+def create_generated_file_from_plan(
+    *,
+    institution_id: uuid.UUID,
+    plan: FilePlan,
+    target_format: GeneratedFileFormat,
+) -> GeneratedFile:
+    """Render a pre-built file plan without calling the LLM."""
     root = _tenant_file_dir(institution_id)
     root.mkdir(parents=True, exist_ok=True)
     file_id = str(uuid.uuid4())
@@ -193,11 +212,7 @@ async def generate_file_from_request(
         path=file_path,
     )
     _write_metadata(institution_id=institution_id, generated=generated)
-    return FileGenerationResult(
-        file=generated,
-        usage=_aggregate_usage(usage_events),
-        plan=plan,
-    )
+    return generated
 
 
 def get_generated_file(

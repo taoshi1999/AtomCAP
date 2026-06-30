@@ -1,11 +1,12 @@
 import { useState, type KeyboardEvent } from "react";
 import { ArrowUp, Bot, Brain, ChevronDown, ChevronRight, Loader2, Sparkles } from "lucide-react";
-import { sendMessage, type SseHandlers, type TokenUsage } from "../lib/api";
+import { sendMessage, type MessageReference, type SseHandlers, type TokenUsage } from "../lib/api";
 
 type PageAssistantMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  references?: MessageReference[];
   reasoning?: string;
   usage?: TokenUsage;
   pending?: boolean;
@@ -72,10 +73,12 @@ export default function PageAssistant({
   contextLabel,
   contextSummary,
   placeholder,
+  references = [],
 }: {
   contextLabel: string;
   contextSummary: string;
   placeholder: string;
+  references?: MessageReference[];
 }) {
   const [conversationId] = useState(() => makeId());
   const [input, setInput] = useState("");
@@ -97,7 +100,7 @@ export default function PageAssistant({
     setProgress("正在处理");
     setMessages((current) => [
       ...current,
-      { id: makeId(), role: "user", content },
+      { id: makeId(), role: "user", content, references },
       { id: assistantId, role: "assistant", content: "", pending: true, streaming: true },
     ]);
 
@@ -166,7 +169,9 @@ export default function PageAssistant({
     };
 
     try {
-      await sendMessage(conversationId, content, handlers, undefined, undefined, pageContext);
+      await sendMessage(conversationId, content, handlers, undefined, undefined, pageContext, {
+        references,
+      });
     } catch (error) {
       setProgress(null);
       setMessages((current) =>
@@ -219,6 +224,18 @@ export default function PageAssistant({
                     )}
                     {message.content}
                   </div>
+                  {isUser && message.references && message.references.length > 0 && (
+                    <div className="mt-1 flex flex-wrap justify-end gap-1">
+                      {message.references.map((reference) => (
+                        <span
+                          key={`${reference.kind}-${reference.id}`}
+                          className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                        >
+                          引用：{reference.title}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {!isUser && message.usage && (
                     <div className="mt-1 px-1 text-[11px] text-slate-400">
                       {formatTokens(message.usage)}

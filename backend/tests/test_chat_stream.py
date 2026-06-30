@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from types import SimpleNamespace
 
 import app.llm.client as llm_client
@@ -200,6 +201,7 @@ def test_compose_user_content_keeps_clean_content():
 import app.api.conversations as conv_api  # noqa: E402
 from app.api.conversations import classify_intent_bounded  # noqa: E402
 from app.api.conversations import _preference_advice_fallback, _preference_target_hint  # noqa: E402
+from app.api.conversations import _first_deal_reference_id  # noqa: E402
 
 
 def test_classify_bounded_returns_result(monkeypatch):
@@ -235,6 +237,18 @@ def test_classify_bounded_swallows_errors(monkeypatch):
     monkeypatch.setattr(conv_api, "classify_intent", _boom)
     monkeypatch.setattr(conv_api.settings, "intent_classify_timeout_seconds", 5.0)
     assert asyncio.run(classify_intent_bounded("你好")) is None
+
+
+def test_first_deal_reference_id_reads_normal_conversation_reference():
+    deal_id = uuid.uuid4()
+
+    assert _first_deal_reference_id([
+        {"kind": "thesis", "id": str(uuid.uuid4()), "title": "新能源"},
+        {"kind": "deal", "id": str(deal_id), "title": "光羽科技"},
+    ]) == deal_id
+    assert _first_deal_reference_id([
+        {"kind": "deal", "id": "not-a-uuid", "title": "坏引用"},
+    ]) is None
 
 
 def test_preference_advice_fallback_mentions_anti_preference():

@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import uuid
 from collections.abc import Callable
@@ -36,6 +37,12 @@ from app.objects.deal import (
 )
 from app.objects.experience import ActionContext
 from app.services.events import record_event
+from app.services.file_generation import (
+    FilePlan,
+    FileSection,
+    FileTable,
+    create_generated_file_from_plan,
+)
 from app.services.user_actions import (
     DEAL_FEEDBACK_ACTIONS,
     DEAL_TRANSITION_ACTIONS,
@@ -44,6 +51,42 @@ from app.services.user_actions import (
 )
 from app.services.pre_dd import MATERIAL_SPEC_BY_KEY, build_pre_dd_workspace
 from app.services.deal_materials import list_deal_materials
+
+
+DEAL_EXPORT_HEADERS = [
+    "项目名称",
+    "成立时间",
+    "入库时间",
+    "项目来源",
+    "项目状态",
+    "地域",
+    "主营业务",
+    "估值",
+    "价值点",
+    "风险点",
+    "关联企业",
+]
+
+DEAL_STATUS_LABELS = {
+    DealStatus.SOURCED.value: "候选",
+    DealStatus.SCREENING.value: "初筛中",
+    DealStatus.PRE_DD.value: "尽调中",
+    DealStatus.IC_READY.value: "可上会",
+    DealStatus.APPROVED.value: "进行中",
+    DealStatus.REJECTED.value: "已否决",
+    DealStatus.EXITED.value: "已退出",
+    DealStatus.DELETED.value: "已删除",
+}
+
+DEAL_SOURCE_LABELS = {
+    "user_input": "用户录入",
+    "bp_upload": "BP 上传",
+    "fa_recommendation": "FA 推荐",
+    "internal_excel": "内部表格",
+    "thesis_generated": "赛道推荐生成",
+    "public_signal_mining": "公开信号挖掘",
+    "system_push": "系统推送",
+}
 
 # ---------- 管线状态机：允许的前向流转 ----------
 
@@ -160,6 +203,8 @@ def deal_summary(deal: Deal, company: Company | None) -> dict:
     data = deal.data or {}
     analysis = data.get("analysis") or {}
     feedback = data.get("user_feedback") or {}
+    profile = _profile_with_workspace_summary(DealProfile.model_validate(data), company)
+    summary = profile.workspace.summary
     return {
         "id": str(deal.id),
         "company_id": str(deal.company_id),
@@ -171,6 +216,10 @@ def deal_summary(deal: Deal, company: Company | None) -> dict:
         "is_in_library": bool(feedback.get("is_in_library")),
         "is_liked": bool(feedback.get("is_liked")),
         "is_abandoned": bool(feedback.get("is_abandoned")),
+        "founded_at": summary.founded_at,
+        "region": summary.region,
+        "main_business": summary.main_business,
+        "valuation": summary.valuation,
         "created_at": deal.created_at.isoformat(),
         "updated_at": deal.updated_at.isoformat(),
     }
@@ -196,7 +245,8 @@ def _profile_with_workspace_summary(
         return profile
 
     inferred = infer_workspace_summary(profile.extraction, profile.analysis)
-    company_profile = company.profile if company is not None and isinstance(company.profile, dict) else {}
+    raw_profile = getattr(company, "profile", None) if company is not None else None
+    company_profile = raw_profile if isinstance(raw_profile, dict) else {}
     inferred = inferred.model_copy(
         update={
             "founded_at": inferred.founded_at or company_profile.get("founded_at"),
@@ -451,6 +501,135 @@ async def get_deal_detail(
         ),
         "created_at": deal.created_at.isoformat(),
         "updated_at": deal.updated_at.isoformat(),
+    }
+
+
+def _export_text(value: object | None) -> str:
+    return str(value or "").strip()
+
+
+def _enum_value(value: object | None) -> str:
+    raw = getattr(value, "value", value)
+    return _export_text(raw)
+
+
+def _join_claim_texts(claims: list) -> str:
+    return "\n".join(
+        text
+        for text in (_export_text(getattr(claim, "text", "")) for claim in claims)
+        if text
+    )
+
+
+def _format_export_time(value: dt.datetime | None) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else ""
+
+
+def _company_export_label(company: Company | None) -> str:
+    if company is None:
+        return ""
+    parts = [_export_text(company.name)]
+    uscc = _export_text(getattr(company, "uscc", None))
+    if uscc:
+        parts.append(uscc)
+    return " / ".join(part for part in parts if part)
+
+
+def _deal_export_row(deal: Deal, company: Company | None) -> list[str]:
+    profile = DealProfile.model_validate(deal.data or {})
+    profile = _profile_with_workspace_summary(profile, company)
+    summary = profile.workspace.summary
+    source_type = _enum_value(profile.source_type)
+    status = _export_text(deal.status or _enum_value(profile.status))
+    project_name = _export_text(company.name if company is not None else None) or _export_text(
+        profile.extraction.company_name
+    )
+    return [
+        project_name,
+        _export_text(summary.founded_at),
+        _format_export_time(getattr(deal, "created_at", None)),
+        DEAL_SOURCE_LABELS.get(source_type, source_type),
+        DEAL_STATUS_LABELS.get(status, status),
+        _export_text(summary.region),
+        _export_text(summary.main_business),
+        _export_text(summary.valuation),
+        _join_claim_texts(profile.analysis.highlights),
+        _join_claim_texts(profile.analysis.initial_risks),
+        _company_export_label(company),
+    ]
+
+
+async def export_deal_information_xlsx(
+    db: AsyncSession,
+    *,
+    institution_id: uuid.UUID,
+    deal_ids: list[uuid.UUID],
+) -> dict:
+    unique_ids = list(dict.fromkeys(deal_ids))
+    if not unique_ids:
+        raise ValueError("请至少选择一个项目。")
+
+    deals = (
+        await db.execute(
+            select(Deal).where(
+                Deal.id.in_(unique_ids),
+                Deal.institution_id == institution_id,
+                or_(Deal.status.is_(None), Deal.status != DealStatus.DELETED.value),
+            )
+        )
+    ).scalars().all()
+    if len(deals) != len(unique_ids):
+        raise DealNotFound("部分项目不存在、已删除或无权访问。")
+
+    company_ids = {deal.company_id for deal in deals}
+    companies: dict[uuid.UUID, Company] = {}
+    if company_ids:
+        companies = {
+            company.id: company
+            for company in (
+                await db.execute(
+                    select(Company).where(
+                        Company.id.in_(company_ids),
+                        Company.institution_id == institution_id,
+                    )
+                )
+            ).scalars().all()
+        }
+
+    deal_by_id = {deal.id: deal for deal in deals}
+    rows = [
+        _deal_export_row(deal_by_id[deal_id], companies.get(deal_by_id[deal_id].company_id))
+        for deal_id in unique_ids
+    ]
+    generated = create_generated_file_from_plan(
+        institution_id=institution_id,
+        target_format="xlsx",
+        plan=FilePlan(
+            title=f"项目库项目信息导出-{dt.datetime.now().strftime('%Y%m%d-%H%M')}",
+            subtitle=f"共导出 {len(rows)} 个项目",
+            sections=[
+                FileSection(
+                    heading="导出说明",
+                    summary="本表格由 AtomCAP 根据用户勾选的项目生成，缺失信息保留为空。",
+                    bullets=[
+                        "价值点来自项目分析中的 highlights 字段。",
+                        "风险点来自项目分析中的 initial_risks 字段。",
+                    ],
+                )
+            ],
+            tables=[
+                FileTable(
+                    title="项目信息",
+                    headers=DEAL_EXPORT_HEADERS,
+                    rows=rows,
+                )
+            ],
+        ),
+    )
+    return {
+        "file": generated.to_ref(),
+        "count": len(rows),
+        "deal_ids": [str(deal_id) for deal_id in unique_ids],
     }
 
 

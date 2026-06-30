@@ -17,12 +17,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
 from app.models.models import Deal, Deliverable, Institution, PreferenceProfileRow, User
+from app.objects import DeliverableType
 from app.objects.thesis import ThesisStatus
 from app.services import preferences as preferences_service
 from app.services.conversations import list_conversation_summaries
 from app.services.deals import list_deals
 
 router = APIRouter()
+
+HOME_VISIBLE_DELIVERABLE_TYPES = (
+    DeliverableType.THESIS.value,
+    DeliverableType.DEAL_LIST.value,
+    DeliverableType.BRIEFING.value,
+    DeliverableType.LP_REPORT.value,
+)
 
 
 def _deliverable_title(row: Deliverable) -> str:
@@ -56,6 +64,7 @@ async def _deliverable_items(
         select(Deliverable)
         .where(
             Deliverable.institution_id == institution_id,
+            Deliverable.type.in_(HOME_VISIBLE_DELIVERABLE_TYPES),
             or_(Deliverable.status.is_(None), Deliverable.status != ThesisStatus.DELETED.value),
         )
         .order_by(Deliverable.updated_at.desc(), Deliverable.created_at.desc())

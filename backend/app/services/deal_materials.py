@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.react_planner import generate_visible_react_plan
 from app.connectors.base import Source
 from app.connectors.registry import active_connectors, cached_gather_signals
+from app.llm.client import ModelTier, complete_structured
 from app.models.models import Chunk, Deal, Document, EvidenceItemRow
 from app.objects.deal import DealProfile, DealStatus
 from app.objects.deal_list import DealSourceType
@@ -31,7 +35,7 @@ PUBLIC_PRE_DD_DOC_TYPE = "public_pre_dd"
 AUTO_PRE_DD_SOURCE_TYPE = "auto_pre_dd"
 AUTO_PRE_DD_MAX_RESULTS = 6
 AUTO_PRE_DD_TARGET_RESULTS = 3
-AUTO_PRE_DD_MAX_ROUNDS = 3
+AUTO_PRE_DD_SAFETY_MAX_REACT_LOOPS = 8
 
 StepCallback = Callable[[dict], Awaitable[None]]
 
@@ -46,6 +50,23 @@ class InvalidDealMaterialCategory(Exception):
 
 class DealMaterialNotFound(Exception):
     """Raised when a requested material document cannot be found."""
+
+
+class MaterialCollectionRoundDecision(BaseModel):
+    """Model-visible decision on whether one Pre-DD material collection should continue."""
+
+    continue_search: bool = Field(
+        default=False,
+        description="Whether another public search round is worth running for this material type.",
+    )
+    rationale: str = Field(
+        default="",
+        description="Short user-visible explanation for why collection should continue or stop.",
+    )
+    next_queries: list[str] = Field(
+        default_factory=list,
+        description="Focused next-round search queries, if another round should run.",
+    )
 
 
 def _safe_filename(filename: str | None) -> str:
@@ -96,6 +117,8 @@ def _normalize_task_keys(values: object) -> list[str]:
 
 
 def _confirmed_task_keys(meta: dict) -> list[str]:
+    if "confirmed_pre_dd_task_keys" in meta:
+        return _normalize_task_keys(meta.get("confirmed_pre_dd_task_keys"))
     confirmed = _normalize_task_keys(meta.get("confirmed_pre_dd_task_keys"))
     if confirmed:
         return confirmed
@@ -103,6 +126,31 @@ def _confirmed_task_keys(meta: dict) -> list[str]:
         return []
     assigned_key = _assigned_task_key(meta)
     return [assigned_key] if assigned_key else []
+
+
+def _has_confirmed_task_key_override(meta: dict) -> bool:
+    return "confirmed_pre_dd_task_keys" in meta
+
+
+def _rejected_task_keys(meta: dict) -> list[str]:
+    return _normalize_task_keys(meta.get("rejected_pre_dd_task_keys"))
+
+
+def _validate_task_keys(values: list[str], *, field_name: str) -> list[str]:
+    keys: list[str] = []
+    invalid: list[str] = []
+    for value in values:
+        key = str(value or "").strip()
+        if not key:
+            continue
+        if key not in MATERIAL_SPEC_BY_KEY:
+            invalid.append(key)
+            continue
+        if key not in keys:
+            keys.append(key)
+    if invalid:
+        raise InvalidDealMaterialCategory(f"Invalid Pre-DD material category in {field_name}: {', '.join(invalid)}")
+    return keys
 
 
 def _source_hit_fields(meta: dict) -> dict:
@@ -225,7 +273,7 @@ def _project_task_hits(
         evidence_id=evidence_id,
     )
     confirmed_keys = _confirmed_task_keys(meta)
-    if confirmed_keys:
+    if confirmed_keys or _has_confirmed_task_key_override(meta):
         confirmed_hits = [
             _synthetic_task_hit(
                 document=document,
@@ -354,6 +402,7 @@ def project_deal_material(document: Document, chunk: Chunk | None = None) -> dic
         "suggested_pre_dd_task_keys": [hit["task_key"] for hit in suggested_hits],
         "suggested_pre_dd_task_hits": suggested_hits,
         "confirmed_pre_dd_task_keys": [hit["task_key"] for hit in task_hits],
+        "rejected_pre_dd_task_keys": _rejected_task_keys(meta),
         "warnings": list(meta.get("warnings") or []),
         "created_at": document.created_at.isoformat(),
         "updated_at": document.updated_at.isoformat(),
@@ -443,11 +492,12 @@ async def confirm_deal_material_categories(
     deal_id: uuid.UUID,
     document_id: uuid.UUID,
     task_keys: list[str],
+    rejected_task_keys: list[str] | None = None,
 ) -> dict:
-    """Persist user-confirmed Pre-DD category assignments for a material."""
-    keys = _normalize_task_keys(task_keys)
-    if not keys:
-        raise InvalidDealMaterialCategory("Please choose at least one valid Pre-DD material category")
+    """Persist user-controlled Pre-DD category assignments for a material."""
+    keys = _validate_task_keys(task_keys, field_name="task_keys")
+    rejected_keys = _validate_task_keys(rejected_task_keys or [], field_name="rejected_task_keys")
+    rejected_keys = [key for key in rejected_keys if key not in keys]
 
     document = await db.scalar(
         select(Document).where(
@@ -471,6 +521,7 @@ async def confirm_deal_material_categories(
     chunk.meta = {
         **(chunk.meta if isinstance(chunk.meta, dict) else {}),
         "confirmed_pre_dd_task_keys": keys,
+        "rejected_pre_dd_task_keys": rejected_keys,
     }
     await db.flush()
 
@@ -478,12 +529,13 @@ async def confirm_deal_material_categories(
         db,
         institution_id=institution_id,
         user_id=user_id,
-        event_type="deal.material_categories_confirmed",
+        event_type="deal.material_categories_updated",
         subject_type="deal",
         subject_id=deal_id,
         payload={
             "document_id": str(document.id),
             "task_keys": keys,
+            "rejected_task_keys": rejected_keys,
         },
     )
     return project_deal_material(document, chunk)
@@ -748,6 +800,7 @@ def _source_content(source: Source, *, profile: DealProfile, task_key: str) -> s
         parts.append(f"Snippet: {source.snippet}")
     return "\n".join(parts)
 
+
 def _source_key(source: Source) -> str:
     return (source.url or source.title).strip().lower()
 
@@ -781,6 +834,7 @@ def _react_step_payload(
 def _collection_request(profile: DealProfile, task_key: str) -> str:
     spec = MATERIAL_SPEC_BY_KEY[task_key]
     return f"Collect public Pre-DD materials for project {profile.extraction.company_name}, dimension {spec.title}."
+
 
 def _next_round_queries(
     profile: DealProfile,
@@ -824,6 +878,157 @@ def _next_round_queries(
     if selected_count == 0:
         return [query for query in _auto_collect_queries(profile, task_key) if query.lower() not in previous][:6]
     return queries
+
+
+def _normalize_next_queries(
+    values: list[str] | None,
+    *,
+    previous_queries: list[str],
+    limit: int = 6,
+) -> list[str]:
+    previous = {query.lower() for query in previous_queries}
+    seen: set[str] = set()
+    queries: list[str] = []
+    for value in values or []:
+        query = " ".join(str(value or "").split())
+        if not query:
+            continue
+        normalized = query.lower()
+        if normalized in previous or normalized in seen:
+            continue
+        seen.add(normalized)
+        queries.append(query[:160])
+        if len(queries) >= limit:
+            break
+    return queries
+
+
+def _collection_source_summary(source: Source) -> dict:
+    return {
+        "title": source.title,
+        "url": source.url,
+        "published_at": source.published_at,
+        "connector": source.connector,
+        "snippet": _preview(source.snippet, limit=140),
+    }
+
+
+def _fallback_collection_decision(
+    *,
+    selected_count: int,
+    round_selected_count: int,
+    next_query_candidates: list[str],
+) -> MaterialCollectionRoundDecision:
+    if selected_count >= AUTO_PRE_DD_MAX_RESULTS:
+        return MaterialCollectionRoundDecision(
+            continue_search=False,
+            rationale="本次资料收集已达到可保存资料上限，先保存当前高相关资料供用户确认归类。",
+        )
+    if not next_query_candidates:
+        return MaterialCollectionRoundDecision(
+            continue_search=False,
+            rationale="当前没有新的有效检索目标，继续搜索可能只会重复已有结果。",
+        )
+    if selected_count < AUTO_PRE_DD_TARGET_RESULTS:
+        return MaterialCollectionRoundDecision(
+            continue_search=True,
+            rationale="当前高相关资料仍偏少，继续用更聚焦的查询补充该 Pre-DD 维度。",
+            next_queries=next_query_candidates,
+        )
+    if round_selected_count == 0:
+        return MaterialCollectionRoundDecision(
+            continue_search=False,
+            rationale="上一轮没有新增可用资料，继续检索的边际价值较低。",
+        )
+    return MaterialCollectionRoundDecision(
+        continue_search=False,
+        rationale="当前已获得若干可引用资料，可以先保存并等待用户确认归类。",
+    )
+
+
+async def _assess_material_collection_round(
+    *,
+    profile: DealProfile,
+    task_key: str,
+    round_number: int,
+    sources_count: int,
+    round_selected: list[Source],
+    selected: list[Source],
+    next_query_candidates: list[str],
+    previous_queries: list[str],
+    allow_overseas: bool,
+) -> MaterialCollectionRoundDecision:
+    spec = MATERIAL_SPEC_BY_KEY[task_key]
+    fallback = _fallback_collection_decision(
+        selected_count=len(selected),
+        round_selected_count=len(round_selected),
+        next_query_candidates=next_query_candidates,
+    )
+    if len(selected) >= AUTO_PRE_DD_MAX_RESULTS:
+        return fallback
+    try:
+        decision = await asyncio.wait_for(
+            complete_structured(
+                ModelTier.FAST,
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是 AtomCAP 的 Pre-DD 资料自动收集控制器。"
+                            "你只判断当前资料项是否还值得继续搜索，不要输出隐藏推理。"
+                            "如果现有资料已足以让用户判断该 Pre-DD 维度，或下一轮可能只会重复低价值结果，"
+                            "continue_search 应为 false。若继续搜索，next_queries 必须是新的、聚焦的公开信息检索词，最多 6 条。"
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "project": profile.extraction.company_name,
+                                "aliases": profile.extraction.aliases,
+                                "track": profile.extraction.track,
+                                "product": profile.extraction.product,
+                                "target_material_type": spec.title,
+                                "round_number": round_number,
+                                "round_candidate_count": sources_count,
+                                "round_selected": [
+                                    _collection_source_summary(source) for source in round_selected[:6]
+                                ],
+                                "selected_so_far_count": len(selected),
+                                "selected_so_far": [
+                                    _collection_source_summary(source) for source in selected[-6:]
+                                ],
+                                "next_query_candidates": next_query_candidates,
+                                "collection_goal": (
+                                    "为当前 Pre-DD 资料项收集公开出处、简介和可引用材料。"
+                                    "由你根据资料质量和信息增量决定是否继续搜索。"
+                                ),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                MaterialCollectionRoundDecision,
+                allow_overseas=allow_overseas,
+            ),
+            timeout=12,
+        )
+    except Exception:  # noqa: BLE001
+        return fallback
+
+    if len(selected) >= AUTO_PRE_DD_MAX_RESULTS:
+        return fallback
+    next_queries = _normalize_next_queries(decision.next_queries, previous_queries=previous_queries)
+    if decision.continue_search:
+        if not next_queries:
+            next_queries = next_query_candidates
+        if not next_queries:
+            return MaterialCollectionRoundDecision(
+                continue_search=False,
+                rationale=decision.rationale or "模型判断可继续，但没有新的有效检索目标，因此停止本次收集。",
+            )
+        return decision.model_copy(update={"continue_search": True, "next_queries": next_queries})
+    return decision.model_copy(update={"continue_search": False, "next_queries": []})
 
 
 async def _existing_auto_material_keys(
@@ -918,8 +1123,22 @@ async def collect_pre_dd_public_materials(
     all_queries: list[str] = []
     queries = _auto_collect_queries(profile, task_key)
     rounds_run = 0
-    for round_number in range(1, AUTO_PRE_DD_MAX_ROUNDS + 1):
-        if not queries:
+    round_number = 0
+    while queries:
+        round_number += 1
+        if round_number > AUTO_PRE_DD_SAFETY_MAX_REACT_LOOPS:
+            await append_step(
+                _react_step_payload(
+                    task_key=task_key,
+                    loop=round_number,
+                    phase="observation",
+                    summary="The model-led collection reached the internal safety fuse, so this run will save the currently selected materials.",
+                    details=[
+                        "This is a fault guard against accidental infinite collection loops, not a user search-depth setting.",
+                        f"Selected useful sources: {len(selected)}",
+                    ],
+                )
+            )
             break
         rounds_run = round_number
         plan = await generate_visible_react_plan(
@@ -981,6 +1200,23 @@ async def collect_pre_dd_public_materials(
             selected.append(source)
             if len(selected) >= AUTO_PRE_DD_MAX_RESULTS:
                 break
+        next_query_candidates = _next_round_queries(
+            profile,
+            task_key,
+            previous_queries=all_queries,
+            selected_count=len(selected),
+        )
+        decision = await _assess_material_collection_round(
+            profile=profile,
+            task_key=task_key,
+            round_number=round_number,
+            sources_count=len(sources),
+            round_selected=round_selected,
+            selected=selected,
+            next_query_candidates=next_query_candidates,
+            previous_queries=all_queries,
+            allow_overseas=allow_overseas,
+        )
         await append_step(
             _react_step_payload(
                 task_key=task_key,
@@ -993,21 +1229,19 @@ async def collect_pre_dd_public_materials(
                 details=[
                     *(f"{source.title}: {_preview(source.snippet, limit=100) or source.url or 'no summary'}" for source in round_selected[:5]),
                     (
-                        "Useful material is still insufficient; a more focused search round will be generated."
-                        if len(selected) < AUTO_PRE_DD_TARGET_RESULTS and round_number < AUTO_PRE_DD_MAX_ROUNDS
-                        else "Useful material is sufficient for this collection run; preparing to save."
+                        decision.rationale
+                        or (
+                            "The collection controller decided to continue with a more focused search."
+                            if decision.continue_search
+                            else "The collection controller decided the current materials are enough to save."
+                        )
                     ),
                 ],
             )
         )
-        if len(selected) >= AUTO_PRE_DD_TARGET_RESULTS or len(selected) >= AUTO_PRE_DD_MAX_RESULTS:
+        if len(selected) >= AUTO_PRE_DD_MAX_RESULTS or not decision.continue_search:
             break
-        queries = _next_round_queries(
-            profile,
-            task_key,
-            previous_queries=all_queries,
-            selected_count=len(selected),
-        )
+        queries = decision.next_queries
 
     created: list[dict] = []
     collection_steps = list(steps)

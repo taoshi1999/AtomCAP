@@ -844,12 +844,6 @@ export default function ChatPage() {
       );
   }
 
-  function openProjectWorkspaceFromConversation(dealId: string) {
-    setActiveRecentKey(null);
-    setMode("deals");
-    navigate(`/?view=deals&dealId=${dealId}`);
-  }
-
   async function loadConversation(id: string) {
     setActiveRecentKey(null);
     setComposerReferences([]);
@@ -870,13 +864,6 @@ export default function ChatPage() {
     ]);
     try {
       const data = await getConversationMessages(id);
-      if (
-        data.conversation.conversation_type === "project_workspace" &&
-        data.conversation.source_deal_id
-      ) {
-        openProjectWorkspaceFromConversation(data.conversation.source_deal_id);
-        return;
-      }
       const loaded = await Promise.all(
         data.messages
           .filter((message) => message.role === "user" || message.role === "assistant")
@@ -942,11 +929,7 @@ export default function ChatPage() {
   function handleRecentClick(item: RecentItem) {
     setOpenRecentMenuKey(null);
     if (item.kind === "conversation") {
-      if (item.conversation_type === "project_workspace" && item.source_deal_id) {
-        openProjectWorkspaceFromConversation(item.source_deal_id);
-      } else {
-        void loadConversation(item.id);
-      }
+      void loadConversation(item.id);
     } else if (item.kind === "deliverable") {
       void openDeliverable(item.id);
     } else {
@@ -1006,11 +989,7 @@ export default function ChatPage() {
 
   function handleHistoryClick(item: HomeConversation) {
     setHistoryDialogOpen(false);
-    if (item.conversation_type === "project_workspace" && item.source_deal_id) {
-      openProjectWorkspaceFromConversation(item.source_deal_id);
-    } else {
-      void loadConversation(item.id);
-    }
+    void loadConversation(item.id);
   }
 
   async function handleSend(text: string) {

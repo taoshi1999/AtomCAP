@@ -91,11 +91,11 @@ class SendMessageRequest(BaseModel):
     context: str | None = None
     # 用户在对话框中显式引用的项目/赛道摘要；用于消息展示和历史恢复，不承载完整上下文。
     references: list[dict[str, Any]] | None = None
-    # normal=普通会话；project_workspace=绑定具体项目的工作台会话。
+    # 兼容旧客户端：新 UI 统一使用 normal，会通过 references 表示当前项目/赛道引用。
     conversation_type: str = "normal"
     # 赛道详情页注入上下文时使用，但会话类型仍是 normal。
     source_thesis_id: uuid.UUID | None = None
-    # 项目工作台绑定的 Deal id，仅 project_workspace 使用。
+    # 旧项目工作台会话兼容字段；新 UI 使用 references 中的 deal 引用。
     source_deal_id: uuid.UUID | None = None
 
 
@@ -221,6 +221,18 @@ def _normalize_message_references(references: list[dict[str, Any]] | None) -> li
         if len(normalized) >= 12:
             break
     return normalized
+
+
+def _first_deal_reference_id(references: list[dict[str, Any]]) -> uuid.UUID | None:
+    """Return the first deal reference id from persisted reference metadata."""
+    for reference in references:
+        if reference.get("kind") != "deal":
+            continue
+        try:
+            return uuid.UUID(str(reference.get("id")))
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _preference_target_hint(content: str) -> str:
@@ -597,13 +609,16 @@ async def send_message(
             status="running",
         )
         # 赛道页 AI 助手只注入赛道上下文，会话仍归为普通会话。
+        normalized_references = _normalize_message_references(body.references)
         source_thesis_id = body.source_thesis_id
-        source_deal_id = (
+        legacy_workspace_deal_id = (
             body.source_deal_id
             if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE
             else None
         )
-        if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE and source_deal_id is None:
+        referenced_deal_id = _first_deal_reference_id(normalized_references)
+        context_deal_id = legacy_workspace_deal_id or referenced_deal_id
+        if conversation_type == CONVERSATION_TYPE_PROJECT_WORKSPACE and legacy_workspace_deal_id is None:
             yield {"event": "error", "data": "项目工作台会话必须绑定一个项目。"}
             yield {"event": "done", "data": ""}
             return
@@ -624,15 +639,15 @@ async def send_message(
                 workspace_thesis_context = thesis_context_from_payload(payload)
                 workspace_thesis_name = payload.get("thesis_name") or "未命名赛道"
 
-            if source_deal_id is not None:
+            if context_deal_id is not None:
                 deal_row = await db.scalar(
                     select(Deal).where(
-                        Deal.id == source_deal_id,
+                        Deal.id == context_deal_id,
                         Deal.institution_id == user.institution_id,
                     )
                 )
                 if deal_row is None:
-                    yield {"event": "error", "data": "项目工作台绑定的项目不存在。"}
+                    yield {"event": "error", "data": "引用的项目不存在。"}
                     yield {"event": "done", "data": ""}
                     return
                 company = await db.scalar(
@@ -671,7 +686,7 @@ async def send_message(
                     conversation_id=conversation_id,
                     title_hint=title_hint,
                     conversation_type=conversation_type,
-                    source_deal_id=source_deal_id,
+                    source_deal_id=legacy_workspace_deal_id,
                 )
             except ConversationTypeMismatch as exc:
                 yield {"event": "error", "data": str(exc)}
@@ -703,7 +718,7 @@ async def send_message(
                 history=history,
                 active_preference=active_preference,
                 workspace_context=workspace_context_for_tools,
-                source_deal_id=source_deal_id,
+                source_deal_id=context_deal_id,
             )
             await save_message(
                 db,
@@ -711,12 +726,13 @@ async def send_message(
                 user_id=user.user_id,
                 conversation_id=conversation_id,
                 role="user",
-                blocks=user_blocks(body.content, references=_normalize_message_references(body.references)),
+                blocks=user_blocks(body.content, references=normalized_references),
                 event_payload={
                     "conversation_type": conversation_type,
                     "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
                     "source_thesis_name": workspace_thesis_name,
-                    "source_deal_id": str(source_deal_id) if source_deal_id else None,
+                    "source_deal_id": str(legacy_workspace_deal_id) if legacy_workspace_deal_id else None,
+                    "referenced_deal_id": str(referenced_deal_id) if referenced_deal_id else None,
                     "source_deal_name": workspace_deal_name,
                 },
             )
@@ -769,12 +785,12 @@ async def send_message(
                         ),
                     ]
                 )
-            elif source_deal_id and workspace_deal_context:
+            elif context_deal_id and workspace_deal_context:
                 workspace_context = "\n".join(
                     [
-                        "对话类型：项目工作台",
+                        "对话类型：普通会话（已引用项目）",
                         f"当前操作对象：{workspace_deal_name}",
-                        f"source_deal_id：{source_deal_id}",
+                        f"referenced_deal_id：{context_deal_id}",
                         "当前项目结构化上下文：",
                         json.dumps(
                             workspace_deal_context,
@@ -888,7 +904,8 @@ async def send_message(
                         "conversation_type": conversation_type,
                         "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
                         "source_thesis_name": workspace_thesis_name,
-                        "source_deal_id": str(source_deal_id) if source_deal_id else None,
+                        "source_deal_id": str(legacy_workspace_deal_id) if legacy_workspace_deal_id else None,
+                        "referenced_deal_id": str(referenced_deal_id) if referenced_deal_id else None,
                         "source_deal_name": workspace_deal_name,
                     },
                 )
@@ -906,7 +923,7 @@ async def send_message(
         #    立即下发一个进度事件：既让前端确认后端已接管、也促使 SSE 通道立刻
         #    开始 flush（排除中间层缓冲）。分类限时见 classify_intent_bounded。
         yield {"event": "progress", "data": "正在理解你的问题"}
-        intent = None if source_deal_id else await classify_intent_bounded(body.content)
+        intent = None if context_deal_id else await classify_intent_bounded(body.content)
         selected_intent = intent.intent.value if intent else "chat"
         route_plan = await generate_visible_react_plan(
             user_request=body.content,
@@ -1190,12 +1207,12 @@ async def send_message(
                         ),
                     ]
                 )
-            elif source_deal_id and workspace_deal_context:
+            elif context_deal_id and workspace_deal_context:
                 workspace_context = "\n".join(
                     [
-                        "对话类型：项目工作台",
+                        "对话类型：普通会话（已引用项目）",
                         f"当前操作对象：{workspace_deal_name}",
-                        f"source_deal_id：{source_deal_id}",
+                        f"referenced_deal_id：{context_deal_id}",
                         "所有分析、建议和可执行操作必须围绕当前项目，不要新建或默认切换到其他项目。",
                         "当前项目结构化上下文：",
                         json.dumps(
@@ -1280,7 +1297,8 @@ async def send_message(
                             "conversation_type": conversation_type,
                             "source_thesis_id": str(source_thesis_id) if source_thesis_id else None,
                             "source_thesis_name": workspace_thesis_name,
-                            "source_deal_id": str(source_deal_id) if source_deal_id else None,
+                            "source_deal_id": str(legacy_workspace_deal_id) if legacy_workspace_deal_id else None,
+                            "referenced_deal_id": str(referenced_deal_id) if referenced_deal_id else None,
                             "source_deal_name": workspace_deal_name,
                         },
                     )

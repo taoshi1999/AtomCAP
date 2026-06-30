@@ -6,14 +6,14 @@ AtomCAP 是一个面向一级市场投资机构的多 Agent 投研工作台。�
 
 ## 当前状态
 
-截至 2026-06-29，AtomCAP 已具备一套可运行的 MVP：
+截至 2026-06-30，AtomCAP 已具备一套可运行的 MVP：
 
 - 前端：React + Vite + Tailwind CSS，主入口为首页工作台、项目工作台、赛道库、项目库、投资偏好管理。
 - 后端：FastAPI + SQLAlchemy Async + PostgreSQL/pgvector + Redis + LangGraph + SSE。
 - Agent：已落地通用对话、赛道前瞻、项目挖掘、项目分析、投资偏好建议、市场信号 ReAct 收集、文件生成、经验沉淀反哺等链路。
 - 数据源：博查、Tavily、企查查 Connector 已有实现或可插拔实现，并带缓存和合规开关。
 - 投资偏好：支持多张命名偏好卡片，每个维度都有「偏好」和「反偏好」，支持补充说明，并会作为当前机构偏好注入大模型推理。
-- 项目工作台：支持项目状态流转、项目概览字段、近期市场信号、项目材料、Pre-DD 资料自动收集、多类别归类确认、Pre-DD Brief 多版本生成。
+- 项目库/项目工作台：项目库支持搜索、条件筛选、批量勾选和 Excel 导出；项目工作台支持状态流转、项目概览字段、近期市场信号、会议纪要、项目材料、Pre-DD 资料自动收集、多类别归类确认、Pre-DD Report 多版本生成和 Word 导出。
 - 对话工作台：支持显式引用项目库/赛道库对象作为上下文，支持生成 Word、Excel、PPT 文件并在会话中下载。
 - 证据链：赛道详情、项目池、市场信号、材料等对象都围绕 Source / Claim / EvidenceLink 设计，尽量避免无来源结论。
 
@@ -307,14 +307,23 @@ flowchart LR
 
 相关文件：
 
-- 后端：`api/deals.py`、`services/deals.py`、`services/deal_materials.py`、`services/deal_market_signals.py`、`services/pre_dd.py`、`services/pre_dd_brief.py`
+- 后端：`api/deals.py`、`services/deals.py`、`services/deal_materials.py`、`services/deal_market_signals.py`、`services/meeting_minutes.py`、`services/pre_dd.py`、`services/pre_dd_brief.py`
 - Agent：`agents/deal_intake`
 - 前端：`components/DealManager.tsx`、`pages/WorkspacePage.tsx`
 
 项目库功能点：
 
 - 项目库支持搜索、删除、AI 助手自然语言创建和筛选。
+- 项目库网格页支持结构化筛选：
+  - 成立时间起止。
+  - 入库时间起止。
+  - 项目来源。
+  - 项目状态。
+  - 地域。
 - 项目卡片展示公司名、状态、匹配度、入库状态。
+- 每个项目卡片左侧提供勾选标记；用户可勾选多个项目后点击右上角「导出项目信息」。
+- 批量导出会生成 Excel 表格，列包括：项目名称、成立时间、入库时间、项目来源、项目状态、地域、主营业务、估值、价值点、风险点、关联企业；缺失信息留空。
+- 项目库列表接口会返回工作台摘要字段 `founded_at`、`region`、`main_business`、`valuation`，前端筛选和导出均复用这些字段。
 - 点击项目进入项目工作台。
 
 项目工作台功能点：
@@ -330,10 +339,10 @@ flowchart LR
   - 项目概览：成立时间、地域、主营业务、估值，创建工作台时由 AI 自动收集并可由用户手动编辑。
   - 项目材料。
   - 近期市场信号。
+  - 会议纪要。
   - Pre-DD 资料。
-  - Pre-DD Brief。
+  - Pre-DD Report。
   - 关联公司工商信息。
-  - 推荐下一步。
 
 项目分析子图：
 
@@ -353,7 +362,7 @@ flowchart LR
 - 一个材料可以被建议归入多个 Pre-DD 类别；用户点击「确认归类」后，材料才会出现在对应类别中。
 - 自动收集到的公开资料会进入项目材料总列表，并带有「自动收集」标记、出处、简介和收集过程。
 - 若 14 类都不匹配，则建议归类为「背景材料」。
-- 材料可作为项目材料证据，被市场信号、证据链和 Pre-DD Brief 引用。
+- 材料可作为项目材料证据，被市场信号、证据链和 Pre-DD Report 引用。
 
 #### 近期市场信号
 
@@ -377,6 +386,34 @@ flowchart TD
   E -- "继续" --> F["生成下一轮查询"]
   F --> B
   E -- "停止" --> G["展示高相关市场信号"]
+```
+
+#### 会议纪要
+
+项目工作台支持把会议录音转为可追溯的会议纪要：
+
+- 用户可以上传历史录音，也可以点击「实时录音」用浏览器 `MediaRecorder` 录制当前会议。
+- 实时录音模式会优先使用浏览器 `SpeechRecognition` / `webkitSpeechRecognition` 捕获转写片段；每个片段记录起止秒数。
+- 上传历史录音如果没有前端转写，后端会在配置了 `OPENAI_API_KEY` 和 `OPENAI_ASR_MODEL` 时尝试服务端 ASR 转写。
+- 后端保存录音文件到 `generated_files/<institution_id>/meeting_audio/`，并写入租户、项目、文件名、MIME 类型等 sidecar 元数据。
+- `services/meeting_minutes.py` 会结合当前 `DealProfile`、项目材料摘要和会议转写生成纪要。
+- 纪要包含会议摘要、关键信息和关键问题 QA；每条关键信息和 QA 都保存 `start_seconds` / `end_seconds`。
+- 前端点击任一关键信息或 QA，可切换到对应纪要并跳转播放录音对应位置。
+- 用户可一键导出 Word 文档；导出复用文件生成服务，生成文件可在当前纪要卡片中下载。
+
+服务端 ASR 是可选能力：配置 `OPENAI_API_KEY` 和 `OPENAI_ASR_MODEL` 后，上传录音会先尝试转写；未配置或转写失败时，系统仍保存录音并生成“资料不足，暂无法判断”的可追溯占位纪要。后续接入云厂商 ASR 或自建语音服务时，只需在 `POST /api/deals/{deal_id}/meeting-minutes` 写入 `transcript_text` 和 `transcript_segments`，后续分析、跳转和导出链路可复用。
+
+会议纪要数据流：
+
+```mermaid
+flowchart TD
+  A["上传录音 / 实时录音"] --> B["保存音频和元数据"]
+  B --> C["归一化转写片段和时间戳"]
+  C --> D["结合 DealProfile 和项目材料"]
+  D --> E["LLM 生成会议摘要、关键信息、QA"]
+  E --> F["写入 DealProfile.meeting_minutes"]
+  F --> G["前端点击信息 / QA 跳转录音时间点"]
+  F --> H["一键导出 Word 会议纪要"]
 ```
 
 #### Pre-DD 资料
@@ -411,7 +448,7 @@ Pre-DD 自动收集流程：
 
 - 点击某一资料项的「自动收集」后，前端调用 SSE 流式接口实时展示收集过程。
 - Agent 会先评估当前资料项、项目上下文和已有材料，再决定初始搜索目标。
-- 每轮收集后会根据候选资料数量和质量判断是否继续搜索；测试阶段仍可通过搜索深度限制轮次。
+- 每轮收集后会由模型结合候选资料数量、质量、信息增量和下一轮查询空间判断是否继续搜索。
 - 每次收集可以保存多条资料，资料会带出处、简介、来源连接器、发布时间和 ReAct 收集步骤。
 - 自动收集资料初始只生成建议分类，不直接写入 Pre-DD 类别；用户确认后才写入 `confirmed_pre_dd_task_keys`。
 - 同一条资料可确认到多个 Pre-DD 类别，因此会同时出现在多个资料项的「已收集材料」中。
@@ -424,19 +461,25 @@ flowchart TD
   D --> E["筛选候选资料并生成简介"]
   E --> F{"资料是否足够"}
   F -- "继续" --> C
-  F -- "足够或达到深度" --> G["保存多条自动收集资料"]
+  F -- "足够或模型判断停止" --> G["保存多条自动收集资料"]
   G --> H["展示建议归类"]
   H --> I["用户确认一个或多个类别"]
   I --> J["资料出现在对应 Pre-DD 类别和项目材料总列表"]
 ```
 
-#### Pre-DD Brief
+#### Pre-DD Report
 
-Pre-DD Brief 独立于 Pre-DD 资料卡片：
+Pre-DD Report 独立于 Pre-DD 资料卡片：
 
-- 用户点击「生成 Pre-DD Brief」后，系统根据当前资料情况生成 Brief。
+- 用户点击「生成 Pre-DD Report」后，系统根据当前资料情况生成 Report。
 - 支持多版本生成。
-- 用户可点击不同版本查看历史 Brief。
+- 用户可点击不同版本查看历史 Report。
+- 每个 Report 版本都可以一键导出为 Word 文档；导出绑定具体 `deliverable_id`，不会因为切换版本而误导出其它版本。
+- Word 文档复用文件生成服务，内容包含项目概览、机构匹配度与资料状态、价值点、风险点、推荐会议问题列表和 Pre-DD 资料清单。
+- 项目概览固定展示成立时间、地域、主营业务、估值四个字段，优先读取工作台中用户可编辑后的概览信息。
+- 「价值点」和「风险点」均以 Claim 表达，绑定当前 Pre-DD 材料证据；没有直接证据时显式标记为模型推断。
+- 「推荐会议问题列表」会结合 14 类 Pre-DD 材料的已收集/待收集状态、缺口、建议和现有材料，生成细致问题清单，目标是在一场会议中尽量补齐全部缺失材料。
+- Report 不再展示「推荐下一步」，后续行动由会议问题和材料缺口驱动。
 
 ### 8. 投资偏好管理
 
@@ -583,11 +626,17 @@ Provider 选择：
 
 `/api/deals` 中和项目工作台强相关的接口：
 
+- `GET /api/deals`：返回项目库列表，包含项目状态、来源、匹配度、入库标记和工作台摘要字段，供项目库搜索、筛选和批量选择使用。
+- `POST /api/deals/export`：把用户勾选的多个项目导出为 Excel 项目信息表，后端按租户校验项目 ID 并复用文件生成服务生成 `.xlsx`。
 - `POST /api/deals/{deal_id}/pre-dd/materials/{task_key}/collect/stream`：按单个 Pre-DD 资料项流式自动收集公开资料，返回 `react_step`、`result`、`error`、`done` 等 SSE 事件。
 - `POST /api/deals/{deal_id}/pre-dd/materials/{task_key}/collect`：非流式自动收集入口，主要用于兼容和服务层复用。
 - `POST /api/deals/{deal_id}/materials/{document_id}/categories/confirm`：用户确认某条资料归入一个或多个 Pre-DD 类别，写入 `confirmed_pre_dd_task_keys`。
 - `POST /api/deals/{deal_id}/materials`：上传项目材料，可携带 Pre-DD 资料项 key，用户上传材料会立即按指定类别归档。
-- `GET /api/deals/{deal_id}`：返回项目详情、项目材料、Pre-DD 工作区、市场信号、Brief 版本等项目工作台聚合数据。
+- `POST /api/deals/{deal_id}/meeting-minutes`：上传会议录音或实时录音文件，生成可跳转到录音片段的会议纪要。
+- `GET /api/deals/meeting-minutes/audio/{file_id}`：按租户鉴权播放或下载会议录音。
+- `POST /api/deals/{deal_id}/meeting-minutes/{minutes_id}/export`：把某次会议纪要导出为 Word 文档。
+- `POST /api/deals/{deal_id}/pre-dd/briefs/{deliverable_id}/export`：把指定版本的 Pre-DD Report 导出为 Word 文档。
+- `GET /api/deals/{deal_id}`：返回项目详情、项目材料、Pre-DD 工作区、市场信号、Report 版本等项目工作台聚合数据。
 
 ## 目录结构
 
@@ -638,6 +687,7 @@ cp .env.example .env
 - `JWT_SECRET`
 - 一个可用模型入口：DeepSeek、OpenAI 或本地 LiteLLM。
 - 可选数据源：`BOCHA_API_KEY`、`QCC_APP_KEY`、`QCC_SECRET_KEY`、`TAVILY_API_KEY`。
+- 可选会议录音 ASR：`OPENAI_API_KEY` + `OPENAI_ASR_MODEL`，用于上传历史录音的服务端转写。
 - 可选文件输出目录：`GENERATED_FILES_DIR`，默认 `backend/generated_files`。
 
 开发时可把 `.env` 中 `AUTH_DEV_FALLBACK=true` 打开；生产必须关闭。

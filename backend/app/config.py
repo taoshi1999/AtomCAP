@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     openai_standard_model: str = "gpt-4.1"
     openai_premium_model: str = "gpt-4.1"
     openai_embed_model: str = "text-embedding-3-large"
+    # Optional ASR model for project meeting audio uploads. Leave empty to disable
+    # server-side transcription and rely on browser-provided live transcripts.
+    openai_asr_model: str = "whisper-1"
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

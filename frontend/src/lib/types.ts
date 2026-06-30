@@ -265,6 +265,59 @@ export interface DealMarketSignal {
   collected_at: string;
 }
 
+export interface GeneratedFileLike {
+  type?: "generated_file" | "file_ref" | string;
+  file_id: string;
+  filename: string;
+  title?: string;
+  format?: "docx" | "xlsx" | "pptx" | string;
+  mime_type?: string;
+  size_bytes?: number;
+  download_url?: string;
+  created_at?: string;
+}
+
+export interface MeetingTranscriptSegment {
+  start_seconds: number;
+  end_seconds: number;
+  text: string;
+}
+
+export interface MeetingExtractedInfo {
+  title: string;
+  summary: string;
+  start_seconds: number;
+  end_seconds: number;
+  related_material_ids: string[];
+}
+
+export interface MeetingQAItem {
+  question: string;
+  answer: string;
+  start_seconds: number;
+  end_seconds: number;
+  related_material_ids: string[];
+}
+
+export interface DealMeetingMinutes {
+  id: string;
+  title: string;
+  mode: "upload" | "live" | string;
+  audio_file_id: string;
+  audio_filename: string;
+  audio_mime_type?: string | null;
+  audio_url: string;
+  duration_seconds?: number | null;
+  transcript: string;
+  transcript_segments: MeetingTranscriptSegment[];
+  key_infos: MeetingExtractedInfo[];
+  qa_pairs: MeetingQAItem[];
+  summary: string;
+  generated_file?: GeneratedFileLike | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type PreDDTaskStatus = "complete" | "partial" | "missing" | "public_data_possible";
 export type PreDDMaterialCollectionStatus = "collected" | "pending";
 
@@ -337,15 +390,26 @@ export interface PreDDWorkspace {
   next_steps: string[];
 }
 
-export interface PreDDBrief {
-  project_overview: Claim;
+export interface PreDDProjectOverview {
+  founded_at: Claim;
+  region: Claim;
+  main_business: Claim;
+  valuation: Claim;
+}
+
+export interface PreDDMeetingQuestion {
+  question: string;
+  purpose: string;
+}
+
+export interface PreDDReport {
+  project_overview: PreDDProjectOverview;
   fit_summary: Claim;
   completion_score: number;
   completion_summary: string;
-  key_highlights: Claim[];
-  top_risks: Claim[];
-  priority_questions: string[];
-  recommended_next_steps: Claim[];
+  value_points: Claim[];
+  risk_points: Claim[];
+  meeting_questions: PreDDMeetingQuestion[];
 }
 
 export interface DDReport {
@@ -353,7 +417,7 @@ export interface DDReport {
   created_from_conversation?: string | null;
   deal_id: string;
   company_name: string;
-  brief?: PreDDBrief | null;
+  report?: PreDDReport | null;
   checklist: Array<{
     dimension: string;
     question: string;
@@ -380,6 +444,7 @@ export interface DealProfile {
   user_feedback: DealUserFeedback;
   workspace: DealWorkspace;
   market_signals: DealMarketSignal[];
+  meeting_minutes: DealMeetingMinutes[];
   pre_dd_material_statuses: Record<string, PreDDMaterialCollectionStatus>;
 }
 
@@ -395,6 +460,10 @@ export interface DealSummary {
   is_in_library: boolean;
   is_liked: boolean;
   is_abandoned: boolean;
+  founded_at?: string | null;
+  region?: string | null;
+  main_business?: string | null;
+  valuation?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -443,6 +512,7 @@ export interface DealMaterial {
   suggested_pre_dd_task_keys?: string[];
   suggested_pre_dd_task_hits?: PreDDMaterialHit[];
   confirmed_pre_dd_task_keys?: string[];
+  rejected_pre_dd_task_keys?: string[];
   warnings: string[];
   created_at: string;
   updated_at: string;

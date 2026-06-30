@@ -13,16 +13,17 @@ import json
 import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.db import get_db
-from app.models.models import Company, Deal
+from app.models.models import Company, Deal, Deliverable
 from app.objects import DeliverableType
 from app.objects.base import Claim
+from app.objects.dd_report import DDReport, PreDDMeetingQuestion
 from app.objects.deal import (
     DealAnalysis,
     DealExtraction,
@@ -43,6 +44,7 @@ from app.services.deals import (
     InvalidTransition,
     deal_summary,
     apply_deal_action,
+    export_deal_information_xlsx,
     get_deal_detail,
     list_deals,
     soft_delete_deal,
@@ -66,9 +68,23 @@ from app.services.document_extract import DependencyMissingError, DocumentError
 from app.services.market_signal_research import MarketSignalCollectOptions
 from app.services import deal_assistant
 from app.services.deliverables import save_deliverable
+from app.services.evidence_projection import evidence_items_for_payload
 from app.services.events import record_event
+from app.services.meeting_minutes import (
+    MeetingMinutesError,
+    MeetingMinutesNotFound,
+    create_meeting_minutes,
+    export_meeting_minutes_docx,
+    get_meeting_audio_file,
+)
 from app.services.pre_dd import build_pre_dd_workspace
-from app.services.pre_dd_brief import build_pre_dd_brief_report, list_pre_dd_briefs
+from app.services.pre_dd_brief import (
+    PreDDReportExportError,
+    PreDDReportNotFound,
+    build_pre_dd_report,
+    export_pre_dd_report_docx,
+    list_pre_dd_reports,
+)
 from app.services.user_actions import record_user_action, snapshot_from_deal
 
 router = APIRouter()
@@ -106,6 +122,14 @@ class WorkspaceSummaryBody(BaseModel):
             main_business=_clean_optional(self.main_business),
             valuation=_clean_optional(self.valuation),
         )
+
+
+class PreDDMeetingQuestionsBody(BaseModel):
+    questions: list[PreDDMeetingQuestion] = Field(default_factory=list, max_length=50)
+
+
+class ExportDealInfoBody(BaseModel):
+    deal_ids: list[uuid.UUID] = Field(min_length=1, max_length=500, description="需要导出的项目 ID 列表")
 
 
 def _manual_deal_profile(body: CreateDealBody) -> DealProfile:
@@ -233,6 +257,38 @@ async def get_deals(
     return {"items": items, "count": len(items)}
 
 
+@router.post("/export")
+async def export_deal_information(
+    body: ExportDealInfoBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """将用户勾选的项目库项目信息导出为 Excel。"""
+    try:
+        result = await export_deal_information_xlsx(
+            db,
+            institution_id=user.institution_id,
+            deal_ids=body.deal_ids,
+        )
+    except DealNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="deal.information_exported",
+        subject_type="deal",
+        payload={
+            "deal_ids": result["deal_ids"],
+            "count": result["count"],
+            "file": result["file"],
+        },
+    )
+    return {**result, "event_recorded": True}
+
+
 class DealAssistantRequest(BaseModel):
     instruction: str
 
@@ -298,6 +354,26 @@ async def deal_assistant_endpoint(
         "action": "unrelated",
         "message": result.message or deal_assistant.UNRELATED_MESSAGE,
     }
+
+
+@router.get("/meeting-minutes/audio/{file_id}")
+async def download_meeting_audio(
+    file_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+) -> FileResponse:
+    """播放/下载当前租户的会议录音。"""
+    try:
+        path, metadata = get_meeting_audio_file(
+            institution_id=user.institution_id,
+            file_id=file_id,
+        )
+    except MeetingMinutesNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return FileResponse(
+        path,
+        filename=str(metadata.get("filename") or path.name),
+        media_type=str(metadata.get("content_type") or "audio/webm"),
+    )
 
 
 @router.get("/{deal_id}")
@@ -435,6 +511,95 @@ async def upload_deal_material(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.post("/{deal_id}/meeting-minutes")
+async def upload_meeting_minutes_audio(
+    deal_id: uuid.UUID,
+    file: UploadFile = File(...),
+    mode: str = Form(default="upload"),
+    transcript_text: str | None = Form(default=None),
+    transcript_segments: str | None = Form(default=None),
+    duration_seconds: float | None = Form(default=None),
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """上传录音或实时录音片段，并生成项目会议纪要。"""
+    if mode not in {"upload", "live"}:
+        raise HTTPException(status_code=422, detail="mode 必须是 upload 或 live")
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=422, detail="录音文件为空")
+    try:
+        materials = await list_deal_materials(
+            db,
+            institution_id=user.institution_id,
+            deal_id=deal_id,
+        )
+        minutes = await create_meeting_minutes(
+            db,
+            institution_id=user.institution_id,
+            deal_id=deal_id,
+            audio_bytes=audio_bytes,
+            filename=file.filename or "meeting.webm",
+            content_type=file.content_type,
+            mode=mode,  # type: ignore[arg-type]
+            transcript_text=transcript_text,
+            transcript_segments_json=transcript_segments,
+            duration_seconds=duration_seconds,
+            materials=materials,
+        )
+        await record_event(
+            db,
+            institution_id=user.institution_id,
+            user_id=user.user_id,
+            event_type="deal.meeting_minutes_generated",
+            subject_type="deal",
+            subject_id=deal_id,
+            payload={
+                "minutes_id": minutes["id"],
+                "mode": mode,
+                "audio_filename": minutes["audio_filename"],
+                "key_info_count": len(minutes.get("key_infos") or []),
+                "qa_count": len(minutes.get("qa_pairs") or []),
+            },
+        )
+        return {"deal_id": str(deal_id), "minutes": minutes, "event_recorded": True}
+    except DealMaterialTargetNotFound:
+        raise HTTPException(status_code=404, detail="项目不存在") from None
+    except MeetingMinutesError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/{deal_id}/meeting-minutes/{minutes_id}/export")
+async def export_meeting_minutes(
+    deal_id: uuid.UUID,
+    minutes_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """把会议纪要一键导出为 Word 文档。"""
+    try:
+        result = await export_meeting_minutes_docx(
+            db,
+            institution_id=user.institution_id,
+            deal_id=deal_id,
+            minutes_id=minutes_id,
+        )
+    except MeetingMinutesNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except MeetingMinutesError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="deal.meeting_minutes_exported",
+        subject_type="deal",
+        subject_id=deal_id,
+        payload={"minutes_id": minutes_id, "file": result["file"]},
+    )
+    return {"deal_id": str(deal_id), **result, "event_recorded": True}
+
+
 @router.delete("/{deal_id}/materials/{document_id}")
 async def delete_material(
     deal_id: uuid.UUID,
@@ -457,7 +622,8 @@ async def delete_material(
 
 
 class ConfirmMaterialCategoriesBody(BaseModel):
-    task_keys: list[str] = Field(min_length=1, description="用户确认归入的 Pre-DD 资料类别")
+    task_keys: list[str] = Field(default_factory=list, description="用户确认归入的 Pre-DD 资料类别")
+    rejected_task_keys: list[str] = Field(default_factory=list, description="用户明确拒绝的系统建议类别")
 
 
 @router.post("/{deal_id}/materials/{document_id}/categories/confirm")
@@ -468,7 +634,7 @@ async def confirm_material_categories(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """确认一条项目材料可归入的一个或多个 Pre-DD 类别。"""
+    """保存一条项目材料的 Pre-DD 类别决定。"""
     try:
         return await confirm_deal_material_categories(
             db,
@@ -477,6 +643,7 @@ async def confirm_material_categories(
             deal_id=deal_id,
             document_id=document_id,
             task_keys=body.task_keys,
+            rejected_task_keys=body.rejected_task_keys,
         )
     except DealMaterialNotFound:
         raise HTTPException(status_code=404, detail="材料不存在") from None
@@ -565,10 +732,10 @@ async def generate_pre_dd_brief(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """基于当前 DealProfile 生成结构化 Pre-DD Brief 草稿。
+    """基于当前 DealProfile 生成结构化 Pre-DD Report 草稿。
 
-    MVP 版本不调用长流程 Agent，只整理已有项目画像和 Pre-DD 任务树；生成结果以
-    dd_report 交付对象入库，并写事件 / UserAction 供经验沉淀 Agent 使用。
+    MVP 版本整理已有项目画像、工作台概览和 Pre-DD 任务树；生成结果以 dd_report
+    交付对象入库，并写事件 / UserAction 供经验沉淀 Agent 使用。
     """
     deal = await db.scalar(
         select(Deal).where(
@@ -598,7 +765,7 @@ async def generate_pre_dd_brief(
     ]
     pre_dd = build_pre_dd_workspace(profile, material_hits=material_hits)
     company_name = company.name if company is not None else profile.extraction.company_name
-    report = build_pre_dd_brief_report(
+    report = build_pre_dd_report(
         deal_id=deal.id,
         company_name=company_name,
         profile=profile,
@@ -614,13 +781,13 @@ async def generate_pre_dd_brief(
         db,
         institution_id=user.institution_id,
         user_id=user.user_id,
-        event_type="deal.pre_dd_brief_generated",
+        event_type="deal.pre_dd_report_generated",
         subject_type="deal",
         subject_id=deal.id,
         payload={
             "deliverable_id": str(row.id),
             "company_id": str(deal.company_id),
-            "completion_score": report.brief.completion_score if report.brief else None,
+            "completion_score": report.report.completion_score if report.report else None,
             "track": profile.extraction.track,
         },
     )
@@ -635,11 +802,17 @@ async def generate_pre_dd_brief(
         context=ActionContext(source_page="project_workspace"),
         extra_payload={"deliverable_id": str(row.id)},
     )
+    evidence_items = await evidence_items_for_payload(
+        db,
+        institution_id=user.institution_id,
+        payload=row.payload,
+    )
     return {
         "deal_id": str(deal.id),
         "deliverable_id": str(row.id),
         "type": DeliverableType.DD_REPORT.value,
         "payload": row.payload,
+        "evidence_items": evidence_items,
         "event_recorded": True,
     }
 
@@ -651,7 +824,7 @@ async def get_pre_dd_briefs(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """项目工作台 Brief 历史：返回当前项目最近生成的 dd_report Brief。"""
+    """项目工作台 Report 历史：返回当前项目最近生成的 dd_report Report。"""
     exists = await db.scalar(
         select(Deal.id).where(
             Deal.id == deal_id,
@@ -660,13 +833,123 @@ async def get_pre_dd_briefs(
     )
     if exists is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    items = await list_pre_dd_briefs(
+    items = await list_pre_dd_reports(
         db,
         institution_id=user.institution_id,
         deal_id=deal_id,
         limit=limit,
     )
+    for item in items:
+        item["evidence_items"] = await evidence_items_for_payload(
+            db,
+            institution_id=user.institution_id,
+            payload=item.get("payload") or {},
+        )
     return {"items": items, "count": len(items)}
+
+
+@router.patch("/{deal_id}/pre-dd/briefs/{deliverable_id}/meeting-questions")
+async def update_pre_dd_meeting_questions(
+    deal_id: uuid.UUID,
+    deliverable_id: uuid.UUID,
+    body: PreDDMeetingQuestionsBody,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """保存某个 Pre-DD Report 版本的会议问题列表编辑结果。"""
+    row = await db.scalar(
+        select(Deliverable).where(
+            Deliverable.id == deliverable_id,
+            Deliverable.institution_id == user.institution_id,
+            Deliverable.type == DeliverableType.DD_REPORT.value,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Pre-DD Report 不存在")
+    report = DDReport.model_validate(row.payload or {})
+    if report.deal_id != deal_id or report.report is None:
+        raise HTTPException(status_code=404, detail="Pre-DD Report 不属于当前项目")
+
+    cleaned = [
+        question
+        for question in body.questions
+        if question.question.strip() and question.purpose.strip()
+    ]
+    updated_report = report.report.model_copy(update={"meeting_questions": cleaned})
+    updated = report.model_copy(
+        update={
+            "report": updated_report,
+            "open_questions": [item.question for item in cleaned],
+        }
+    )
+    row.payload = updated.model_dump(mode="json")
+    row.schema_version = updated.schema_version
+    await db.flush()
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="deal.pre_dd_report_meeting_questions_updated",
+        subject_type="deal",
+        subject_id=deal_id,
+        payload={
+            "deliverable_id": str(row.id),
+            "question_count": len(cleaned),
+        },
+    )
+    evidence_items = await evidence_items_for_payload(
+        db,
+        institution_id=user.institution_id,
+        payload=row.payload,
+    )
+    return {
+        "deal_id": str(deal_id),
+        "deliverable_id": str(row.id),
+        "type": DeliverableType.DD_REPORT.value,
+        "payload": row.payload,
+        "evidence_items": evidence_items,
+        "event_recorded": True,
+    }
+
+
+@router.post("/{deal_id}/pre-dd/briefs/{deliverable_id}/export")
+async def export_pre_dd_report(
+    deal_id: uuid.UUID,
+    deliverable_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """将某个 Pre-DD Report 版本导出为 Word 文档。"""
+    try:
+        result = await export_pre_dd_report_docx(
+            db,
+            institution_id=user.institution_id,
+            deal_id=deal_id,
+            deliverable_id=deliverable_id,
+        )
+    except PreDDReportNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PreDDReportExportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await record_event(
+        db,
+        institution_id=user.institution_id,
+        user_id=user.user_id,
+        event_type="deal.pre_dd_report_exported",
+        subject_type="deal",
+        subject_id=deal_id,
+        payload={
+            "deliverable_id": str(deliverable_id),
+            "file": result["file"],
+        },
+    )
+    return {
+        "deal_id": str(deal_id),
+        "deliverable_id": str(deliverable_id),
+        "type": DeliverableType.DD_REPORT.value,
+        **result,
+        "event_recorded": True,
+    }
 
 
 class PreDDMaterialStatusBody(BaseModel):

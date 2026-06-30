@@ -167,6 +167,55 @@ class DealMarketSignal(BaseModel):
     collected_at: str = Field(description="本次收集时间 ISO8601")
 
 
+class MeetingTranscriptSegment(BaseModel):
+    """会议录音转写片段，用于前端点击跳转到对应音频位置。"""
+
+    start_seconds: float = Field(default=0, ge=0)
+    end_seconds: float = Field(default=0, ge=0)
+    text: str = Field(default="")
+
+
+class MeetingExtractedInfo(BaseModel):
+    """会议纪要中的关键信息。"""
+
+    title: str
+    summary: str
+    start_seconds: float = Field(default=0, ge=0)
+    end_seconds: float = Field(default=0, ge=0)
+    related_material_ids: list[str] = Field(default_factory=list)
+
+
+class MeetingQAItem(BaseModel):
+    """会议中抽取出的关键问题与回答。"""
+
+    question: str
+    answer: str
+    start_seconds: float = Field(default=0, ge=0)
+    end_seconds: float = Field(default=0, ge=0)
+    related_material_ids: list[str] = Field(default_factory=list)
+
+
+class DealMeetingMinutes(BaseModel):
+    """项目工作台会议纪要。"""
+
+    id: str
+    title: str
+    mode: str = Field(default="upload", description="upload / live")
+    audio_file_id: str
+    audio_filename: str
+    audio_mime_type: str | None = Field(default=None)
+    audio_url: str
+    duration_seconds: float | None = Field(default=None, ge=0)
+    transcript: str = Field(default="")
+    transcript_segments: list[MeetingTranscriptSegment] = Field(default_factory=list)
+    key_infos: list[MeetingExtractedInfo] = Field(default_factory=list)
+    qa_pairs: list[MeetingQAItem] = Field(default_factory=list)
+    summary: str = Field(default="")
+    generated_file: dict | None = Field(default=None, description="一键导出的 Word 文件引用")
+    created_at: str
+    updated_at: str
+
+
 class DealProfile(BaseModel):
     """deals.data 的完整契约：材料抽取 + 初步分析 + 来源/状态元信息。"""
 
@@ -186,6 +235,7 @@ class DealProfile(BaseModel):
     user_feedback: DealUserFeedback = Field(default_factory=DealUserFeedback)
     workspace: DealWorkspace = Field(default_factory=DealWorkspace)
     market_signals: list[DealMarketSignal] = Field(default_factory=list, description="项目工作台近期市场信号")
+    meeting_minutes: list[DealMeetingMinutes] = Field(default_factory=list, description="项目会议纪要")
     pre_dd_material_statuses: dict[str, PreDDMaterialCollectionStatus] = Field(
         default_factory=dict,
         description="Pre-DD 14 类资料项的人工状态覆盖；未覆盖时由系统完整度推导。",

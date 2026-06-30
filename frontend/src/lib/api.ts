@@ -7,12 +7,14 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
   DealAction,
   DealDetail,
+  DealMeetingMinutes,
   EvidenceItem,
   DealMarketSignal,
   DealMaterial,
   DealMaterialSearchResult,
   DealWorkspaceSummary,
   MaterialCollectionStep,
+  PreDDMeetingQuestion,
   PreDDMaterialCollectionStatus,
   DealStatus,
   DealSummary,
@@ -101,9 +103,7 @@ export interface SseHandlers {
 }
 
 export interface SendMessageOptions {
-  conversationType?: "normal" | "project_workspace";
   sourceThesisId?: string;
-  sourceDealId?: string;
   references?: MessageReference[];
 }
 
@@ -166,9 +166,7 @@ export async function sendMessage(
       model_tier: modelTier,
       context,
       references: options.references ?? [],
-      conversation_type: options.conversationType ?? "normal",
       source_thesis_id: options.sourceThesisId ?? null,
-      source_deal_id: options.sourceDealId ?? null,
     }),
     signal,
     openWhenHidden: true,
@@ -273,8 +271,9 @@ class ApiError extends Error {
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...authHeaders(),
     ...((init?.headers as Record<string, string>) ?? {}),
   };
@@ -317,6 +316,21 @@ export async function downloadGeneratedFile(file: GeneratedFileRef) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function createAuthorizedObjectUrl(path: string): Promise<string> {
+  const res = await fetch(path, { headers: authHeaders() });
+  if (!res.ok) {
+    let detail = res.statusText || `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* non-json error body */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return URL.createObjectURL(await res.blob());
 }
 
 /* --------------------------------- 首页 --------------------------------- */
@@ -842,6 +856,13 @@ export interface DealListResponse {
   count: number;
 }
 
+export interface DealInformationExportResponse {
+  file: GeneratedFileRef;
+  count: number;
+  deal_ids: string[];
+  event_recorded: boolean;
+}
+
 export interface DealListParams {
   status?: DealStatus;
   in_library?: boolean;
@@ -858,6 +879,13 @@ export async function listDeals(params: DealListParams = {}): Promise<DealListRe
   if (params.limit !== undefined) qs.set("limit", String(params.limit));
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiJson<DealListResponse>(`/api/deals${suffix}`);
+}
+
+export async function exportDealInformation(dealIds: string[]): Promise<DealInformationExportResponse> {
+  return apiJson<DealInformationExportResponse>("/api/deals/export", {
+    method: "POST",
+    body: JSON.stringify({ deal_ids: dealIds }),
+  });
 }
 
 // GET /api/deals/{id}
@@ -1032,13 +1060,14 @@ export async function deleteDealMaterial(
 export async function confirmDealMaterialCategories(
   dealId: string,
   documentId: string,
-  taskKeys: string[]
+  taskKeys: string[],
+  rejectedTaskKeys: string[] = []
 ): Promise<DealMaterial> {
   return apiJson<DealMaterial>(
     `/api/deals/${dealId}/materials/${documentId}/categories/confirm`,
     {
       method: "POST",
-      body: JSON.stringify({ task_keys: taskKeys }),
+      body: JSON.stringify({ task_keys: taskKeys, rejected_task_keys: rejectedTaskKeys }),
     }
   );
 }
@@ -1139,6 +1168,7 @@ export interface PreDDBriefResponse {
   deliverable_id: string;
   type: "dd_report";
   payload: DDReport;
+  evidence_items?: EvidenceItem[];
   event_recorded: boolean;
 }
 
@@ -1146,6 +1176,7 @@ export interface PreDDBriefHistoryItem {
   deliverable_id: string;
   type: "dd_report";
   payload: DDReport;
+  evidence_items?: EvidenceItem[];
   created_at: string;
   updated_at: string;
 }
@@ -1153,6 +1184,81 @@ export interface PreDDBriefHistoryItem {
 export interface PreDDBriefHistoryResponse {
   items: PreDDBriefHistoryItem[];
   count: number;
+}
+
+export interface UpdatePreDDMeetingQuestionsResponse {
+  deal_id: string;
+  deliverable_id: string;
+  type: "dd_report";
+  payload: DDReport;
+  evidence_items?: EvidenceItem[];
+  event_recorded: boolean;
+}
+
+export interface ExportPreDDReportResponse {
+  deal_id: string;
+  deliverable_id: string;
+  type: "dd_report";
+  report: DDReport;
+  file: GeneratedFileRef;
+  event_recorded: boolean;
+}
+
+export interface MeetingTranscriptSegmentInput {
+  start_seconds: number;
+  end_seconds: number;
+  text: string;
+}
+
+export interface MeetingMinutesResponse {
+  deal_id: string;
+  minutes: DealMeetingMinutes;
+  event_recorded: boolean;
+}
+
+export interface MeetingMinutesExportResponse {
+  deal_id: string;
+  minutes: DealMeetingMinutes;
+  file: GeneratedFileRef;
+  event_recorded: boolean;
+}
+
+export async function createMeetingMinutes(
+  dealId: string,
+  file: File | Blob,
+  options: {
+    filename?: string;
+    mode: "upload" | "live";
+    transcriptText?: string;
+    transcriptSegments?: MeetingTranscriptSegmentInput[];
+    durationSeconds?: number;
+  }
+): Promise<MeetingMinutesResponse> {
+  const form = new FormData();
+  const filename = options.filename || (file instanceof File ? file.name : "meeting.webm");
+  form.append("file", file, filename);
+  form.append("mode", options.mode);
+  if (options.transcriptText) form.append("transcript_text", options.transcriptText);
+  if (options.transcriptSegments?.length) {
+    form.append("transcript_segments", JSON.stringify(options.transcriptSegments));
+  }
+  if (typeof options.durationSeconds === "number" && Number.isFinite(options.durationSeconds)) {
+    form.append("duration_seconds", String(options.durationSeconds));
+  }
+  return apiJson<MeetingMinutesResponse>(`/api/deals/${dealId}/meeting-minutes`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function exportMeetingMinutes(
+  dealId: string,
+  minutesId: string
+): Promise<MeetingMinutesExportResponse> {
+  return apiJson<MeetingMinutesExportResponse>(
+    `/api/deals/${dealId}/meeting-minutes/${minutesId}/export`,
+    { method: "POST" }
+  );
 }
 
 // POST /api/deals/{id}/pre-dd/brief
@@ -1166,4 +1272,28 @@ export async function generatePreDDBrief(dealId: string): Promise<PreDDBriefResp
 export async function listPreDDBriefs(dealId: string, limit = 10): Promise<PreDDBriefHistoryResponse> {
   const qs = new URLSearchParams({ limit: String(limit) });
   return apiJson<PreDDBriefHistoryResponse>(`/api/deals/${dealId}/pre-dd/briefs?${qs.toString()}`);
+}
+
+export async function updatePreDDMeetingQuestions(
+  dealId: string,
+  deliverableId: string,
+  questions: PreDDMeetingQuestion[]
+): Promise<UpdatePreDDMeetingQuestionsResponse> {
+  return apiJson<UpdatePreDDMeetingQuestionsResponse>(
+    `/api/deals/${dealId}/pre-dd/briefs/${deliverableId}/meeting-questions`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ questions }),
+    }
+  );
+}
+
+export async function exportPreDDReport(
+  dealId: string,
+  deliverableId: string
+): Promise<ExportPreDDReportResponse> {
+  return apiJson<ExportPreDDReportResponse>(
+    `/api/deals/${dealId}/pre-dd/briefs/${deliverableId}/export`,
+    { method: "POST" }
+  );
 }

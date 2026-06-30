@@ -40,7 +40,7 @@ from app.services.deals import (
 from app.services.deal_market_signals import collect_deal_market_signals, deal_market_signal_queries
 from app.services.deal_materials import project_deal_material, save_deal_material, search_material_records
 from app.services.pre_dd import build_pre_dd_workspace, infer_material_task_hits, suggest_material_category
-from app.services.pre_dd_brief import build_pre_dd_brief_report, project_pre_dd_brief
+from app.services.pre_dd_brief import build_pre_dd_report, project_pre_dd_report
 
 
 def _valid_data(**overrides) -> dict:
@@ -669,14 +669,42 @@ def test_auto_collected_material_needs_category_confirmation():
     item = project_deal_material(document, chunk)
     assert item["pre_dd_task_hits"] == []
     assert item["suggested_pre_dd_task_keys"][0] == "market"
+    assert item["rejected_pre_dd_task_keys"] == []
 
     chunk.meta["confirmed_pre_dd_task_keys"] = ["market", "financials"]
+    chunk.meta["rejected_pre_dd_task_keys"] = ["team"]
     confirmed = project_deal_material(document, chunk)
     assert confirmed["pre_dd_task_keys"] == ["market", "financials"]
+    assert confirmed["rejected_pre_dd_task_keys"] == ["team"]
     assert [hit["keyword"] for hit in confirmed["pre_dd_task_hits"]] == [
         "user_confirmed",
         "user_confirmed",
     ]
+
+
+def test_material_category_override_can_be_empty():
+    now = dt.datetime(2026, 6, 22, 9, 45, 0)
+    document = SimpleNamespace(
+        id=uuid.uuid4(),
+        filename="financials.txt",
+        doc_type="text",
+        parse_status="completed",
+        created_at=now,
+        updated_at=now,
+    )
+    chunk = SimpleNamespace(
+        content="收入、利润、现金流等财务指标。",
+        meta={
+            "assigned_pre_dd_task_key": "financials",
+            "confirmed_pre_dd_task_keys": [],
+            "rejected_pre_dd_task_keys": ["market"],
+        },
+    )
+
+    item = project_deal_material(document, chunk)
+    assert item["pre_dd_task_keys"] == []
+    assert item["confirmed_pre_dd_task_keys"] == []
+    assert item["rejected_pre_dd_task_keys"] == ["market"]
 
 
 def test_material_search_records_rank_and_snippet_matches():
@@ -835,7 +863,7 @@ def test_pre_dd_workspace_empty_profile_has_no_fake_questions_or_risks():
     assert all(item["status"] in {"missing", "partial", "public_data_possible", "complete"} for item in view["items"])
 
 
-def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
+def test_pre_dd_report_builds_valid_dd_report_from_workspace():
     deal_id = uuid.uuid4()
     profile = DealProfile.model_validate(
         _valid_data(
@@ -847,14 +875,24 @@ def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
                 "product": "轻量化光学模组",
                 "funding_stage": "Pre-A",
                 "funding_amount": "3000 万元",
+                "founded_at": "2021-06",
+                "region": "深圳",
+                "main_business": "AI 眼镜光学模组",
+                "valuation": "2 亿元",
                 "founders": ["张三"],
                 "customers": ["头部消费电子客户"],
             },
             analysis={
                 "portrait": "AI 眼镜光学模组方案商",
                 "overall_fit": 88,
-                "highlights": [{"text": "切入 AI 眼镜上游核心部件", "evidence_ids": [], "inferred": True}],
-                "initial_risks": [{"text": "客户集中度待验证", "evidence_ids": [], "inferred": True}],
+                "highlights": [
+                    {"text": "用户手动创建项目，需进一步补充材料与外部验证。", "evidence_ids": [], "inferred": True},
+                    {"text": "切入 AI 眼镜上游核心部件", "evidence_ids": [], "inferred": True},
+                ],
+                "initial_risks": [
+                    {"text": "资料仍不充分，可能影响判断。", "evidence_ids": [], "inferred": True},
+                    {"text": "客户集中度待验证", "evidence_ids": [], "inferred": True},
+                ],
                 "info_gaps": ["估值与股权结构仍需补充"],
                 "open_questions": ["核心客户收入占比是多少？"],
                 "next_steps": [{"text": "安排 Founder Call", "evidence_ids": [], "inferred": True}],
@@ -863,7 +901,7 @@ def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
     )
     workspace = build_pre_dd_workspace(profile)
 
-    report = build_pre_dd_brief_report(
+    report = build_pre_dd_report(
         deal_id=deal_id,
         company_name="深圳光羽智能科技有限公司",
         profile=profile,
@@ -874,13 +912,24 @@ def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
 
     assert validated.deal_id == deal_id
     assert validated.company_name == "深圳光羽智能科技有限公司"
-    assert validated.brief is not None
-    assert validated.brief.completion_score == workspace["completion"]["score"]
-    assert "资料完整度" in validated.brief.completion_summary
-    assert validated.brief.key_highlights[0].text == "切入 AI 眼镜上游核心部件"
-    assert validated.brief.top_risks[0].text == "客户集中度待验证"
-    assert validated.brief.priority_questions == ["核心客户收入占比是多少？"]
-    assert validated.brief.recommended_next_steps[0].text == "安排 Founder Call"
+    assert validated.report is not None
+    assert validated.report.project_overview.founded_at.text == "成立时间：2021-06"
+    assert validated.report.project_overview.region.text == "地域：深圳"
+    assert validated.report.project_overview.main_business.text == "主营业务：AI 眼镜光学模组"
+    assert validated.report.project_overview.valuation.text == "估值：2 亿元"
+    assert validated.report.completion_score == workspace["completion"]["score"]
+    assert "资料完整度" in validated.report.completion_summary
+    assert any(point.text == "切入 AI 眼镜上游核心部件" for point in validated.report.value_points)
+    assert all("补充材料" not in point.text for point in validated.report.value_points)
+    assert any("客户集中度待验证" in point.text for point in validated.report.risk_points)
+    assert all("资料仍不充分" not in point.text for point in validated.report.risk_points)
+    assert any(
+        "核心客户收入占比是多少？" in question.question
+        and "预期" in question.purpose
+        for question in validated.report.meeting_questions
+    )
+    assert all(question.question and question.purpose for question in validated.report.meeting_questions)
+    assert not hasattr(validated.report, "recommended_next_steps")
     assert len(validated.checklist) == workspace["completion"]["total"]
 
     material_evidence_id = uuid.uuid4()
@@ -897,7 +946,7 @@ def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
             }
         ],
     )
-    material_report = build_pre_dd_brief_report(
+    material_report = build_pre_dd_report(
         deal_id=uuid.uuid4(),
         company_name="光羽科技",
         profile=DealProfile.model_validate(_valid_data()),
@@ -908,13 +957,15 @@ def test_pre_dd_brief_builds_valid_dd_report_from_workspace():
     assert "相关材料" in financial_check.answer.text
     assert financial_check.answer.evidence_ids == [material_evidence_id]
     assert financial_check.answer.inferred is False
+    assert material_report.report.value_points[0].text == "资料不足，暂无法判断"
+    assert all("资料仍不充分" not in point.text for point in material_report.report.risk_points)
 
 
-def test_pre_dd_brief_projection_filters_by_deal_and_requires_brief():
+def test_pre_dd_report_projection_filters_by_deal_and_requires_report():
     deal_id = uuid.uuid4()
     other_id = uuid.uuid4()
     now = dt.datetime(2026, 6, 21, 12, 0, 0)
-    report = build_pre_dd_brief_report(
+    report = build_pre_dd_report(
         deal_id=deal_id,
         company_name="光羽科技",
         profile=DealProfile.model_validate(_valid_data()),
@@ -927,13 +978,13 @@ def test_pre_dd_brief_projection_filters_by_deal_and_requires_brief():
         updated_at=now,
     )
 
-    item = project_pre_dd_brief(row, deal_id=deal_id)
+    item = project_pre_dd_report(row, deal_id=deal_id)
     assert item is not None
     assert item["deliverable_id"] == str(row.id)
     assert item["payload"]["deal_id"] == str(deal_id)
-    assert item["payload"]["brief"]["completion_score"] >= 0
+    assert item["payload"]["report"]["completion_score"] >= 0
 
-    assert project_pre_dd_brief(row, deal_id=other_id) is None
+    assert project_pre_dd_report(row, deal_id=other_id) is None
 
     legacy = SimpleNamespace(
         id=uuid.uuid4(),
@@ -947,7 +998,25 @@ def test_pre_dd_brief_projection_filters_by_deal_and_requires_brief():
         created_at=now,
         updated_at=now,
     )
-    assert project_pre_dd_brief(legacy, deal_id=deal_id) is None
+    assert project_pre_dd_report(legacy, deal_id=deal_id) is None
+
+
+def test_pre_dd_report_accepts_legacy_string_meeting_questions():
+    deal_id = uuid.uuid4()
+    report = build_pre_dd_report(
+        deal_id=deal_id,
+        company_name="光羽科技",
+        profile=DealProfile.model_validate(_valid_data()),
+        pre_dd=build_pre_dd_workspace(DealProfile.model_validate(_valid_data())),
+    )
+    payload = report.model_dump(mode="json")
+    payload["report"]["meeting_questions"] = ["您能否提供详细的股权分配明细？"]
+
+    validated = DDReport.model_validate(payload)
+
+    assert validated.report is not None
+    assert validated.report.meeting_questions[0].question == "您能否提供详细的股权分配明细？"
+    assert validated.report.meeting_questions[0].purpose
 
 
 def test_generate_pre_dd_brief_reads_current_uploaded_materials(monkeypatch):
@@ -991,8 +1060,12 @@ def test_generate_pre_dd_brief_reads_current_uploaded_materials(monkeypatch):
     async def noop(*_args, **_kwargs):
         return None
 
+    async def fake_evidence_items(*_args, **_kwargs):
+        return []
+
     monkeypatch.setattr(deals_api, "list_deal_materials", fake_list_materials)
     monkeypatch.setattr(deals_api, "save_deliverable", fake_save_deliverable)
+    monkeypatch.setattr(deals_api, "evidence_items_for_payload", fake_evidence_items)
     monkeypatch.setattr(deals_api, "record_event", noop)
     monkeypatch.setattr(deals_api, "record_user_action", noop)
 
@@ -1009,3 +1082,4 @@ def test_generate_pre_dd_brief_reads_current_uploaded_materials(monkeypatch):
     )
     assert financials["answer"]["evidence_ids"] == [str(evidence_id)]
     assert "财务报表.xlsx" in financials["answer"]["text"]
+    assert result["evidence_items"] == []
