@@ -25,3 +25,10 @@ tsconfig.tsbuildinfo
 backend/_shim_conftest.py
 AGENTS.md
 backend/generated_files/
+
+# Local reference documents (not versioned)
+/AtomCAP_商业计划书_0616.docx
+/CLAUDE.md
+/MVP功能设计.docx
+/技术规划.md
+/docs/

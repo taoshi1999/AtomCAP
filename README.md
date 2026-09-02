@@ -668,7 +668,6 @@ AtomCAP-dev/
     config.yaml          # LiteLLM 模型档位配置
   docker-compose.yml
   .env.example
-  技术规划.md
   agent_design/
 ```
 
@@ -931,7 +930,4 @@ alembic upgrade head
 
 ## 参考资料
 
-- [技术规划.md](./技术规划.md)
-- [MVP功能设计.docx](./MVP功能设计.docx)
-- [AtomCAP_商业计划书_0616.docx](./AtomCAP_商业计划书_0616.docx)
 - [agent_design/](./agent_design)
